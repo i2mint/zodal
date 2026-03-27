@@ -63,6 +63,14 @@ Before starting work on zodal, check if relevant skills exist:
 - **zodal testing skills**: Read `.claude/skills/zodal-testing/SKILL.md` — BDD story spec format, test patterns, executor conventions
 - **Research lookup**: Read `.claude/skills/research-lookup.md` — find the right research report for a design question
 
+### Skills for third-party adapter/renderer authors
+
+These skills guide the creation of external packages that plug into zodal:
+
+- **Building a store adapter**: Read `.claude/skills/zodal-store-adapter/SKILL.md` — how to implement `DataProvider<T>` for any storage backend
+- **Building a UI renderer**: Read `.claude/skills/zodal-ui-renderer/SKILL.md` — how to build a renderer package for a UI library (shadcn, MUI, etc.)
+- **Wiring a collection UI**: Read `.claude/skills/zodal-collection-ui/SKILL.md` — how to assemble generators + renderers + state + DataProvider into a working page
+
 After completing significant work, consider:
 - Does this create patterns others should follow? → Update `.claude/skills/zodal-dev/SKILL.md`
 - Does this establish testing conventions? → Update `.claude/skills/zodal-testing/SKILL.md`
