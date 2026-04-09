@@ -111,9 +111,44 @@ metaMatches(f => f.displayFormat === 'currency') // score: APP (100)
 // Match explicit widget override
 editWidgetIs('richtext')                         // score: OVERRIDE (200)
 
+// Match by storage role (content-metadata bifurcation)
+storageRoleIs('content')                         // score: LIBRARY (50)
+
 // OR: match either condition (takes highest score)
 or(zodTypeIs('string'), zodTypeIs('number'))
 ```
+
+### Content-Aware Renderers
+
+For collections with [bifurcated storage](../../../docs/research/bifurcation_design_notes.md), register renderers for content fields:
+
+```typescript
+import { storageRoleIs, isContentRef } from '@zodal/ui';
+
+// Cell: render content as download link or thumbnail
+registry.register({
+  tester: storageRoleIs('content'),
+  renderer: ContentCell,  // shows download link using ContentRef.url
+  name: 'ContentCell',
+});
+
+// Form: render content as file upload
+registry.register({
+  tester: and(storageRoleIs('content'), (_, ctx) => ctx.mode === 'form' ? 50 : -1),
+  renderer: FileUploadInput,
+  name: 'FileUploadInput',
+});
+```
+
+Content fields carry these meta properties in `ColumnConfig`:
+- `meta.storageRole: 'content'` — identifies this as a content column
+- `meta.isContentRef: true` — the cell value may be a `ContentRef` object
+
+And in `FormFieldConfig`:
+- `isContentField: true`
+- `type: 'file'`
+- `acceptMimeTypes?: string[]`
+- `maxSize?: number`
 
 ## Step-by-Step: Build a Renderer Package
 

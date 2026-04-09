@@ -44,10 +44,38 @@ All generators follow: `(collection: CollectionDefinition<T>) => Config[]`
 ## DataProvider Pattern
 
 - Interface in `packages/store/src/data-provider.ts`
-- 7 required + 1 optional method + `getCapabilities()` + `subscribe?()`
+- 7 required + 3 optional methods: `upsert?()`, `getCapabilities?()`, `subscribe?()`
+- 2 bifurcation-optional methods: `getContent?()`, `setContent?()` (only on `createBifurcatedProvider`)
 - New adapters: implement `DataProvider<T>` interface
 - Use `FilterExpression` (not `ColumnFilter[]`) for filters
 - Client-side filter evaluation via `filterToFunction()` from `packages/store/src/filters.ts`
+
+## Content-Metadata Bifurcation Pattern
+
+Collections with both metadata (small/queryable) and content (large/opaque) fields use bifurcated storage. See [design notes](../../../docs/research/bifurcation_design_notes.md) and [implementation notes](../../../docs/research/bifurcation_implementation_notes.md).
+
+### Core types (`@zodal/core`)
+- `FieldStorageRole`: `'metadata' | 'content'`
+- `ContentRef`: reference object returned in place of actual content
+- `isContentRef()`: type guard
+- `storageRole` property on `FieldAffordance` (Layer 3 name heuristic or explicit)
+- `getContentFields()`, `getMetadataFields()`, `hasBifurcation()` on `CollectionDefinition`
+
+### Store (`@zodal/store`)
+- `createBifurcatedProvider()` in `packages/store/src/bifurcated-provider.ts`
+- `splitFields()` utility: partition an object into metadata + content portions
+- Writes: metadata first (commit point), then content; compensate on failure
+- Reads: `getList` queries metadata provider only; content fields become `ContentRef`
+- Capabilities: query caps from metadata provider, CRUD caps intersected
+
+### Inference heuristic
+Fields named `attachment`, `file`, `blob`, `upload`, `media`, `raw_data`, `payload`, `binary`, `document_content`, `source_file` (or suffixed `_file`, `_blob`, `_upload`, `_attachment`, `_binary`) infer `storageRole: 'content'`. Fields like `content`, `body`, `description` are NOT classified as content — they match `DESCRIPTION_PATTERNS` for textarea treatment instead. Override via `.meta()` or `CollectionConfig.fields`.
+
+### UI awareness
+- `ColumnConfig.meta.storageRole` / `meta.isContentRef` for renderers
+- `FormFieldConfig.isContentField` + `type: 'file'` inferred
+- `storageRoleIs('content')` composable tester predicate
+- `contentLoading` state + `setContentLoading()` action in `CollectionState`
 
 ## Renderer Registry Pattern
 

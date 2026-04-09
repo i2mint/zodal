@@ -112,6 +112,55 @@ export interface FieldAffordance {
   editPlaceholder?: string;
   /** Help text shown below edit widget. */
   editHelp?: string;
+
+  // --- Storage role (content-metadata bifurcation) ---
+  /**
+   * Whether this field holds content (large/opaque/non-queryable) or
+   * metadata (small/structured/queryable). Content fields are routed to
+   * a separate storage backend by BifurcatedProvider.
+   *
+   * Default: 'metadata' (inferred from type + name).
+   */
+  storageRole?: FieldStorageRole;
+}
+
+// ============================================================================
+// Content-Metadata Bifurcation Types
+// ============================================================================
+
+/** How a field's data should be stored and retrieved. */
+export type FieldStorageRole = 'metadata' | 'content';
+
+/**
+ * A reference to content stored separately from metadata.
+ * Returned in place of actual content bytes in list views
+ * and (optionally) detail views when using a BifurcatedProvider.
+ */
+export interface ContentRef {
+  /** Discriminator for type narrowing. */
+  readonly _tag: 'ContentRef';
+  /** The field this reference belongs to. */
+  field: string;
+  /** The item's ID (for fetching). */
+  itemId: string;
+  /** Content hash (for CAS, cache invalidation). */
+  hash?: string;
+  /** Pre-signed or public URL for direct access. */
+  url?: string;
+  /** MIME type of the content. */
+  mimeType?: string;
+  /** Size in bytes. */
+  size?: number;
+}
+
+/** Type guard for ContentRef values. */
+export function isContentRef(value: unknown): value is ContentRef {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '_tag' in value &&
+    (value as any)._tag === 'ContentRef'
+  );
 }
 
 // ============================================================================
@@ -261,6 +310,13 @@ export interface CollectionConfig<TShape extends Record<string, unknown> = Recor
   idField?: string;
   /** Which field is the human-readable label. Default: first string field. */
   labelField?: string;
+  /** Configuration for content-metadata bifurcation. */
+  content?: {
+    /** How content fields appear in getList results. Default: 'reference'. */
+    listStrategy?: 'reference' | 'omit';
+    /** How content fields appear in getOne results. Default: 'reference'. */
+    detailStrategy?: 'eager' | 'reference';
+  };
 }
 
 // ============================================================================
@@ -274,6 +330,8 @@ export interface ResolvedFieldAffordance extends Required<
   title: string;
   zodType: string;
   zodDef: unknown;
+  /** Storage role — always resolved (defaults to 'metadata'). */
+  storageRole: FieldStorageRole;
   [key: string]: unknown;
 }
 

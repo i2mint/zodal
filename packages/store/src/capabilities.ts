@@ -33,6 +33,12 @@ export interface ProviderCapabilities {
 
   /** Whether real-time updates are available */
   realtime?: boolean;
+
+  /** Whether this is a bifurcated provider (content + metadata). */
+  bifurcated?: boolean;
+
+  /** Content fields managed by this provider (when bifurcated). */
+  contentFields?: string[];
 }
 
 /** Default capabilities (when getCapabilities is not implemented). */

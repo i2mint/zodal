@@ -356,6 +356,51 @@ describe('createMyBackendProvider', () => {
 });
 ```
 
+## Bifurcation: Using Your Adapter with BifurcatedProvider
+
+Any adapter can serve as the metadata or content provider in a `createBifurcatedProvider()` composition. No changes to your adapter are required. See [bifurcation research](../../../docs/research/bifurcation_research_for_zodal.md) for the design rationale.
+
+**Natural metadata providers** (queryable, structured):
+- Supabase, REST APIs, IndexedDB wrappers — strong `serverFilter`/`serverSort`
+
+**Natural content providers** (blob-oriented):
+- S3, filesystem, OPFS — optimized for large object read/write
+
+```typescript
+import { createBifurcatedProvider } from '@zodal/store';
+
+const provider = createBifurcatedProvider({
+  metadataProvider: createMyQueryableProvider(dbConfig),
+  contentProvider: createMyBlobProvider(storageConfig),
+  contentFields: ['attachment', 'file'],
+});
+// Consumers call provider.getList(), provider.create(), etc.
+// Routing to the right backend is automatic.
+```
+
+Your adapter can also report bifurcation-specific capabilities:
+
+```typescript
+getCapabilities(): ProviderCapabilities {
+  return {
+    // ... standard capabilities ...
+    bifurcated: true,          // only if YOUR adapter is itself bifurcated
+    contentFields: ['attachment'],
+  };
+}
+```
+
+### Optional: getContent / setContent
+
+`DataProvider<T>` now has two optional methods for explicit content access:
+
+```typescript
+getContent?(id: string, field: string): Promise<unknown>;
+setContent?(id: string, field: string, content: unknown): Promise<ContentRef>;
+```
+
+Standard adapters do NOT need to implement these. Only `createBifurcatedProvider()` implements them. If you are building a specialized content-aware adapter, you can implement them for direct content access without going through the full CRUD path.
+
 ## Codec Integration
 
 If your backend stores data in a different format than the app uses (e.g., ISO strings instead of Date objects), users can wrap your provider with `wrapProvider()`:

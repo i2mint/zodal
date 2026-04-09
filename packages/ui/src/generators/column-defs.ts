@@ -55,6 +55,10 @@ export interface ColumnConfig {
     enumValues?: string[];
     numericBounds?: { min?: number; max?: number };
     pinned?: 'left' | 'right' | false;
+    /** Storage role for bifurcation-aware renderers. */
+    storageRole?: 'metadata' | 'content';
+    /** Whether the cell value may be a ContentRef. */
+    isContentRef?: boolean;
   };
 }
 
@@ -161,6 +165,8 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
         enumValues: fieldSchema ? getEnumValues(fieldSchema) ?? undefined : undefined,
         numericBounds: fieldSchema ? getNumericBounds(fieldSchema) : undefined,
         pinned: fa.pinned,
+        storageRole: fa.storageRole === 'content' ? 'content' : undefined,
+        isContentRef: fa.storageRole === 'content' ? true : undefined,
       },
     });
   }

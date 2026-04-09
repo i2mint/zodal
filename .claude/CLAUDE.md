@@ -2,7 +2,7 @@
 
 ## Project Stage: ACTIVE DEVELOPMENT
 
-Monorepo is scaffolded, core packages implemented, 214 tests passing. Design approved and documented at `.claude/plans/stateless-beaming-feather.md`.
+Monorepo is scaffolded, core packages implemented, 352 tests passing. Design approved and documented at `.claude/plans/stateless-beaming-feather.md`. Content-metadata bifurcation implemented across all three packages.
 
 ## What zodal Is
 
@@ -32,6 +32,7 @@ apps/
 4. **Escape hatches everywhere** — any inferred default can be overridden
 5. **Zod v4 as schema substrate** — not schema-agnostic
 6. **Thin glue, not a framework** — configure existing tools (TanStack Table, Zustand, etc.)
+7. **Content-metadata bifurcation** — schema classifies fields by `storageRole`; `createBifurcatedProvider()` composes two providers into one. See `docs/research/bifurcation_design_notes.md`
 
 ## Zod v4 Introspection Gotchas
 
@@ -83,6 +84,11 @@ After completing significant work, consider:
 - **Ideas & future**: `docs/ideas-and-future.md` — unimplemented ideas, deferred features
 - **Known issues**: `docs/known-issues.md` — limitations, gotchas, workarounds
 - **Research docs**: `docs/research/01-vision-and-scope.md` through `docs/research/07-open-questions.md`
+- **Bifurcation research**: `docs/research/The content-metadata bifurcation problem in software architecture.md` — foundational problem statement
+- **Bifurcation design**: `docs/research/bifurcation_design_notes.md` — what to try, what to avoid, phasing
+- **Bifurcation implementation**: `docs/research/bifurcation_implementation_notes.md` — detailed implementation thinking
+- **Bifurcation zodal-specific**: `docs/research/bifurcation_research_for_zodal.md` — how literature maps to zodal
+- **Migration guide**: `docs/migration/v0.2-bifurcation.md` — breaking changes + migration steps
 - **Predecessor code**: `/Users/thorwhalen/Dropbox/py/proj/tt/zod-collections-ui/`
 - **Research reports**: `/Users/thorwhalen/Dropbox/_odata/ai_contexts/projects/zodal/zodal_research/`
 - These are **read-only references**. Do not modify them.

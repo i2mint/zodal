@@ -37,6 +37,9 @@ export interface CollectionState<T> {
   columnVisibility: Record<string, boolean>;
   columnOrder: string[];
   grouping: string[];
+
+  /** Per-item, per-field content loading status. For bifurcated providers. */
+  contentLoading: Record<string, Record<string, boolean>>;
 }
 
 /**
@@ -58,6 +61,7 @@ export interface CollectionActions<T> {
   clearSelection(state: CollectionState<T>): CollectionState<T>;
   selectAll(state: CollectionState<T>): CollectionState<T>;
   reset(state: CollectionState<T>): CollectionState<T>;
+  setContentLoading(state: CollectionState<T>, itemId: string, field: string, loading: boolean): CollectionState<T>;
 }
 
 /**
@@ -120,6 +124,7 @@ export function createCollectionStore<T>(
     columnVisibility: buildInitialVisibility(collection),
     columnOrder: buildInitialOrder(collection),
     grouping: [],
+    contentLoading: {},
   };
 
   // Pure action functions (state, args) → newState
@@ -176,6 +181,14 @@ export function createCollectionStore<T>(
         pagination: { pageIndex: 0, pageSize: state.pagination.pageSize },
         rowSelection: {},
         grouping: [],
+        contentLoading: {},
+      };
+    },
+    setContentLoading(state, itemId, field, loading) {
+      const itemLoading = { ...state.contentLoading[itemId], [field]: loading };
+      return {
+        ...state,
+        contentLoading: { ...state.contentLoading, [itemId]: itemLoading },
       };
     },
   };

@@ -296,6 +296,8 @@ const NAME_PATTERNS = /^(name|title|label|display_?name|full_?name|username)$/i;
 const DESCRIPTION_PATTERNS = /^(description|summary|body|content|text|bio|about|notes)$/i;
 const IMAGE_PATTERNS = /^(image|photo|avatar|thumbnail|picture|icon|logo)(_?url)?$/i;
 const STATUS_PATTERNS = /^(status|state|phase|stage)$/i;
+const CONTENT_ROLE_PATTERNS = /^(attachment|file|blob|binary|payload|raw_?data|media|document_?content|source_?file|upload)$/i;
+const CONTENT_ROLE_SUFFIX = /_(attachment|file|blob|binary|upload)$/i;
 
 /** Refine defaults based on field name heuristics. */
 function refineByFieldName(key: string, defaults: FieldAffordance): FieldAffordance {
@@ -363,6 +365,14 @@ function refineByFieldName(key: string, defaults: FieldAffordance): FieldAfforda
     refined.filterable = 'select';
   }
 
+  if (CONTENT_ROLE_PATTERNS.test(key) || CONTENT_ROLE_SUFFIX.test(key)) {
+    refined.storageRole = 'content';
+    refined.sortable = false;
+    refined.filterable = false;
+    refined.searchable = false;
+    refined.detailOnly = true;
+  }
+
   return refined;
 }
 
@@ -417,6 +427,7 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
     'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
     'title', 'description', 'displayFormat', 'badge', 'copyable', 'truncate',
     'tooltip', 'editWidget', 'editPlaceholder', 'editHelp',
+    'storageRole',
   ];
 
   for (const key of affordanceKeys) {
@@ -458,6 +469,7 @@ const TRACED_PROPS: (keyof FieldAffordance)[] = [
   'sortable', 'filterable', 'searchable', 'groupable', 'aggregatable',
   'editable', 'visible', 'hidden', 'detailOnly', 'summaryField',
   'readable', 'inlineEditable', 'editWidget', 'truncate', 'tooltip',
+  'storageRole',
 ];
 
 /**

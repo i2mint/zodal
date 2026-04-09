@@ -7,6 +7,8 @@ export type {
   FilterType,
   AggregationFn,
   FieldAffordance,
+  FieldStorageRole,
+  ContentRef,
   // Collection-level
   PaginationConfig,
   SearchConfig,
@@ -36,6 +38,8 @@ export type {
   InferenceStep,
   InferenceTrace,
 } from './types.js';
+
+export { isContentRef } from './types.js';
 
 // Collection definition
 export { defineCollection } from './collection.js';

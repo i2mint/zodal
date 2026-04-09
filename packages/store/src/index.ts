@@ -21,3 +21,7 @@ export type { InMemoryProviderOptions } from './in-memory.js';
 
 // Provider wrapping
 export { wrapProvider } from './wrap-provider.js';
+
+// Bifurcated provider (content-metadata split)
+export { createBifurcatedProvider, splitFields } from './bifurcated-provider.js';
+export type { BifurcatedProviderOptions } from './bifurcated-provider.js';

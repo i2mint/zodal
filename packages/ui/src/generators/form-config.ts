@@ -34,12 +34,21 @@ export interface FormFieldConfig {
   order: number;
   /** Zod type for the underlying schema. */
   zodType: string;
+  /** Whether this field accepts file/content uploads. */
+  isContentField?: boolean;
+  /** Accepted MIME types for file upload. */
+  acceptMimeTypes?: string[];
+  /** Max file size in bytes. */
+  maxSize?: number;
 }
 
 /** Infer the form widget type from Zod type + affordances. */
 function inferFormWidgetType(zodType: string, fa: FieldAffordance): string {
   // Explicit override takes precedence
   if (fa.editWidget) return fa.editWidget;
+
+  // Content fields default to file upload
+  if (fa.storageRole === 'content') return 'file';
 
   switch (zodType) {
     case 'string': return 'text';
@@ -105,6 +114,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       options,
       order: fa.order ?? orderCounter++,
       zodType,
+      ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
     });
   }
 

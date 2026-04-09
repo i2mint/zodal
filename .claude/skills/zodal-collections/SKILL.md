@@ -158,6 +158,61 @@ const typedProvider = wrapProvider(rawProvider, {
 });
 ```
 
+## Quick Recipe: Content-Metadata Bifurcation
+
+When a collection has both small metadata and large content (files, images), zodal
+auto-classifies fields by storage role and lets you route them to different backends.
+See [bifurcation design notes](../../../docs/research/bifurcation_design_notes.md).
+
+```typescript
+import { z } from 'zod';
+import { defineCollection, isContentRef } from '@zodal/core';
+import { createBifurcatedProvider, createInMemoryProvider } from '@zodal/store';
+
+// Fields named 'attachment', 'file', 'blob', 'upload', 'media', etc.
+// are auto-classified as content (storageRole: 'content')
+const DocSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  attachment: z.any(),  // → content (name heuristic)
+});
+
+const collection = defineCollection(DocSchema);
+collection.getContentFields();   // ['attachment']
+collection.getMetadataFields();  // ['id', 'title']
+collection.hasBifurcation();     // true
+
+// Compose two providers into one
+const provider = createBifurcatedProvider({
+  metadataProvider: createInMemoryProvider([]),
+  contentProvider: createInMemoryProvider([]),
+  contentFields: collection.getContentFields(),
+});
+
+// Create — splits across providers automatically
+await provider.create({ id: '1', title: 'Doc', attachment: 'file-bytes' });
+
+// List — content fields become ContentRef objects (not actual bytes)
+const { data } = await provider.getList({});
+isContentRef(data[0].attachment); // true
+
+// Fetch content explicitly
+const content = await provider.getContent!('1', 'attachment');
+```
+
+### Override storage role manually
+```typescript
+// Force a text field to be treated as content
+defineCollection(schema, {
+  fields: { body: { storageRole: 'content' } },
+});
+
+// Force a content-named field to be treated as metadata
+defineCollection(schema, {
+  fields: { attachment: { storageRole: 'metadata' } },
+});
+```
+
 ## Common Patterns
 
 ### Override a single field's inference

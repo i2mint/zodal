@@ -52,6 +52,7 @@ export {
   fieldNameMatches,
   metaMatches,
   editWidgetIs,
+  storageRoleIs,
   and,
   or,
 } from './registry/tester.js';

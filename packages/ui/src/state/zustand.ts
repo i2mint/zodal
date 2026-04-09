@@ -35,6 +35,7 @@ export interface BoundCollectionActions<T> {
   clearSelection(): void;
   selectAll(): void;
   reset(): void;
+  setContentLoading(itemId: string, field: string, loading: boolean): void;
   /** Fetch data from the provider with current state. Only available when provider is supplied. */
   fetchData?(params?: Partial<GetListParams>): Promise<void>;
 }
@@ -102,6 +103,9 @@ export function createZustandStoreSlice<T>(
     },
     reset() {
       set((s: CollectionState<T>) => store.actions.reset(s));
+    },
+    setContentLoading(itemId: string, field: string, loading: boolean) {
+      set((s: CollectionState<T>) => store.actions.setContentLoading(s, itemId, field, loading));
     },
 
     // Data fetching (only when provider is supplied)

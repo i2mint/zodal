@@ -61,6 +61,21 @@ const provider = createSupabaseProvider<Project>({
 });
 ```
 
+**If the collection has content fields** (files, attachments), use a bifurcated provider
+to route metadata to a DB and content to object storage. See the
+[zodal-collections skill](../zodal-collections/SKILL.md) "Content-Metadata Bifurcation" recipe
+and [bifurcation design notes](../../../docs/research/bifurcation_design_notes.md).
+
+```typescript
+import { createBifurcatedProvider } from '@zodal/store';
+
+const provider = createBifurcatedProvider({
+  metadataProvider: supabaseProvider,
+  contentProvider: s3Provider,
+  contentFields: projects.getContentFields(),
+});
+```
+
 ### Step 3: Generate UI configs
 
 ```typescript

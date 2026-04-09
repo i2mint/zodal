@@ -117,6 +117,15 @@ export interface CollectionDefinition<TSchema extends z.ZodObject<any>> {
    * Returns a trace of which inference layer set each affordance value.
    */
   explain(fieldName?: string): InferenceTrace[];
+
+  /** Get fields classified as content (large/opaque, stored separately). */
+  getContentFields(): string[];
+
+  /** Get fields classified as metadata (small/structured, queryable). */
+  getMetadataFields(): string[];
+
+  /** Whether this collection has any content fields (needs bifurcated storage). */
+  hasBifurcation(): boolean;
 }
 
 // ============================================================================
@@ -214,6 +223,22 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
 
     explain(fieldName?: string) {
       return generateExplanation(schema, config, fieldAffordances, fieldName);
+    },
+
+    getContentFields() {
+      return Object.entries(fieldAffordances)
+        .filter(([_, fa]) => fa.storageRole === 'content')
+        .map(([key]) => key);
+    },
+
+    getMetadataFields() {
+      return Object.entries(fieldAffordances)
+        .filter(([_, fa]) => fa.storageRole !== 'content')
+        .map(([key]) => key);
+    },
+
+    hasBifurcation() {
+      return Object.values(fieldAffordances).some(fa => fa.storageRole === 'content');
     },
   };
 
@@ -367,6 +392,7 @@ function generateDescription(def: CollectionDefinition<any>): string {
     if (fa.inlineEditable) caps.push('inline-edit');
     if (!fa.visible || fa.hidden) caps.push('HIDDEN');
     if (fa.detailOnly) caps.push('detail-only');
+    if (fa.storageRole === 'content') caps.push('CONTENT');
 
     lines.push(`  ${key} (${fa.zodType}): ${caps.join(', ') || 'display-only'}`);
   }

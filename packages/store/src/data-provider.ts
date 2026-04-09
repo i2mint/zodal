@@ -6,7 +6,7 @@
  * Supabase, Firebase, in-memory arrays, or any data source.
  */
 
-import type { SortingState, FilterExpression } from '@zodal/core';
+import type { SortingState, FilterExpression, ContentRef } from '@zodal/core';
 import type { ProviderCapabilities } from './capabilities.js';
 
 // ============================================================================
@@ -63,4 +63,16 @@ export interface DataProvider<T> {
    * Optional — for future real-time support.
    */
   subscribe?(callback: (event: DataChangeEvent<T>) => void): () => void;
+
+  /**
+   * Retrieve content for a specific field of an item.
+   * Only available on bifurcated providers (see createBifurcatedProvider).
+   */
+  getContent?(id: string, field: string): Promise<unknown>;
+
+  /**
+   * Upload/replace content for a specific field of an item.
+   * Only available on bifurcated providers (see createBifurcatedProvider).
+   */
+  setContent?(id: string, field: string, content: unknown): Promise<ContentRef>;
 }

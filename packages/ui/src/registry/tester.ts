@@ -97,6 +97,12 @@ export function editWidgetIs(widget: string): RendererTester {
   };
 }
 
+/** Match fields with a specific storage role. Returns LIBRARY priority on match. */
+export function storageRoleIs(role: 'metadata' | 'content'): RendererTester {
+  return (field) =>
+    (field as any).storageRole === role ? PRIORITY.LIBRARY : -1;
+}
+
 /**
  * Combine testers with AND logic. Sums individual scores on match.
  * Returns -1 if any tester returns -1.
