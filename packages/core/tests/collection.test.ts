@@ -68,6 +68,26 @@ describe('defineCollection - basic', () => {
     expect(collection.affordances.update).toBe(true);
     expect(collection.affordances.delete).toBe(true);
   });
+
+  it('resolves field affordances to the full ResolvedFieldAffordance shape', () => {
+    // Regression test: the `fieldAffordances` map must satisfy
+    // ResolvedFieldAffordance for every field, so it can be passed straight
+    // to RendererRegistry.resolve() and read by tester predicates like
+    // `hasRefinement` (which inspects `field.zodDef`) without a cast.
+    const collection = defineCollection(ProjectSchema);
+    for (const [, affordance] of Object.entries(collection.fieldAffordances)) {
+      expect(typeof affordance.title).toBe('string');
+      expect(typeof affordance.zodType).toBe('string');
+      // `zodDef` carries the underlying Zod check metadata — required by
+      // tester predicates that look for refinements (uuid, email, etc.).
+      expect(affordance.zodDef).toBeDefined();
+      // `storageRole` is always defaulted (to 'metadata' if not set by inference).
+      expect(['metadata', 'content']).toContain(affordance.storageRole);
+      // The boolean affordances must be resolved (no undefined leak).
+      expect(typeof affordance.editable).toBe('boolean');
+      expect(typeof affordance.visible).toBe('boolean');
+    }
+  });
 });
 
 // ============================================================================

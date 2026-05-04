@@ -79,8 +79,16 @@ export interface CollectionDefinition<TSchema extends z.ZodObject<any>> {
   /** Resolved collection-level affordances. */
   affordances: CollectionAffordances;
 
-  /** Resolved per-field affordances (after inference + merge). */
-  fieldAffordances: Record<string, FieldAffordance & { title: string; zodType: string }>;
+  /**
+   * Resolved per-field affordances (after the full 6-layer inference + merge).
+   *
+   * Each entry is a fully-resolved affordance: the boolean affordances are
+   * defaulted, `title`, `zodType`, `zodDef`, and `storageRole` are always
+   * present. This is the shape `RendererRegistry.resolve()` and every tester
+   * predicate expect — so the entries here can be passed directly to
+   * `registry.resolve(field, context)` without a cast.
+   */
+  fieldAffordances: Record<string, ResolvedFieldAffordance>;
 
   /** Custom operations. */
   operations: OperationDefinition[];
@@ -98,13 +106,13 @@ export interface CollectionDefinition<TSchema extends z.ZodObject<any>> {
   getSearchableFields(): string[];
 
   /** Get fields that are filterable (for filter panel). */
-  getFilterableFields(): { key: string; affordance: FieldAffordance & { title: string } }[];
+  getFilterableFields(): { key: string; affordance: ResolvedFieldAffordance }[];
 
   /** Get fields that are sortable (for sort controls). */
-  getSortableFields(): { key: string; affordance: FieldAffordance & { title: string } }[];
+  getSortableFields(): { key: string; affordance: ResolvedFieldAffordance }[];
 
   /** Get fields that are groupable. */
-  getGroupableFields(): { key: string; affordance: FieldAffordance & { title: string } }[];
+  getGroupableFields(): { key: string; affordance: ResolvedFieldAffordance }[];
 
   /** Get operations by scope. */
   getOperations(scope: 'item' | 'selection' | 'collection'): OperationDefinition[];
@@ -274,9 +282,9 @@ function resolveCollectionAffordances(
 function resolveAllFieldAffordances(
   schema: z.ZodObject<any>,
   explicit?: Partial<Record<string, Partial<FieldAffordance>>>,
-): Record<string, FieldAffordance & { title: string; zodType: string }> {
+): Record<string, ResolvedFieldAffordance> {
   const shape = schema.shape as Record<string, z.ZodType>;
-  const result: Record<string, FieldAffordance & { title: string; zodType: string }> = {};
+  const result: Record<string, ResolvedFieldAffordance> = {};
 
   for (const [key, fieldSchema] of Object.entries(shape)) {
     // Layers 1-4: Infer defaults from type + name + meta
@@ -289,12 +297,18 @@ function resolveAllFieldAffordances(
     const explicitOverrides = explicit?.[key] ?? {};
     const merged = { ...inferred, ...registryOverrides, ...explicitOverrides };
 
-    // Ensure title and zodType are set
+    // Build a fully-resolved affordance: title, zodType, and zodDef are always
+    // populated; storageRole defaults to 'metadata' so testers like
+    // `storageRoleIs('content')` can compare without an undefined check.
+    // The boolean affordances (sortable, filterable, ...) come from
+    // inferFieldAffordances, which always returns them set.
     result[key] = {
       ...merged,
       title: merged.title ?? humanizeFieldName(key),
       zodType: getZodBaseType(fieldSchema),
-    };
+      zodDef: (fieldSchema as { _zod?: { def?: unknown } })._zod?.def,
+      storageRole: merged.storageRole ?? 'metadata',
+    } as ResolvedFieldAffordance;
   }
 
   return result;
@@ -323,7 +337,7 @@ function detectIdField(schema: z.ZodObject<any>): string {
 /** Detect the label field from schema + affordances. */
 function detectLabelField(
   schema: z.ZodObject<any>,
-  fieldAffordances: Record<string, FieldAffordance & { zodType: string }>,
+  fieldAffordances: Record<string, ResolvedFieldAffordance>,
 ): string {
   // Check for summaryField flag
   for (const [key, fa] of Object.entries(fieldAffordances)) {
@@ -413,7 +427,7 @@ function generateDescription(def: CollectionDefinition<any>): string {
 function generateExplanation(
   schema: z.ZodObject<any>,
   config: CollectionConfig | undefined,
-  resolved: Record<string, FieldAffordance & { title: string; zodType: string }>,
+  resolved: Record<string, ResolvedFieldAffordance>,
   fieldName?: string,
 ): InferenceTrace[] {
   const shape = schema.shape as Record<string, z.ZodType>;

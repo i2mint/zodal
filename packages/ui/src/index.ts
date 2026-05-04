@@ -1,5 +1,16 @@
 // @zodal/ui — Generators, state management, renderer registry, prompt, codegen
 
+// Re-export the core types every UI consumer needs alongside the generators.
+// Without these, app code that uses `toFormConfig`, `toColumnDefs`, or
+// `RendererRegistry.resolve()` has to import from both `@zodal/core` and
+// `@zodal/ui` just to type the values it's already passing in.
+export type {
+  CollectionDefinition,
+  CollectionConfig,
+  FieldAffordance,
+  ResolvedFieldAffordance,
+} from '@zodal/core';
+
 // Column definition generator
 export { toColumnDefs } from './generators/column-defs.js';
 export type { ColumnConfig } from './generators/column-defs.js';

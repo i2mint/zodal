@@ -323,15 +323,21 @@ export interface CollectionConfig<TShape extends Record<string, unknown> = Recor
 // Resolved Types (after inference + merge)
 // ============================================================================
 
-export interface ResolvedFieldAffordance extends Required<
-  Pick<FieldAffordance, 'sortable' | 'filterable' | 'searchable' | 'groupable' | 'editable' | 'visible'>
-> {
-  // All optional fields from FieldAffordance, plus:
+export interface ResolvedFieldAffordance extends FieldAffordance {
+  // The boolean affordances are required after resolution (defaults applied).
+  sortable: NonNullable<FieldAffordance['sortable']>;
+  filterable: NonNullable<FieldAffordance['filterable']>;
+  searchable: NonNullable<FieldAffordance['searchable']>;
+  groupable: NonNullable<FieldAffordance['groupable']>;
+  editable: NonNullable<FieldAffordance['editable']>;
+  visible: NonNullable<FieldAffordance['visible']>;
+  // Always populated by resolveAllFieldAffordances:
   title: string;
   zodType: string;
   zodDef: unknown;
   /** Storage role — always resolved (defaults to 'metadata'). */
   storageRole: FieldStorageRole;
+  // Allow extra keys without losing type safety on the named fields above.
   [key: string]: unknown;
 }
 
