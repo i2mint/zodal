@@ -109,48 +109,6 @@ export function toCode(
   return sections.join('\n');
 }
 
-// ============================================================================
-// File I/O: writeIfChanged
-// ============================================================================
-
-/**
- * Write content to a file only if it differs from the existing content.
- * **Node.js only** — uses dynamic import of `node:fs/promises`.
- */
-export async function writeIfChanged(filePath: string, content: string): Promise<WriteResult> {
-  const fs = await import('node:fs/promises');
-  const path = await import('node:path');
-
-  try {
-    const existing = await fs.readFile(filePath, 'utf-8');
-    if (existing === content) {
-      return { written: false, reason: 'unchanged', filePath };
-    }
-    await fs.writeFile(filePath, content, 'utf-8');
-    return { written: true, reason: 'updated', filePath };
-  } catch (err: any) {
-    if (err.code === 'ENOENT') {
-      const dir = path.dirname(filePath);
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(filePath, content, 'utf-8');
-      return { written: true, reason: 'created', filePath };
-    }
-    throw err;
-  }
-}
-
-/**
- * Generate collection config code and write it only if the content changed.
- * **Node.js only**.
- */
-export async function generateAndWrite(
-  collection: CollectionDefinition<any>,
-  filePath: string,
-  options?: CodegenOptions,
-): Promise<WriteResult> {
-  const code = toCode(collection, options);
-  return writeIfChanged(filePath, code);
-}
 
 // ============================================================================
 // Config object builders
