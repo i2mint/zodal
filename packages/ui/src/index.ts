@@ -76,6 +76,6 @@ export type {
 // AI prompt generator
 export { toPrompt } from './prompt.js';
 
-// Code generation
-export { toCode, writeIfChanged, generateAndWrite } from './codegen.js';
+// Code generation (pure, no Node.js deps — for Node.js file I/O use '@zodal/ui/node')
+export { toCode } from './codegen.js';
 export type { CodegenOptions, WriteResult } from './codegen.js';
