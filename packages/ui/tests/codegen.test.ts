@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { toCode, writeIfChanged, generateAndWrite } from '../src/codegen.js';
+import { toCode } from '../src/codegen.js';
+import { writeIfChanged, generateAndWrite } from '../src/node.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
