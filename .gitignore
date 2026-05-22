@@ -12,6 +12,8 @@ node_modules/
 jspm_packages/
 # Dependency directories in case of different package managers
 bun.lockb
+# This is a pnpm project — reject npm's lockfile
+package-lock.json
 
 # --- Build & Output ---
 dist/
