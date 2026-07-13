@@ -59,8 +59,38 @@ interface DataProvider<T> {
   upsert?(data: T): Promise<T>;
   getCapabilities?(): ProviderCapabilities;
   subscribe?(callback: (event: DataChangeEvent<T>) => void): () => void;
+
+  // --- Optional: content (the bifurcation path — see below) ---
+  getContent?(id: string, field: string): Promise<unknown>;
+  setContent?(id: string, field: string, content: unknown): Promise<ContentRef>;
+  getUrl?(id: string, field: string): Promise<string | null>;
 }
 ```
+
+### The content trio — implement these if your backend stores blobs
+
+A "content" field is a large, opaque, non-queryable value (a video, an image, a
+document) — as opposed to metadata, which is small, structured and queryable. See
+`createBifurcatedProvider` for how the two halves compose.
+
+- **`getContent(id, field)`** returns the **bytes**.
+- **`getUrl(id, field)`** returns a **directly-fetchable URL** — public, pre-signed, or
+  an endpoint that streams. Return `null` if your backend can't produce one (e.g. an
+  in-memory or IndexedDB store); callers then fall back to `getContent()`.
+- **`setContent(id, field, content)`** writes bytes and returns the resulting `ContentRef`.
+
+**Implement `getUrl` whenever you can.** For anything a browser consumes by URL —
+`<video src>`, `<img src>`, `<a download>` — bytes are the wrong currency: `getContent()`
+defeats HTTP range requests, so you lose streaming and seeking, and the whole file sits in
+memory. `getUrl` is also the seam that survives a storage migration: the same call returns
+`/api/app/clips/x.mp4` today and `https://bucket.s3.../x.mp4` after the bytes move, so
+consuming code never changes.
+
+**`toContentRef` may be async.** Pre-signing is a round-trip, so any adapter accepting a
+`toContentRef` option must type it as `(itemId, field) => ContentRef | Promise<ContentRef>`
+and `await` it — including inside `getList`, where refs for a page of items should be built
+with `Promise.all` rather than serially. Forgetting the `await` is the classic bug here: the
+field silently holds a pending Promise, and `ref.url` reads as `undefined`.
 
 ## Step-by-Step: Implement an Adapter
 
