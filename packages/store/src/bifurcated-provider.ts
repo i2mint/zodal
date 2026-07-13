@@ -28,8 +28,17 @@ export interface BifurcatedProviderOptions<T> {
   listStrategy?: 'reference' | 'omit';
   /** How content fields appear in getOne. Default: 'reference'. */
   detailStrategy?: 'eager' | 'reference';
-  /** Custom function to build ContentRef from item data. */
-  toContentRef?: (itemId: string, field: string) => ContentRef;
+  /**
+   * Custom function to build a ContentRef for an item's content field.
+   *
+   * May be async — which is what makes pre-signed URLs possible, since signing
+   * (e.g. S3's `getSignedUrl`) is inherently asynchronous. Use this to populate
+   * `ContentRef.url` so consumers can point a `<video>`/`<img>` straight at the
+   * bytes instead of downloading them through `getContent()`.
+   *
+   * @see createPresignedRefGenerator in zodal-store-s3
+   */
+  toContentRef?: (itemId: string, field: string) => ContentRef | Promise<ContentRef>;
 }
 
 // ============================================================================
@@ -99,11 +108,20 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
 
   const contentSet = new Set(contentFields);
 
-  function replaceContentWithRefs(item: Record<string, any>): Record<string, any> {
+  // Async because `toContentRef` may be (it must be, to pre-sign a URL).
+  async function replaceContentWithRefs(
+    item: Record<string, any>,
+  ): Promise<Record<string, any>> {
     const result = { ...item };
-    for (const field of contentFields) {
-      result[field] = toContentRef(String(item[idField]), field);
-    }
+    const id = String(item[idField]);
+    // Refs for one item are independent — build them concurrently, so a signing
+    // round-trip per field doesn't serialize.
+    const refs = await Promise.all(
+      contentFields.map((field) => toContentRef(id, field)),
+    );
+    contentFields.forEach((field, i) => {
+      result[field] = refs[i];
+    });
     return result;
   }
 
@@ -126,7 +144,7 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
       if (listStrategy === 'omit') {
         data = result.data.map(omitContentFields);
       } else {
-        data = result.data.map(replaceContentWithRefs);
+        data = await Promise.all(result.data.map(replaceContentWithRefs));
       }
 
       return { data: data as T[], total: result.total };
@@ -141,11 +159,11 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
           return { ...metaItem, ...contentItem } as T;
         } catch {
           // Content may not exist yet; return metadata with refs
-          return replaceContentWithRefs(metaItem as Record<string, any>) as T;
+          return (await replaceContentWithRefs(metaItem as Record<string, any>)) as T;
         }
       }
 
-      return replaceContentWithRefs(metaItem as Record<string, any>) as T;
+      return (await replaceContentWithRefs(metaItem as Record<string, any>)) as T;
     },
 
     // ---- Writes ----
@@ -257,7 +275,21 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
         throw new Error(`Field '${field}' is not a content field. Content fields: ${contentFields.join(', ')}`);
       }
       await contentProvider.update(id, { [field]: content } as any);
-      return toContentRef(id, field);
+      return await toContentRef(id, field);
+    },
+
+    async getUrl(id: string, field: string): Promise<string | null> {
+      if (!contentSet.has(field)) {
+        throw new Error(`Field '${field}' is not a content field. Content fields: ${contentFields.join(', ')}`);
+      }
+      // The content provider is the authority on where its bytes are reachable.
+      if (contentProvider.getUrl) {
+        return await contentProvider.getUrl(id, field);
+      }
+      // Otherwise a caller-supplied `toContentRef` may still know the URL (this is
+      // how pre-signing is wired in). `null` means "no URL — fall back to getContent".
+      const ref = await toContentRef(id, field);
+      return ref.url ?? null;
     },
   };
 

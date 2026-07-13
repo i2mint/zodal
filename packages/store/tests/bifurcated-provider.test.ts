@@ -407,3 +407,119 @@ describe('BifurcatedProvider — getOne eager', () => {
     expect(isContentRef(item.attachment)).toBe(true);
   });
 });
+
+// ============================================================================
+// URL seam: async toContentRef + getUrl
+//
+// The reason this exists: a browser consuming media (<video src>, <img src>)
+// needs a URL, not bytes. getContent() returns bytes, which defeats HTTP range
+// requests (so: no streaming, no seeking) and holds the whole file in memory.
+// A ContentRef carrying a `url` is the seam that stays the same whether the
+// bytes sit behind our own backend today or in S3 tomorrow.
+// ============================================================================
+
+describe('URL seam', () => {
+  // Presigning is inherently async — this is exactly the shape toContentRef
+  // must support, and could not before.
+  const signingRef = async (itemId: string, field: string) => {
+    await Promise.resolve(); // stand in for a signing round-trip
+    return {
+      _tag: 'ContentRef' as const,
+      field,
+      itemId,
+      url: `https://bucket.s3.example/${itemId}/${field}?sig=abc`,
+    };
+  };
+
+  it('awaits an async toContentRef in getList', async () => {
+    const { metadataProvider, contentProvider } = createProviders([
+      { id: '1', title: 'A' },
+      { id: '2', title: 'B' },
+    ]);
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+      toContentRef: signingRef,
+    });
+
+    const { data } = await provider.getList({});
+    // The regression this guards: without the await, every ref would be a
+    // pending Promise and `.url` would read as undefined.
+    for (const item of data) {
+      expect(isContentRef(item.attachment)).toBe(true);
+      expect((item.attachment as any).url).toContain('s3.example');
+    }
+    expect((data[0].attachment as any).url).toContain('/1/attachment');
+  });
+
+  it('awaits an async toContentRef in getOne', async () => {
+    const { metadataProvider, contentProvider } = createProviders([{ id: '1', title: 'A' }]);
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+      toContentRef: signingRef,
+    });
+
+    const item = await provider.getOne('1');
+    expect((item.attachment as any).url).toBe(
+      'https://bucket.s3.example/1/attachment?sig=abc',
+    );
+  });
+
+  it('getUrl resolves the URL from toContentRef', async () => {
+    const { metadataProvider, contentProvider } = createProviders([{ id: '1', title: 'A' }]);
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+      toContentRef: signingRef,
+    });
+
+    expect(await provider.getUrl!('1', 'attachment')).toBe(
+      'https://bucket.s3.example/1/attachment?sig=abc',
+    );
+  });
+
+  it('getUrl prefers the content provider when it can answer', async () => {
+    const { metadataProvider, contentProvider } = createProviders([{ id: '1', title: 'A' }]);
+    // A content provider that knows where its own bytes live is authoritative.
+    (contentProvider as any).getUrl = async (id: string, field: string) =>
+      `https://cdn.example/${id}/${field}`;
+
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+      toContentRef: signingRef, // should NOT win
+    });
+
+    expect(await provider.getUrl!('1', 'attachment')).toBe('https://cdn.example/1/attachment');
+  });
+
+  it('getUrl returns null when no URL is obtainable (caller falls back to getContent)', async () => {
+    const { metadataProvider, contentProvider } = createProviders([{ id: '1', title: 'A' }]);
+    // Default toContentRef builds a bare ref with no `url`.
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+    });
+
+    expect(await provider.getUrl!('1', 'attachment')).toBeNull();
+  });
+
+  it('getUrl rejects a non-content field', async () => {
+    const { metadataProvider, contentProvider } = createProviders([{ id: '1', title: 'A' }]);
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+    });
+
+    await expect(provider.getUrl!('1', 'title')).rejects.toThrow(/not a content field/);
+  });
+
+  it('setContent returns a resolved ref, not a pending promise', async () => {
+    const { metadataProvider, contentProvider } = createProviders(
+      [{ id: '1', title: 'A' }], [{ id: '1' }],
+    );
+    const provider = createBifurcatedProvider<Doc>({
+      metadataProvider, contentProvider, contentFields,
+      toContentRef: signingRef,
+    });
+
+    const ref = await provider.setContent!('1', 'attachment', 'bytes');
+    expect(isContentRef(ref)).toBe(true);
+    expect(ref.url).toContain('s3.example');
+  });
+});

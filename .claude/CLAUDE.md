@@ -63,6 +63,7 @@ Before starting work on zodal, check if relevant skills exist:
 - **zodal development skills**: Read `.claude/skills/zodal-dev/SKILL.md` — patterns, conventions, and helpers for implementing zodal features
 - **zodal testing skills**: Read `.claude/skills/zodal-testing/SKILL.md` — BDD story spec format, test patterns, executor conventions
 - **Research lookup**: Read `.claude/skills/research-lookup.md` — find the right research report for a design question
+- **Where app data lives**: Read `~/.claude/skills/app-data-lifecycle/SKILL.md` — the consumer-side doctrine that zodal's content/blob story serves. It explains *why* `ContentRef.url` matters (browsers need a URL, not bytes: `getContent()` defeats range requests and seeking) and why the media base must be resolved at runtime, not baked into the bundle. Read it before changing anything in the bifurcation / content-provider path.
 
 ### Skills for third-party adapter/renderer authors
 
