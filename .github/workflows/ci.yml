@@ -96,12 +96,25 @@ jobs:
           set -euo pipefail
           VERSION=$(node -e "console.log(require('./packages/core/package.json').version)")
           for pkg in core store ui; do
-            got=$(npm view "@zodal/${pkg}@${VERSION}" version 2>/dev/null || true)
-            if [ "$got" != "$VERSION" ]; then
-              echo "::error::@zodal/${pkg}@${VERSION} is not on the registry — the publish failed silently."
+            # Give the registry a moment: a newly published version takes some seconds to
+            # become readable, so checking immediately false-negatives on a publish that
+            # actually worked (it did, on zodal-store-http's first release). Retry, then
+            # fail for real.
+            confirmed=""
+            for attempt in $(seq 1 10); do
+              got=$(npm view "@zodal/${pkg}@${VERSION}" version 2>/dev/null || true)
+              if [ "$got" = "$VERSION" ]; then
+                echo "@zodal/${pkg}@${VERSION} confirmed on the registry (attempt ${attempt})"
+                confirmed=1
+                break
+              fi
+              echo "@zodal/${pkg}@${VERSION} not visible yet (attempt ${attempt}/10)"
+              sleep 15
+            done
+            if [ -z "$confirmed" ]; then
+              echo "::error::@zodal/${pkg}@${VERSION} never appeared on the registry — the publish failed."
               exit 1
             fi
-            echo "@zodal/${pkg}@${VERSION} confirmed on the registry"
           done
 
       - name: Configure SSH for git push
