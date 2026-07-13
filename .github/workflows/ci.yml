@@ -77,11 +77,32 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          set -euo pipefail
           FORCE=""
           if [[ "${{ github.event.head_commit.message }}" == *"[force publish]"* ]]; then
             FORCE="--no-git-checks"
           fi
-          pnpm -r publish --access public $FORCE || true
+          # No `|| true` here. An expired NPM_TOKEN makes the registry answer 404 to the
+          # PUT, and swallowing that exit code reported the whole run as green while npm
+          # stayed on the previous version — the failure mode this step now refuses.
+          # `pnpm -r publish` already skips a version the registry has, so re-running a
+          # publish stays idempotent without hiding errors.
+          pnpm -r publish --access public $FORCE
+
+      # A publish is only real if the registry serves it. Ask the registry, don't infer it
+      # from an exit code.
+      - name: Verify the registry serves this version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -e "console.log(require('./packages/core/package.json').version)")
+          for pkg in core store ui; do
+            got=$(npm view "@zodal/${pkg}@${VERSION}" version 2>/dev/null || true)
+            if [ "$got" != "$VERSION" ]; then
+              echo "::error::@zodal/${pkg}@${VERSION} is not on the registry — the publish failed silently."
+              exit 1
+            fi
+            echo "@zodal/${pkg}@${VERSION} confirmed on the registry"
+          done
 
       - name: Configure SSH for git push
         run: |
