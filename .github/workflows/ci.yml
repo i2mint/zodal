@@ -41,14 +41,41 @@ jobs:
       - name: Integration tests
         run: pnpm test:integration
 
+  gate:
+    name: Release gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.subject.outputs.publish }}
+      force: ${{ steps.subject.outputs.force }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Only the commit SUBJECT (first line) may arm a release. The previous gate matched the
+      # whole commit message, so a commit that merely *mentioned* the marker in its body --
+      # such as one documenting this very workflow -- published to npm for real.
+      #
+      # The subject is read with git rather than interpolated from the event payload, so an
+      # arbitrary commit message can never be spliced into this shell.
+      - id: subject
+        run: |
+          set -euo pipefail
+          subject=$(git log -1 --pretty=%s)
+          publish=false
+          force=false
+          case "$subject" in
+            *'[force publish]'*) publish=true; force=true ;;
+            *'[publish]'*)       publish=true ;;
+          esac
+          echo "subject: $subject"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "force=$force" >> "$GITHUB_OUTPUT"
+
   publish:
     name: Publish
-    needs: validate
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'push' &&
-      (contains(github.event.head_commit.message, '[publish]') ||
-       contains(github.event.head_commit.message, '[force publish]'))
+    needs: [validate, gate]
+    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -76,10 +103,11 @@ jobs:
       - name: Publish packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          FORCE_PUBLISH: ${{ needs.gate.outputs.force }}
         run: |
           set -euo pipefail
           FORCE=""
-          if [[ "${{ github.event.head_commit.message }}" == *"[force publish]"* ]]; then
+          if [ "$FORCE_PUBLISH" = "true" ]; then
             FORCE="--no-git-checks"
           fi
           # No `|| true` here. An expired NPM_TOKEN makes the registry answer 404 to the
