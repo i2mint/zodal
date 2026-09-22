@@ -2,6 +2,7 @@
   "name": "@zodal/core",
   "version": "0.2.0",
   "description": "Schema types, affordance inference, and defineCollection for zodal",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
