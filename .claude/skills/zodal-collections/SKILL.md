@@ -1,3 +1,15 @@
+---
+name: zodal-collections
+description: >-
+  Guide for using zodal to define and work with schema-driven collections in a
+  TypeScript project. Use when setting up a new collection from a Zod schema,
+  generating table columns/form configs/filter configs, working with DataProviders
+  (CRUD, filtering, sorting), or integrating zodal with React (Zustand, TanStack
+  Table).
+metadata:
+  audience: developers
+---
+
 # Skill: Using zodal Collections
 
 ## Purpose

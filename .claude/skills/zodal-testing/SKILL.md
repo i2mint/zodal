@@ -1,3 +1,14 @@
+---
+name: zodal-testing
+description: >-
+  Testing conventions, BDD story spec format, and test organization for zodal --
+  where unit, integration, heavy and story-spec tests live, and how executors
+  (store/component/e2e) run BDD stories. Use when writing or organizing tests for
+  zodal, adding a BDD story spec, or deciding where a new test belongs.
+metadata:
+  audience: developers
+---
+
 # Skill: zodal Testing Patterns
 
 ## Purpose

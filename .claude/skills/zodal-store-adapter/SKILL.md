@@ -1,3 +1,15 @@
+---
+name: zodal-store-adapter
+description: >-
+  Implement a DataProvider<T> adapter — the zodal interface connecting any storage
+  backend (REST API, database, filesystem, browser storage, cloud storage) to zodal
+  collections. Use when creating a new storage backend, wrapping an existing SDK or
+  API client as a DataProvider, or working out which methods to implement and which
+  capabilities to report.
+metadata:
+  audience: developers
+---
+
 # Skill: Building a zodal Store Adapter
 
 ## Purpose

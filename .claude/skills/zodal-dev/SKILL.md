@@ -1,3 +1,14 @@
+---
+name: zodal-dev
+description: >-
+  Conventions, patterns, and helpers for implementing zodal features -- package
+  layout, import/type conventions, and inference-engine patterns. Use before
+  adding a new module to a zodal package, when deciding where a type belongs, or
+  when implementing a feature that should follow existing zodal conventions.
+metadata:
+  audience: developers
+---
+
 # Skill: zodal Development Patterns
 
 ## Purpose

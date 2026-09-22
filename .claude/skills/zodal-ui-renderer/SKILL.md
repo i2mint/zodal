@@ -1,3 +1,16 @@
+---
+name: zodal-ui-renderer
+description: >-
+  Guide for implementing a renderer package — concrete UI components that consume
+  zodal's headless configuration objects and render actual DOM elements, bridging
+  zodal's schema-driven configs to a specific component library (shadcn/ui, Material
+  UI, Ant Design, etc.). Use when creating a renderer package for a UI library,
+  registering custom renderers for specific field types or affordances, or
+  understanding how the RendererRegistry and tester pattern work.
+metadata:
+  audience: developers
+---
+
 # Skill: Building a zodal UI Renderer Package
 
 ## Purpose

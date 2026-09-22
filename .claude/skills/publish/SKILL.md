@@ -1,3 +1,13 @@
+---
+name: publish
+description: >-
+  Bump the version of @zodal/core, @zodal/store and @zodal/ui, commit with a
+  [publish] marker, push, and link to the resulting CI publish run. Use when asked
+  to publish, release, or cut a new version of zodal, or when invoked as /publish.
+metadata:
+  audience: developers
+---
+
 # Skill: Publish zodal
 
 Bump versions, commit `[publish]`, push, and link to the CI run.
