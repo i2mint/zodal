@@ -1,3 +1,17 @@
+---
+name: zodal-collection-ui
+description: >-
+  Guide for assembling a working collection UI by connecting zodal's headless
+  generators, a DataProvider adapter, a renderer package, and state management --
+  the "last mile" of taking the pieces and making them work together. Use when
+  building a table/list view with sorting, filtering or pagination, building
+  create/edit forms from a schema, connecting a DataProvider to a React UI via
+  Zustand, integrating TanStack Table with zodal column configs, or assembling all
+  zodal pieces into a working page.
+metadata:
+  audience: developers
+---
+
 # Skill: Wiring a Complete Collection UI
 
 ## Purpose
