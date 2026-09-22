@@ -2,6 +2,7 @@
   "name": "@zodal/store",
   "version": "0.2.0",
   "description": "DataProvider interface, capability discovery, and adapters for zodal",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
