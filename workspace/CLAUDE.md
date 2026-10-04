@@ -52,7 +52,7 @@ see each one's `AGENTS.md` (or `.claude/CLAUDE.md`) for its guide.
 | zodal testing patterns | `zodal/.claude/skills/zodal-testing/SKILL.md` |
 | Using zodal collections | `zodal/.claude/skills/zodal-collections/SKILL.md` |
 | Design decisions & research | `zodal/docs/research/03-technology-research-takeaways.md` |
-| Approved architecture plan | `zodal/.claude/plans/stateless-beaming-feather.md` |
+| Architecture | `zodal/docs/architecture.md` (the "approved architecture plan" once cited here was never committed; its open questions are in `zodal/docs/research/07-open-questions.md`) |
 | Known issues & gotchas | `zodal/docs/known-issues.md` |
 | Future ideas | `zodal/docs/ideas-and-future.md` |
 
