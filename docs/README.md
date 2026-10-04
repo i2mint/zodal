@@ -34,7 +34,7 @@ Original research documents that informed the design, now in `docs/research/`:
 - `.claude/skills/zodal-dev/SKILL.md` — Development patterns and conventions
 - `.claude/skills/zodal-testing/SKILL.md` — Testing patterns and BDD story format
 - `.claude/skills/research-lookup.md` — Find the right research report for any topic
-- `.claude/plans/stateless-beaming-feather.md` — Approved architecture plan
+- `architecture.md` — the architecture (an earlier "approved architecture plan" under `.claude/plans/` was never committed)
 
 ## Raw Source Material
 
