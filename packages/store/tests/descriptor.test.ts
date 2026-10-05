@@ -47,8 +47,8 @@ describe('provider descriptors', () => {
   });
 
   it('finds nested and name-only secrets as paths', () => {
-    // `credentials` is itself a secret-looking name, so the whole object is secret (fail-safe).
-    expect(secretOptionPaths(s3Like).map((p) => p.join('.')).sort()).toEqual(['credentials', 'sessionPin']);
+    // `credentials` is a secret-looking container: it is opened, and its secret members are found.
+    expect(secretOptionPaths(s3Like).map((p) => p.join('.')).sort()).toEqual(['credentials.accessKeyId', 'credentials.secretAccessKey', 'sessionPin']);
     const nested = defineProviderDescriptor({ ...s3Like, name: 'nested', options: z.object({ account: z.object({ accessKeyId: z.string(), region: z.string() }) }) });
     expect(secretOptionPaths(nested).map((p) => p.join('.'))).toEqual(['account.accessKeyId']);
     expect(secretOptionPaths(inMemoryDescriptor)).toEqual([]);
@@ -168,6 +168,16 @@ describe('provider descriptors', () => {
     expect(redactOptions(fetchy, { init: { credentials: 'include' } } as any)).toEqual({ init: { credentials: 'include' } });
   });
 
+  it('round 4: a secret-named runtime key withholds messages', async () => {
+    const mk = (name: string, options: any, create: any) => defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+    const hdr = mk('hdr2', z.object({ headers: z.record(z.string(), z.string()) }), (o: any) => { throw new Error(`bad headers ${JSON.stringify(o.headers)}`); });
+    const e = await createFromDescriptor(hdr, { headers: { Authorization: 'Bearer SK-HDR' } }).catch((x) => x as Error);
+    expect(e.message).not.toContain('SK-HDR');
+    const ok = mk('flag', z.object({ withCredentials: z.boolean() }), () => { throw new Error('network unreachable'); });
+    const e2 = await createFromDescriptor(ok, { withCredentials: false }).catch((x) => x as Error);
+    expect(e2.message).toContain('network unreachable');
+  });
+
   it('bifurcated bulk ops: numeric ids, pagination defaults and duplicates', async () => {
     const { createBifurcatedProvider } = await import('../src/bifurcated-provider.js');
     const meta = createInMemoryProvider<any>(Array.from({ length: 30 }, (_, i) => ({ id: i + 1, title: `t${i}` })));
@@ -220,7 +230,7 @@ describe('provider descriptors', () => {
       createFromDescriptor(bif, { metadata: { name: 'nope' }, content: { name: 'inMemory' }, contentFields: ['body'] }),
     ).rejects.toThrow(/Invalid options/);
     const withSecret = { metadata: { name: 's3Like', options: { bucket: 'b', credentials: { accessKeyId: 'AKIA9999', secretAccessKey: 'shh-very' } } }, content: { name: 'inMemory' }, contentFields: ['body'] };
-    expect(secretOptionPaths(bif, withSecret).map((p) => p.join('.'))).toContain('metadata.options.credentials');
+    expect(secretOptionPaths(bif, withSecret).map((p) => p.join('.'))).toContain('metadata.options.credentials.secretAccessKey');
     expect(JSON.stringify(redactOptions(bif, withSecret as any))).not.toContain('shh-very');
   });
 

@@ -31,9 +31,9 @@ describe('secretPaths', () => {
       tuple: z.tuple([z.string(), secret]),
     });
     const got = secretPaths(s).map((p) => p.join('.')).sort();
-    // `auth` and `creds` are secret names themselves, so those whole containers are secret.
+    // `auth` is opened (its apiKey is the secret); `creds` is an array, kept whole.
     expect(got).toEqual([
-      'auth', 'creds', 'either.pin', 'init.headers.*', 'lazyS', 'nullableDefault',
+      'auth.apiKey', 'creds', 'either.pin', 'init.headers.*', 'lazyS', 'nullableDefault',
       'password', 'piped', 'top', 'tuple.1',
     ]);
   });
@@ -114,12 +114,40 @@ describe('round 3: defaults and constants inside a secret are published', () => 
     const { inspectSecrets } = await import('../src/sensitivity.js');
     const pub = (s: any) => inspectSecrets(s).published.map((p) => p.join('.'));
     const S = 'sk-live-X';
-    expect(pub(z.object({ credentials: z.object({ secretAccessKey: z.string().default(S) }) }))).toEqual(['credentials']);
+    expect(pub(z.object({ credentials: z.object({ secretAccessKey: z.string().default(S) }) }))).toEqual(['credentials.secretAccessKey']);
     expect(pub(z.object({ conn: z.object({ k: z.string().default(S) }).meta({ sensitivity: 'secret' }) }))).toEqual(['conn']);
     expect(pub(z.object({ apiKey: z.union([z.string().default(S), z.number()]) }))).toEqual(['apiKey']);
     expect(pub(z.object({ apiKey: z.lazy(() => z.string().default(S)) }))).toEqual(['apiKey']);
     expect(pub(z.object({ apiKey: z.literal(S) }))).toEqual(['apiKey']);
     expect(pub(z.object({ apiKey: z.enum([S, 'other']) }))).toEqual(['apiKey']);
     expect(pub(z.object({ authMode: z.enum(['none', 'basic']).default('none'), tokenEndpoint: z.string().default('https://x/token') }))).toEqual([]);
+  });
+});
+
+describe('round 4: the name rule, calibrated', () => {
+  it.each([
+    'authKey', 'basicAuth', 'authHeader', 'authHeaders', 'privateKeyPem', 'credentialsJson', 'secretKeyBase',
+    'supabaseKey', 'hmacKey', 'openaiKey', 'anthropicKey', 'stripeKey', 'sharedKey', 'sslKey', 'tlsKey',
+    'serviceAccountJson', 'githubPat', 'sasUrl', 'webhookUrl', 'presignedUrl', 'pgUrl', 'sessionToken',
+    'stripeSecretKey', 'webhookSecret', 'signingSecret', 'serviceRoleKey', 'sasToken', 'bearerToken', 'idToken', 'keyPassword',
+  ])('%s is secret', (k) => expect(isSecretName(k)).toBe(true));
+  it.each([
+    'withCredentials', 'useCredentials', 'useCookie', 'isPin', 'mapPin', 'nextPageToken', 'continuationToken', 'pageToken',
+    'cancellationToken', 'promptTokens', 'completionTokens', 'inputTokens', 'outputTokens', 'partitionKey', 'idempotencyKey',
+    'keyPrefix', 'publicKey', 'keyFile', 'passwordMinLength', 'tokenTtl',
+  ])('%s is not', (k) => expect(isSecretName(k)).toBe(false));
+  it('ordinary auth schemas are accepted; their secret leaves are found', async () => {
+    const { inspectSecrets } = await import('../src/sensitivity.js');
+    const i1 = inspectSecrets(z.object({ credentials: z.object({ accessKeyId: z.string(), secretAccessKey: z.string(), region: z.string().default('us-east-1') }) }));
+    expect(i1.published).toEqual([]);
+    expect(i1.paths.map((p) => p.join('.')).sort()).toEqual(['credentials.accessKeyId', 'credentials.secretAccessKey']);
+    const i2 = inspectSecrets(z.object({ auth: z.discriminatedUnion('type', [z.object({ type: z.literal('apiKey'), apiKey: z.string() }), z.object({ type: z.literal('none') })]) }));
+    expect(i2.published).toEqual([]);
+    expect(i2.paths.map((p) => p.join('.'))).toEqual(['auth.apiKey']);
+    const i3 = inspectSecrets(z.object({ authorization: z.object({ scheme: z.enum(['Bearer', 'Basic']), value: z.string() }) }));
+    expect(i3.published).toEqual([]);
+    expect(i3.paths.map((p) => p.join('.'))).toEqual(['authorization']);
+    // fail-closed: a secret-named container with no secret-looking member stays whole
+    expect(secretPaths(z.object({ auth: z.object({ user: z.string(), pass: z.string() }) })).map((p) => p.join('.'))).toEqual(['auth']);
   });
 });

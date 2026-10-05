@@ -32,6 +32,7 @@
 
 import { z, type ZodType } from 'zod';
 import {
+  isSecretName,
   secretPaths,
   inspectSecrets,
   redact,
@@ -383,7 +384,22 @@ function hasSecretsIn(descriptor: ProviderDescriptor, options: unknown): boolean
     }
   }
   return paths.some((p) => valuesAtPath(options, p).some((v) => v !== undefined && v !== null && v !== ''))
-    || secretValues(options, paths).length > 0;
+    || secretValues(options, paths).length > 0
+    || hasSecretNamedKey(options, 0, new WeakSet());
+}
+
+/** A secret-named key with a value anywhere in the plain parts of `value` (record keys, loose-object extras). */
+function hasSecretNamedKey(value: unknown, depth: number, seen: WeakSet<object>): boolean {
+  if (value === null || typeof value !== 'object' || depth > 32 || seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    if (value.length === 2 && typeof value[0] === 'string' && isSecretName(value[0]) && value[1] != null) return true;
+    return value.some((v) => hasSecretNamedKey(v, depth + 1, seen));
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Object.entries(value).some(
+    ([k, v]) => (isSecretName(k) && v !== undefined && v !== null && v !== '' && v !== false) || hasSecretNamedKey(v, depth + 1, seen),
+  );
 }
 
 function valuesAtPath(value: unknown, path: SecretPath): unknown[] {

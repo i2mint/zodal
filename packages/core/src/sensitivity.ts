@@ -32,27 +32,43 @@ export class SchemaIntrospectionError extends Error {
   }
 }
 
-// A key is secret when its LAST words name a secret ("accessToken", "databaseUrl",
-// "clientSecret"), or it is exactly one of a few short words ("auth", "pwd").
-// Earlier words only qualify: "authMode", "tokenEndpoint", "secretName",
-// "credentialsProvider", "storageKey", "passwordPolicy" are settings, not secrets.
+// How a key is judged (on its de-camelCased, separator-normalized words):
+// 1. A flag is never a secret: `withCredentials`, `useCookie`, `isPin`, `hasToken`.
+// 2. Format suffixes are dropped first: `privateKeyPem`, `credentialsJson`, `authHeader`.
+// 3. `...key` is secret unless a non-secret qualifier precedes it (sortKey,
+//    storageKey, publicKey...); unknown vendors fail closed (supabaseKey, hmacKey).
+// 4. `...token` is secret unless it is a pagination cursor or an LLM token count.
+// 5. Otherwise the last words must name a secret (password, clientSecret,
+//    databaseUrl, basicAuth...), or the whole key is a short secret word.
+const FLAG_PREFIX = new Set(['with', 'use', 'uses', 'is', 'has', 'enable', 'enabled', 'require', 'requires', 'allow', 'should', 'can', 'include', 'needs']);
+const FORMAT_SUFFIX = new Set(['pem', 'json', 'header', 'headers', 'base', 'b64', 'base64', 'value', 'string', 'der', 'hex', 'raw', 'data', 'text', 'env']);
+const NON_SECRET_KEY_QUALIFIER = new Set([
+  'sort', 'partition', 'cache', 'storage', 'idempotency', 'primary', 'foreign', 'object', 'hash', 'range', 'event',
+  'public', 'map', 'dedupe', 'dedup', 'lookup', 'unique', 'composite', 'group', 'row', 'column', 'field', 'index',
+  'shard', 'sharding', 'bucket', 'file', 'entry', 'record', 'item', 'query', 'search', 'cursor', 'routing', 'message',
+  'translation', 'i18n', 'locale', 'react', 'list', 'cell', 'node', 'edge', 'stream', 'topic', 'queue', 'metric', 'label',
+  'hot', 'short', 'shortcut', 'keyboard', 'sequence', 'order', 'parent', 'child', 'path', 'prefix', 'suffix', 'name',
+]);
+const NON_SECRET_TOKEN_QUALIFIER = new Set([
+  'page', 'continuation', 'cancellation', 'pagination', 'cursor', 'prompt', 'completion', 'input', 'output',
+  'cached', 'reasoning', 'max', 'min', 'num', 'count', 'total', 'limit', 'context', 'design', 'syntax', 'lexer',
+]);
 const SECRET_ENDING = new RegExp(
   '(?:^| )(?:' +
     [
-      'secrets?', 'client ?secret', 'secret ?(?:id|key|token|value)',
-      'passwords?', 'password ?hash', 'passwd', 'pass ?phrase', 'passcode', 'pin', 'pin ?code',
-      'credentials?',
-      'tokens?',
-      '(?:api|app|access|account|secret|private|signing|session|encryption|master|subscription|license|client|service ?role|anon|ocp ?apim ?subscription) ?keys?',
-      'access ?key ?id', 'key ?id',
-      'connection ?string', 'dsn',
-      '(?:database|db|redis|mongo|mongodb|postgres|postgresql|mysql|amqp|connection) ?(?:url|uri|string)',
-      'authorization', 'bearer', 'jwt', 'otp', 'cookie',
+      'secrets?', 'client ?secret', 'secret ?(?:id|value)', 'signing ?secret', 'webhook ?secret',
+      'passwords?', 'password ?hash', 'passwd', 'pass ?phrase', 'passcode', 'pin ?(?:code|number)',
+      'credentials?', 'creds',
+      'key ?id', 'access ?key ?id',
+      'connection ?string', 'dsn', 'pat',
+      '(?:database|db|pg|redis|mongo|mongodb|postgres|postgresql|mysql|amqp|connection|sas|webhook|presigned|signed) ?(?:url|uri)',
+      'authorization', 'bearer', 'jwt', 'otp', 'cookie', 'auth',
+      'service ?account',
     ].join('|') +
     ')$',
 );
-const SECRET_WHOLE = /^(?:auth|creds|pwd|key)$/;
-const NOT_SECRET = /(?:^| )(?:max|min|num|count|total|limit) tokens?$|^tokens? (?:count|limit|budget|usage|used)$/;
+const SECRET_WHOLE = /^(?:pwd|key|pin|sas)$/;
+const TOKEN_COUNTS = /^tokens? (?:count|limit|budget|usage|used)$/;
 
 /** Split a dotted/snake/camelCase key into lowercased, space-separated words. */
 function normalizeKey(key: string): string {
@@ -70,9 +86,18 @@ function normalizeKey(key: string): string {
  * `publicKey`, `isPrivate` do not.
  */
 export function isSecretName(key: string): boolean {
-  const k = normalizeKey(key).trim();
-  if (NOT_SECRET.test(k)) return false;
-  return SECRET_WHOLE.test(k) || SECRET_ENDING.test(k);
+  let words = normalizeKey(key).trim().split(' ').filter(Boolean);
+  if (words.length === 0) return false;
+  if (words.length > 1 && FLAG_PREFIX.has(words[0])) return false;
+  while (words.length > 1 && FORMAT_SUFFIX.has(words[words.length - 1])) words = words.slice(0, -1);
+  const k = words.join(' ');
+  if (SECRET_WHOLE.test(k)) return true;
+  if (TOKEN_COUNTS.test(k)) return false;
+  const last = words[words.length - 1];
+  const before = words[words.length - 2];
+  if (last === 'key' || last === 'keys') return !(before && NON_SECRET_KEY_QUALIFIER.has(before));
+  if (last === 'token' || last === 'tokens') return !(before && NON_SECRET_TOKEN_QUALIFIER.has(before));
+  return SECRET_ENDING.test(k);
 }
 
 const WRAPPERS = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
@@ -202,12 +227,23 @@ export function inspectSecrets(schema: unknown): SecretInspection {
     const isMarked = isMarkedSecret(s);
     const published = publishedValues(s);
     if (published.length) containers.push({ path: [...path], values: published });
+    // A name-matched CONTAINER (credentials: { accessKeyId, secretAccessKey, region }) is
+    // opened: its secret members are found by their own names, and its ordinary
+    // members (region) stay ordinary. Only if nothing inside is secret is the whole
+    // container treated as one secret (fail-closed: auth: { user, pass }).
+    if (byName && !isMarked && isContainer(s)) {
+      const before = paths.size;
+      walk(s, path, depth + 1, false);
+      if (paths.size > before) return;
+    }
     if (isMarked || byName) {
       paths.set(key(path), path);
       if (isMarked) marked.set(key(path), path);
       // Anything published from inside the secret (a nested default, a literal or
       // enum constant) is published with the schema too.
-      const inner = subtreePublished(s, 0, new Set());
+      // A leaf secret's literal/enum constants are its value; a container's are only
+      // shape (a scheme enum, a discriminator), so only defaults count for it.
+      const inner = subtreePublished(s, 0, new Set(), !isContainer(s));
       if (inner.length) containers.push({ path: [...path], values: inner.map((v) => ({ __whole: v })), whole: true } as any);
       return;
     }
@@ -268,7 +304,7 @@ export function inspectSecrets(schema: unknown): SecretInspection {
       const isMarked = marked.has(key(p));
       for (const v of c.values) {
         const found = (c as any).whole ? (rel.length === 0 ? [(v as any).__whole] : []) : rel.length === 0 ? [v] : valuesAt(v, rel);
-        if (found.some((x) => (isMarked ? x !== undefined && x !== null : containsNonEmptyString(x)))) {
+        if (found.some((x) => (isMarked ? x !== undefined && x !== null : containsValue(x)))) {
           published.set(key(p), p);
         }
       }
@@ -282,7 +318,7 @@ export function inspectSecrets(schema: unknown): SecretInspection {
  * examples and `meta.default` at any depth, and the constants of literals and
  * enums (which `toJSONSchema` prints as `const`/`enum`).
  */
-function subtreePublished(s: any, depth: number, seen: Set<unknown>): unknown[] {
+function subtreePublished(s: any, depth: number, seen: Set<unknown>, constants = true): unknown[] {
   if (!s?._zod?.def || depth > MAX_DEPTH || seen.has(s)) return [];
   seen.add(s);
   const def = s._zod.def;
@@ -290,10 +326,10 @@ function subtreePublished(s: any, depth: number, seen: Set<unknown>): unknown[] 
   const kids: unknown[] = [];
   switch (def.type) {
     case 'literal':
-      out.push(...(def.values ?? (def.value !== undefined ? [def.value] : [])));
+      if (constants) out.push(...(def.values ?? (def.value !== undefined ? [def.value] : [])));
       break;
     case 'enum':
-      out.push(...Object.values(def.entries ?? {}));
+      if (constants) out.push(...Object.values(def.entries ?? {}));
       break;
     case 'object': {
       const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
@@ -311,15 +347,34 @@ function subtreePublished(s: any, depth: number, seen: Set<unknown>): unknown[] 
     default:
       if (def.innerType) kids.push(def.innerType);
   }
-  for (const k of kids) out.push(...subtreePublished(k, depth + 1, seen));
+  for (const k of kids) out.push(...subtreePublished(k, depth + 1, seen, constants));
   return out;
 }
 
-/** A non-empty string anywhere inside `x` (a name-matched secret only leaks text, not a numeric setting). */
-function containsNonEmptyString(x: unknown, depth = 0): boolean {
+/** Does this schema (through wrappers) hold named members: an object, or a union/intersection of objects? */
+function isContainer(schema: unknown, depth = 0): boolean {
+  let s: any = schema;
+  for (let i = 0; s?._zod?.def && i < MAX_DEPTH; i++) {
+    const t = s._zod.def.type;
+    if (WRAPPERS.has(t)) s = s._zod.def.innerType;
+    else if (t === 'pipe') s = s._zod.def.in;
+    else if (t === 'lazy') s = s._zod.def.getter();
+    else break;
+  }
+  const def = s?._zod?.def;
+  if (!def || depth > 8) return false;
+  if (def.type === 'object') return true;
+  if (def.type === 'union') return (def.options ?? []).some((o: unknown) => isContainer(o, depth + 1));
+  if (def.type === 'intersection') return isContainer(def.left, depth + 1) || isContainer(def.right, depth + 1);
+  return false;
+}
+
+/** A non-empty string or a number anywhere inside `x` (booleans and empty strings are not secrets). */
+function containsValue(x: unknown, depth = 0): boolean {
   if (typeof x === 'string') return x.length > 0;
+  if (typeof x === 'number' || typeof x === 'bigint') return true;
   if (!x || typeof x !== 'object' || depth > 8) return false;
-  return childrenOf(x).some((v) => containsNonEmptyString(v, depth + 1));
+  return childrenOf(x).some((v) => containsValue(v, depth + 1));
 }
 
 /** Every value found at `path` inside `value` (`'*'` fans out over arrays, objects, Maps and Sets). */
