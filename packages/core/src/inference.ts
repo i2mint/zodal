@@ -77,6 +77,51 @@ export function getEnumValues(schema: z.ZodType): string[] | null {
   return null;
 }
 
+/**
+ * The closed vocabulary of a field, as strings, or null when it is open.
+ *
+ * Covers an enum (string or numeric, e.g. from a TS enum), a literal or a union
+ * of literals, and an array or set of any of those (a tag field with allowed
+ * values), through optional/nullable/default/readonly/catch wrappers. Values are
+ * stringified, so `z.enum({ A: 0, B: 1 })` gives `['0', '1']` rather than
+ * crashing a label formatter.
+ */
+export function getVocabulary(schema: z.ZodType): string[] | null {
+  const leaf = (s: any, depth: number): string[] | null => {
+    if (!s || depth > 8) return null;
+    const def = s._zod?.def;
+    if (!def) return null;
+    switch (def.type) {
+      case 'optional': case 'nullable': case 'default': case 'prefault':
+      case 'readonly': case 'catch': case 'nonoptional':
+        return leaf(def.innerType, depth + 1);
+      case 'enum': {
+        const values = def.entries ? Object.values(def.entries) : def.values;
+        return Array.isArray(values) ? [...new Set(values.map((v: unknown) => String(v)))] : null;
+      }
+      case 'literal': {
+        const values: unknown[] = def.values ?? (def.value !== undefined ? [def.value] : []);
+        return values.length ? values.map((v) => String(v)) : null;
+      }
+      case 'union': {
+        const out: string[] = [];
+        for (const option of def.options ?? []) {
+          const v = leaf(option, depth + 1);
+          if (!v) return null; // any open member makes the vocabulary open
+          out.push(...v);
+        }
+        return out.length ? [...new Set(out)] : null;
+      }
+      default:
+        return null;
+    }
+  };
+  const unwrapped = unwrapZodSchema(schema) as any;
+  const def = unwrapped?._zod?.def;
+  if (def?.type === 'array' || def?.type === 'set') return leaf(def.element ?? def.valueType, 0);
+  return leaf(unwrapped, 0);
+}
+
 /** Read Zod v4 metadata from the global registry. */
 export function getZodMeta(schema: z.ZodType): Record<string, unknown> | undefined {
   try {

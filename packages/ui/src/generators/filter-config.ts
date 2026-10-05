@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FilterType } from '@zodal/core';
-import { getEnumValues, getNumericBounds } from '@zodal/core';
+import { getVocabulary, getNumericBounds } from '@zodal/core';
 
 export interface FilterFieldConfig {
   /** Field key. */
@@ -44,8 +44,8 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
       : 'search';
 
     let options: { label: string; value: string }[] | undefined;
-    const enumValues = getEnumValues(fieldSchema);
-    if (enumValues && (filterType === 'select' || filterType === 'multiSelect')) {
+    const enumValues = getVocabulary(fieldSchema);
+    if (enumValues && (filterType === 'select' || filterType === 'multiSelect' || filterType === 'contains')) {
       options = enumValues.map(v => ({
         label: v.charAt(0).toUpperCase() + v.slice(1),
         value: v,

@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance } from '@zodal/core';
-import { getEnumValues, unwrapZodSchema } from '@zodal/core';
+import { getVocabulary } from '@zodal/core';
 
 export interface FormFieldConfig {
   /** Field key. */
@@ -28,8 +28,10 @@ export interface FormFieldConfig {
   helpText?: string;
   /** Default value. */
   defaultValue?: unknown;
-  /** Options for select/multiselect fields. */
+  /** Options for select/multiselect fields, and the allowed values of a closed tag vocabulary. */
   options?: { label: string; value: string }[];
+  /** For a `'tags'` field: may the user add values not in `options`? (False when the vocabulary is closed.) */
+  allowCreate?: boolean;
   /** Display order. */
   order: number;
   /** Zod type for the underlying schema. */
@@ -64,13 +66,6 @@ function inferFormWidgetType(zodType: string, fa: FieldAffordance): string {
   }
 }
 
-/** Enum values of an array's element type (`z.array(z.enum([...]))`), else null. */
-function arrayElementEnumValues(schema: z.ZodType): string[] | null {
-  const def = (unwrapZodSchema(schema) as any)?._zod?.def;
-  if (def?.type !== 'array' || !def.element) return null;
-  return getEnumValues(def.element);
-}
-
 /**
  * Generate form field configurations for create or edit forms.
  */
@@ -99,10 +94,10 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       ? (fa.requiredOnCreate ?? false)
       : (fa.requiredOnUpdate ?? false);
 
-    // Get enum options if applicable: an enum, or an array of an enum (a closed
-    // tag vocabulary: still a 'tags' widget, now with its allowed values).
+    // Closed vocabulary (an enum, literals, or an array of them: a 'tags' widget
+    // with allowed values). Open array fields accept new values (allowCreate).
     let options: { label: string; value: string }[] | undefined;
-    const enumValues = getEnumValues(fieldSchema) ?? arrayElementEnumValues(fieldSchema);
+    const enumValues = getVocabulary(fieldSchema);
     if (enumValues) {
       options = enumValues.map(v => ({
         label: v.charAt(0).toUpperCase() + v.slice(1),
@@ -120,6 +115,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       placeholder: fa.editPlaceholder,
       helpText: fa.editHelp ?? fa.description,
       options,
+      ...(zodType === 'array' || zodType === 'set' ? { allowCreate: !enumValues } : {}),
       order: fa.order ?? orderCounter++,
       zodType,
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),

@@ -57,6 +57,7 @@ export {
   unwrapZodSchema,
   hasZodCheck,
   getEnumValues,
+  getVocabulary,
   getZodMeta,
   getNumericBounds,
   humanizeFieldName,

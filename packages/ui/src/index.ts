@@ -73,6 +73,8 @@ export type {
   RendererContext,
   Suggestion,
   SuggestionSource,
+  SuggestOptions,
+  FieldRenderProps,
 } from './registry/tester.js';
 
 // AI prompt generator
