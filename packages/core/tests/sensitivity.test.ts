@@ -7,9 +7,12 @@ import {
 const secret = z.string().meta({ sensitivity: 'secret' });
 
 describe('isSecretName', () => {
-  it.each(['apiKey', 'api_key', 'password', 'client_secret', 'refreshToken', 'secretAccessKey', 'accessKeyId', 'privateKeyPath'])(
+  it.each(['apiKey', 'api_key', 'password', 'client_secret', 'refreshToken', 'secretAccessKey', 'accessKeyId', 'privateKey', 'appKey', 'subscriptionKey', 'Ocp-Apim-Subscription-Key', 'key'])(
     '%s is secret', (k) => expect(isSecretName(k)).toBe(true));
-  it.each(['keyboard', 'tokenize', 'secretary', 'bucket', 'region', 'name'])('%s is not', (k) => expect(isSecretName(k)).toBe(false));
+  it.each(['keyboard', 'tokenize', 'secretary', 'bucket', 'region', 'name', 'privateKeyPath',
+    'authMode', 'authType', 'authDomain', 'authUrl', 'useAuth', 'tokenType', 'tokenUrl', 'tokenEndpoint', 'jwtAlgorithm',
+    'cookieName', 'cookieDomain', 'passwordPolicy', 'secretName', 'secretRef', 'credentialsProvider', 'otpLength',
+    'storageKey', 'sortKey', 'primaryKey', 'cacheKey', 'pinned', 'tokenizer'])('%s is not', (k) => expect(isSecretName(k)).toBe(false));
 });
 
 describe('secretPaths', () => {
@@ -103,5 +106,20 @@ describe('round 2 of the leak hunt', () => {
     const t0 = Date.now();
     expect(redact(a, []).x).toBe(REDACTED);
     expect(Date.now() - t0).toBeLessThan(500);
+  });
+});
+
+describe('round 3: defaults and constants inside a secret are published', () => {
+  it('nested defaults, unions, lazy, pipes, literal/enum constants', async () => {
+    const { inspectSecrets } = await import('../src/sensitivity.js');
+    const pub = (s: any) => inspectSecrets(s).published.map((p) => p.join('.'));
+    const S = 'sk-live-X';
+    expect(pub(z.object({ credentials: z.object({ secretAccessKey: z.string().default(S) }) }))).toEqual(['credentials']);
+    expect(pub(z.object({ conn: z.object({ k: z.string().default(S) }).meta({ sensitivity: 'secret' }) }))).toEqual(['conn']);
+    expect(pub(z.object({ apiKey: z.union([z.string().default(S), z.number()]) }))).toEqual(['apiKey']);
+    expect(pub(z.object({ apiKey: z.lazy(() => z.string().default(S)) }))).toEqual(['apiKey']);
+    expect(pub(z.object({ apiKey: z.literal(S) }))).toEqual(['apiKey']);
+    expect(pub(z.object({ apiKey: z.enum([S, 'other']) }))).toEqual(['apiKey']);
+    expect(pub(z.object({ authMode: z.enum(['none', 'basic']).default('none'), tokenEndpoint: z.string().default('https://x/token') }))).toEqual([]);
   });
 });

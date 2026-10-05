@@ -92,6 +92,7 @@ export type {
 export {
   isSecretName,
   isMarkedSecret,
+  isMarkedPublic,
   hasDefault,
   secretPaths,
   inspectSecrets,

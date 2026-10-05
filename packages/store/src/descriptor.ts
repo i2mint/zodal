@@ -241,7 +241,7 @@ function replaceAt(value: unknown, path: SecretPath, replacement: unknown, i = 0
  * Never writes into `options`.
  */
 export function redactOptions<O>(descriptor: ProviderDescriptor<O>, options: O): O {
-  let out: unknown = redact(options, secretOptionPaths(descriptor, options));
+  let out: unknown = redact(options, secretOptionPaths(descriptor, options), inspectSecrets(descriptor.options).publicPaths);
   for (const path of liveOptionPaths(descriptor)) out = replaceAt(out, path, LIVE);
   return out as O;
 }
@@ -257,7 +257,7 @@ export function splitOptions<O extends Record<string, unknown>>(
   options: O,
 ): { data: Partial<O>; secretPaths: SecretPath[]; live: SecretPath[] } {
   const live = liveOptionPaths(descriptor);
-  let data: unknown = redact(options, secretOptionPaths(descriptor, options));
+  let data: unknown = redact(options, secretOptionPaths(descriptor, options), inspectSecrets(descriptor.options).publicPaths);
   for (const path of live) data = replaceAt(data, path, undefined);
   data = dropUndefined(data);
   return { data: data as Partial<O>, secretPaths: secretOptionPaths(descriptor, options), live };
@@ -291,11 +291,11 @@ function describeIssue(issue: any, schema: unknown): string {
   if (issue.minimum !== undefined) parts.push(`minimum ${String(issue.minimum)}`);
   if (issue.maximum !== undefined) parts.push(`maximum ${String(issue.maximum)}`);
   if (issue.format !== undefined) parts.push(`format ${String(issue.format)}`);
-  if (Array.isArray(issue.keys)) parts.push(`keys ${issue.keys.map((k: string) => (secretLike(k) ? '[secret]' : k)).join(',')}`);
+  // Unrecognized keys are user data (a pasted token can be a key): count them, never print them.
+  if (Array.isArray(issue.keys)) parts.push(`${issue.keys.length} unrecognized key(s)`);
   return `${where}: ${parts.join(', ')}`;
 }
 
-const secretLike = (k: string) => k.length > 24 || /[^\w.-]/.test(k);
 
 /**
  * An issue path with every segment that is not a schema-declared object key (a
@@ -329,7 +329,13 @@ function safePath(schema: unknown, path: readonly PropertyKey[]): string[] {
       else if (def.type === 'union') nodes.push(...(def.options ?? []));
       else if (def.type === 'intersection') nodes.push(def.left, def.right);
     }
-    out.push(typeof seg === 'number' ? String(seg) : declared ? String(seg) : '*');
+    const indexed = nodes.some((n: any) => {
+      let s = n;
+      for (let i = 0; i < 32 && s?._zod?.def && ['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional'].includes(s._zod.def.type); i++) s = s._zod.def.innerType;
+      const ty = s?._zod?.def?.type;
+      return ty === 'array' || ty === 'tuple' || ty === 'set';
+    });
+    out.push(declared ? String(seg) : typeof seg === 'number' && indexed ? String(seg) : '*');
     nodes = next;
   }
   return out;
@@ -354,32 +360,56 @@ function snapshot<V>(value: V, depth = 0, seen = new WeakSet<object>()): V {
  * only when the options hold no secret values (so nothing can be echoed,
  * encoded or not), else just its type.
  */
-function safeErrorText(err: unknown, secrets: readonly string[]): string {
-  const name = err instanceof Error ? err.name : typeof err;
-  if (secrets.length > 0) return `${name} (message withheld: these options contain secrets)`;
-  return err instanceof Error ? `${name}: ${err.message}` : String(err);
+function safeErrorText(err: unknown, hasSecrets: boolean): string {
+  // Not even the error's name: a custom name can be built from a value.
+  if (hasSecrets) return 'an error (message withheld: these options contain secrets)';
+  return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 }
 
-function secretsIn(descriptor: ProviderDescriptor, options: unknown): string[] {
+/**
+ * Do these options hold any secret value? Any non-null value at a secret path
+ * counts, not only text: a `URL` or a credentials object can be rendered into an
+ * error message just as well.
+ */
+function hasSecretsIn(descriptor: ProviderDescriptor, options: unknown): boolean {
   let paths: SecretPath[];
   try {
     paths = secretOptionPaths(descriptor, options);
   } catch {
-    paths = secretPaths(descriptor.options);
+    try {
+      paths = secretPaths(descriptor.options);
+    } catch {
+      return true; // cannot tell: assume secrets
+    }
   }
-  return secretValues(options, paths);
+  return paths.some((p) => valuesAtPath(options, p).some((v) => v !== undefined && v !== null && v !== ''))
+    || secretValues(options, paths).length > 0;
+}
+
+function valuesAtPath(value: unknown, path: SecretPath): unknown[] {
+  let frontier: unknown[] = [value];
+  for (const seg of path) {
+    const next: unknown[] = [];
+    for (const n of frontier) {
+      if (n === null || typeof n !== 'object') continue;
+      if (seg === '*') next.push(...(n instanceof Map || n instanceof Set ? [...n.values()] : Object.values(n)));
+      else next.push(n instanceof Map ? n.get(seg) : (n as any)[seg]);
+    }
+    frontier = next;
+  }
+  return frontier;
 }
 
 /** `create` with an error that never carries secret values. */
 async function createSafely<O, T extends Record<string, any>>(
   descriptor: ProviderDescriptor<O, T>,
   parsed: O,
-  secrets: readonly string[],
+  hasSecrets: boolean,
 ): Promise<DataProvider<T>> {
   try {
     return await descriptor.create(parsed);
   } catch (err) {
-    throw new Error(`Provider "${descriptor.name}" could not be created: ${safeErrorText(err, secrets)}`);
+    throw new Error(`Provider "${descriptor.name}" could not be created: ${safeErrorText(err, hasSecrets)}`);
   }
 }
 
@@ -396,7 +426,7 @@ export async function createFromDescriptor<O, T extends Record<string, any>>(
   options: unknown,
 ): Promise<DataProvider<T>> {
   const input = snapshot(options);
-  const rawSecrets = secretsIn(descriptor, input);
+  const rawSecrets = hasSecretsIn(descriptor, input);
   let parsed: ReturnType<typeof descriptor.options.safeParse>;
   try {
     parsed = descriptor.options.safeParse(input);
@@ -408,7 +438,7 @@ export async function createFromDescriptor<O, T extends Record<string, any>>(
     throw new Error(`Invalid options for provider "${descriptor.name}": ${lines.join('; ')}`);
   }
   // A secret may appear only after parsing (a transform falling back to an environment variable).
-  const secrets = [...new Set([...rawSecrets, ...secretsIn(descriptor, parsed.data)])];
+  const secrets = rawSecrets || hasSecretsIn(descriptor, parsed.data);
   return createSafely(descriptor, parsed.data as O, secrets);
 }
 
@@ -504,7 +534,7 @@ export function bifurcatedDescriptor(
           throw new Error(`${side} provider "${d.name}" cannot run here`);
         }
         // Already parsed by the union: create directly (a second parse would re-run transforms).
-        return createSafely(d, choice.options as any, secretsIn(d, choice.options));
+        return createSafely(d, choice.options as any, hasSecretsIn(d, choice.options));
       };
       const metadataProvider = await build('metadata', metadata);
       const contentProvider = await build('content', content);

@@ -32,27 +32,29 @@ export class SchemaIntrospectionError extends Error {
   }
 }
 
-// Words are matched on the de-camelCased, separator-normalized key. Singular
-// `token` only: `maxTokens` / `tokenize` are not secrets.
-const SECRET_NAME = new RegExp(
-  '(?:^| )(' +
+// A key is secret when its LAST words name a secret ("accessToken", "databaseUrl",
+// "clientSecret"), or it is exactly one of a few short words ("auth", "pwd").
+// Earlier words only qualify: "authMode", "tokenEndpoint", "secretName",
+// "credentialsProvider", "storageKey", "passwordPolicy" are settings, not secrets.
+const SECRET_ENDING = new RegExp(
+  '(?:^| )(?:' +
     [
-      'secrets?', 'secret ?(?:id|key)', 'client ?secret',
-      'passwords?', 'passwd', 'pass ?phrase', 'pin',
+      'secrets?', 'client ?secret', 'secret ?(?:id|key|token|value)',
+      'passwords?', 'password ?hash', 'passwd', 'pass ?phrase', 'passcode', 'pin', 'pin ?code',
       'credentials?',
-      'token', 'tokens', '(?:access|auth|refresh|bearer|id|session|csrf|api|personal ?access) ?tokens?', 'jwt', 'otp', 'passcode',
-      'pwd', 'auth', 'creds', 'account ?key',
+      'tokens?',
+      '(?:api|app|access|account|secret|private|signing|session|encryption|master|subscription|license|client|service ?role|anon|ocp ?apim ?subscription) ?keys?',
+      'access ?key ?id', 'key ?id',
+      'connection ?string', 'dsn',
       '(?:database|db|redis|mongo|mongodb|postgres|postgresql|mysql|amqp|connection) ?(?:url|uri|string)',
-      'api ?keys?', 'access ?keys?', 'private ?keys?', 'secret ?access ?key', 'signing ?key',
-      'service ?role ?key', 'anon ?key', 'session ?key', 'encryption ?key', 'master ?key',
-      'connection ?string', 'dsn', 'authorization', 'bearer', 'cookie',
+      'authorization', 'bearer', 'jwt', 'otp', 'cookie',
     ].join('|') +
-    ')(?: |$)',
+    ')$',
 );
+const SECRET_WHOLE = /^(?:auth|creds|pwd|key)$/;
+const NOT_SECRET = /(?:^| )(?:max|min|num|count|total|limit) tokens?$|^tokens? (?:count|limit|budget|usage|used)$/;
 
 /** Split a dotted/snake/camelCase key into lowercased, space-separated words. */
-const NOT_SECRET = /(?:^| )(?:max|min|num|count|total|limit) ?tokens?(?: |$)|tokens? ?(?:count|limit|budget|usage|used)(?: |$)/;
-
 function normalizeKey(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -68,8 +70,9 @@ function normalizeKey(key: string): string {
  * `publicKey`, `isPrivate` do not.
  */
 export function isSecretName(key: string): boolean {
-  const k = normalizeKey(key);
-  return SECRET_NAME.test(k) && !NOT_SECRET.test(k);
+  const k = normalizeKey(key).trim();
+  if (NOT_SECRET.test(k)) return false;
+  return SECRET_WHOLE.test(k) || SECRET_ENDING.test(k);
 }
 
 const WRAPPERS = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
@@ -146,6 +149,20 @@ function safeCall(f: () => unknown): unknown {
   }
 }
 
+/** Is this schema (or a wrapper of it) explicitly marked `.meta({ sensitivity: 'public' })`? */
+export function isMarkedPublic(schema: unknown): boolean {
+  let s: any = schema;
+  for (let i = 0; s && i < MAX_DEPTH; i++) {
+    if (metaOf(s)?.sensitivity === 'public') return true;
+    const def = s?._zod?.def;
+    if (!def) return false;
+    if (WRAPPERS.has(def.type)) s = def.innerType;
+    else if (def.type === 'pipe') s = def.in;
+    else return false;
+  }
+  return false;
+}
+
 /** Does any wrapper on the way down give this schema a default value? */
 export function hasDefault(schema: unknown): boolean {
   return publishedValues(schema).length > 0;
@@ -157,6 +174,8 @@ export interface SecretInspection {
   paths: SecretPath[];
   /** The subset of `paths` marked explicitly (`.meta({ sensitivity: 'secret' })`), not matched by name. */
   marked: SecretPath[];
+  /** Fields whose names look secret but are declared `.meta({ sensitivity: 'public' })`: never redacted by name. */
+  publicPaths: SecretPath[];
   /**
    * Secrets whose value would be published with the schema: a default, catch
    * value, example or `meta.default` on the field or on any container above it
@@ -172,6 +191,7 @@ const key = (p: SecretPath) => JSON.stringify(p);
 export function inspectSecrets(schema: unknown): SecretInspection {
   const paths = new Map<string, SecretPath>();
   const marked = new Map<string, SecretPath>();
+  const publicPaths = new Map<string, SecretPath>();
   const containers: { path: SecretPath; values: unknown[] }[] = [];
 
   const walk = (s: unknown, path: (string | number)[], depth: number, byName: boolean): void => {
@@ -185,6 +205,10 @@ export function inspectSecrets(schema: unknown): SecretInspection {
     if (isMarked || byName) {
       paths.set(key(path), path);
       if (isMarked) marked.set(key(path), path);
+      // Anything published from inside the secret (a nested default, a literal or
+      // enum constant) is published with the schema too.
+      const inner = subtreePublished(s, 0, new Set());
+      if (inner.length) containers.push({ path: [...path], values: inner.map((v) => ({ __whole: v })), whole: true } as any);
       return;
     }
     switch (def.type) {
@@ -198,7 +222,13 @@ export function inspectSecrets(schema: unknown): SecretInspection {
         return walk(def.getter(), path, depth + 1, false);
       case 'object': {
         const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
-        for (const [k, field] of Object.entries(shape ?? {})) walk(field, [...path, k], depth + 1, isSecretName(k));
+        // A name match can be overridden by marking the field `.meta({ sensitivity: 'public' })`
+        // (e.g. fetch's `credentials: 'include'`, a mode, not a credential).
+        for (const [k, field] of Object.entries(shape ?? {})) {
+          const declaredPublic = isSecretName(k) && isMarkedPublic(field);
+          if (declaredPublic) publicPaths.set(key([...path, k]), [...path, k]);
+          walk(field, [...path, k], depth + 1, isSecretName(k) && !declaredPublic);
+        }
         if (def.catchall) walk(def.catchall, [...path, '*'], depth + 1, false);
         return;
       }
@@ -237,14 +267,52 @@ export function inspectSecrets(schema: unknown): SecretInspection {
       const rel = p.slice(c.path.length);
       const isMarked = marked.has(key(p));
       for (const v of c.values) {
-        const found = rel.length === 0 ? [v] : valuesAt(v, rel);
+        const found = (c as any).whole ? (rel.length === 0 ? [(v as any).__whole] : []) : rel.length === 0 ? [v] : valuesAt(v, rel);
         if (found.some((x) => (isMarked ? x !== undefined && x !== null : containsNonEmptyString(x)))) {
           published.set(key(p), p);
         }
       }
     }
   }
-  return { paths: [...paths.values()], marked: [...marked.values()], published: [...published.values()] };
+  return { paths: [...paths.values()], marked: [...marked.values()], published: [...published.values()], publicPaths: [...publicPaths.values()] };
+}
+
+/**
+ * Every value published from anywhere inside a schema: defaults, catch values,
+ * examples and `meta.default` at any depth, and the constants of literals and
+ * enums (which `toJSONSchema` prints as `const`/`enum`).
+ */
+function subtreePublished(s: any, depth: number, seen: Set<unknown>): unknown[] {
+  if (!s?._zod?.def || depth > MAX_DEPTH || seen.has(s)) return [];
+  seen.add(s);
+  const def = s._zod.def;
+  const out: unknown[] = [...publishedValues(s)];
+  const kids: unknown[] = [];
+  switch (def.type) {
+    case 'literal':
+      out.push(...(def.values ?? (def.value !== undefined ? [def.value] : [])));
+      break;
+    case 'enum':
+      out.push(...Object.values(def.entries ?? {}));
+      break;
+    case 'object': {
+      const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
+      kids.push(...Object.values(shape ?? {}));
+      if (def.catchall) kids.push(def.catchall);
+      break;
+    }
+    case 'pipe': kids.push(def.in, def.out); break;
+    case 'lazy': kids.push(def.getter()); break;
+    case 'union': kids.push(...(def.options ?? [])); break;
+    case 'intersection': kids.push(def.left, def.right); break;
+    case 'tuple': kids.push(...(def.items ?? []), ...(def.rest ? [def.rest] : [])); break;
+    case 'array': case 'set': kids.push(def.element ?? def.valueType); break;
+    case 'record': case 'map': kids.push(def.keyType, def.valueType); break;
+    default:
+      if (def.innerType) kids.push(def.innerType);
+  }
+  for (const k of kids) out.push(...subtreePublished(k, depth + 1, seen));
+  return out;
 }
 
 /** A non-empty string anywhere inside `x` (a name-matched secret only leaks text, not a numeric setting). */
@@ -296,11 +364,17 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
  * replaced whole, except `Date`s; an object met twice (shared or circular) is
  * replaced by the marker the second time.
  */
-export function redact<V>(value: V, paths: readonly SecretPath[]): V {
-  return redactNode(value, paths, 0, new WeakSet()) as V;
+export function redact<V>(value: V, paths: readonly SecretPath[], publicPaths: readonly SecretPath[] = []): V {
+  return redactNode(value, paths, 0, new WeakSet(), publicPaths) as V;
 }
 
-function redactNode(node: unknown, paths: readonly SecretPath[], depth: number, seen: WeakSet<object>): unknown {
+function redactNode(
+  node: unknown,
+  paths: readonly SecretPath[],
+  depth: number,
+  seen: WeakSet<object>,
+  allow: readonly SecretPath[],
+): unknown {
   if (paths.some((p) => p.length === 0)) return node === undefined ? node : REDACTED;
   if (node === null || typeof node !== 'object') return node;
   if (node instanceof Date) return new Date(node.getTime());
@@ -309,12 +383,15 @@ function redactNode(node: unknown, paths: readonly SecretPath[], depth: number, 
   if (Array.isArray(node)) {
     // A [name, value] pair whose name looks like a secret (HTTP header tuples).
     if (node.length === 2 && typeof node[0] === 'string' && isSecretName(node[0])) return [node[0], REDACTED];
-    return node.map((item, i) => redactNode(item, childPaths(paths, i), depth + 1, seen));
+    return node.map((item, i) => redactNode(item, childPaths(paths, i), depth + 1, seen, childPaths(allow, i)));
   }
   if (isPlainObject(node)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(node)) {
-      out[k] = isSecretName(k) && v !== undefined ? REDACTED : redactNode(v, childPaths(paths, k), depth + 1, seen);
+      const allowed = childPaths(allow, k).some((p) => p.length === 0);
+      out[k] = isSecretName(k) && !allowed && v !== undefined
+        ? REDACTED
+        : redactNode(v, childPaths(paths, k), depth + 1, seen, childPaths(allow, k));
     }
     return out;
   }

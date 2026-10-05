@@ -144,6 +144,30 @@ describe('provider descriptors', () => {
     await expect(createFromDescriptor(outer, { metadata: { name: 'fnCaps' }, content: { name: 'inMemory' }, contentFields: ['b'] })).rejects.toThrow(/Invalid options/);
   });
 
+  it('round 3: keys never printed, object secrets withhold messages, overrides for name matches', async () => {
+    const mk = (name: string, options: any, create: any = () => createInMemoryProvider([])) =>
+      defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+    const S = 'SECRET1234';
+    const strict = mk('strict', z.strictObject({ region: z.string() }));
+    const e1 = await createFromDescriptor(strict, { region: 'eu', [S]: 1 }).catch((e) => e as Error);
+    expect(e1.message).not.toContain(S);
+    expect(e1.message).toMatch(/1 unrecognized key/);
+    const url = mk('url', z.object({ databaseUrl: z.instanceof(URL) }), (o: any) => { throw new Error(`cannot connect to ${o.databaseUrl}`); });
+    const e2 = await createFromDescriptor(url, { databaseUrl: new URL('postgres://u:SECRETpw@h/db') }).catch((e) => e as Error);
+    expect(e2.message).not.toContain('SECRETpw');
+    const named = mk('named', z.object({ apiKey: z.string() }), (o: any) => { const err = new Error('x'); err.name = `Auth ${o.apiKey}`; throw err; });
+    const e3 = await createFromDescriptor(named, { apiKey: 'sk-NAME-LEAK' }).catch((e) => e as Error);
+    expect(e3.message).not.toContain('sk-NAME-LEAK');
+    const mapKeys = mk('mapKeys', z.object({ m: z.map(z.number(), z.number()) }));
+    const e4 = await createFromDescriptor(mapKeys, { m: new Map([[123456789, 'x']]) }).catch((e) => e as Error);
+    expect(e4.message).not.toContain('123456789');
+    // ordinary settings with secret-looking first words are fine, with defaults
+    expect(() => mk('settings', z.object({ authMode: z.enum(['none', 'basic']).default('none'), tokenEndpoint: z.string().default('https://x/token'), storageKey: z.string().default('items') }))).not.toThrow();
+    // a name match can be declared public
+    const fetchy = mk('fetchy', z.object({ init: z.object({ credentials: z.enum(['include', 'omit']).default('include').meta({ sensitivity: 'public' }) }) }));
+    expect(redactOptions(fetchy, { init: { credentials: 'include' } } as any)).toEqual({ init: { credentials: 'include' } });
+  });
+
   it('bifurcated bulk ops: numeric ids, pagination defaults and duplicates', async () => {
     const { createBifurcatedProvider } = await import('../src/bifurcated-provider.js');
     const meta = createInMemoryProvider<any>(Array.from({ length: 30 }, (_, i) => ({ id: i + 1, title: `t${i}` })));
