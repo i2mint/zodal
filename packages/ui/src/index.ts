@@ -71,6 +71,8 @@ export type {
   RendererTester,
   RendererEntry,
   RendererContext,
+  Suggestion,
+  SuggestionSource,
 } from './registry/tester.js';
 
 // AI prompt generator

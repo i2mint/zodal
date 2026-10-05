@@ -73,3 +73,12 @@ export {
   dateEpochMsCodec,
   jsonCodec,
 } from './codec-types.js';
+
+// Operations as commands (acture-shaped, no acture dependency)
+export { toCommandRecord } from './commands.js';
+export type {
+  OperationCommand,
+  OperationCommandResult,
+  OperationCommandError,
+  ToCommandOptions,
+} from './commands.js';

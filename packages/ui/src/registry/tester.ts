@@ -33,9 +33,28 @@ export const PRIORITY = {
 export interface RendererContext {
   /** The render mode: 'cell' for table cells, 'form' for form fields, 'filter' for filter widgets. */
   mode: 'cell' | 'form' | 'filter';
+  /**
+   * Where a tag-like widget (a `'tags'` form field, a `contains` filter) gets its
+   * suggestions: the values already used in the collection, a zodal-groups
+   * vocabulary, a server endpoint. Injected by the app, so no renderer imports a
+   * store. Absent: the widget offers the field's `options`, or free text.
+   */
+  suggest?: SuggestionSource;
   /** Additional context from the consumer. */
   [key: string]: unknown;
 }
+
+/** One suggestion offered by a tag-like widget. */
+export interface Suggestion {
+  value: string;
+  label: string;
+}
+
+/** Suggestions for `query` (what the user typed so far) in the field named `field`. */
+export type SuggestionSource = (
+  query: string,
+  field: string,
+) => readonly Suggestion[] | Promise<readonly Suggestion[]>;
 
 /**
  * A tester function: returns a priority score (> 0 means match) or -1 (no match).

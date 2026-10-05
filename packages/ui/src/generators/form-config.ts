@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance } from '@zodal/core';
-import { getEnumValues } from '@zodal/core';
+import { getEnumValues, unwrapZodSchema } from '@zodal/core';
 
 export interface FormFieldConfig {
   /** Field key. */
@@ -64,6 +64,13 @@ function inferFormWidgetType(zodType: string, fa: FieldAffordance): string {
   }
 }
 
+/** Enum values of an array's element type (`z.array(z.enum([...]))`), else null. */
+function arrayElementEnumValues(schema: z.ZodType): string[] | null {
+  const def = (unwrapZodSchema(schema) as any)?._zod?.def;
+  if (def?.type !== 'array' || !def.element) return null;
+  return getEnumValues(def.element);
+}
+
 /**
  * Generate form field configurations for create or edit forms.
  */
@@ -92,9 +99,10 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       ? (fa.requiredOnCreate ?? false)
       : (fa.requiredOnUpdate ?? false);
 
-    // Get enum options if applicable
+    // Get enum options if applicable: an enum, or an array of an enum (a closed
+    // tag vocabulary: still a 'tags' widget, now with its allowed values).
     let options: { label: string; value: string }[] | undefined;
-    const enumValues = getEnumValues(fieldSchema);
+    const enumValues = getEnumValues(fieldSchema) ?? arrayElementEnumValues(fieldSchema);
     if (enumValues) {
       options = enumValues.map(v => ({
         label: v.charAt(0).toUpperCase() + v.slice(1),

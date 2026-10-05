@@ -352,3 +352,18 @@ describe('Complete pipeline integration', () => {
     expect(desc).toContain('deactivate [item]');
   });
 });
+
+describe('toFormConfig — tag fields', () => {
+  it('an array of an enum is a tags field with its closed vocabulary as options', () => {
+    const c = defineCollection(z.object({
+      id: z.string(),
+      labels: z.array(z.enum(['urgent', 'later'])),
+      tags: z.array(z.string()),
+    }));
+    const byName = Object.fromEntries(toFormConfig(c).map((f) => [f.name, f]));
+    expect(byName.labels.type).toBe('tags');
+    expect(byName.labels.options?.map((o) => o.value)).toEqual(['urgent', 'later']);
+    expect(byName.tags.type).toBe('tags');
+    expect(byName.tags.options).toBeUndefined();
+  });
+});

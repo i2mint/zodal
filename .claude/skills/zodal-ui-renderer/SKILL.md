@@ -315,6 +315,12 @@ for (const col of columns) {
 }
 ```
 
+## Tag Fields and Operations
+
+**Tag-like fields.** An array field becomes a form field of `type: 'tags'`; an array of an enum (`z.array(z.enum([...]))`) also carries its closed vocabulary in `options`. A filter on an array field is `filterable: 'contains'`. Render these as chips (add/remove by keyboard, create a new value unless `options` closes the vocabulary), and a chip cell with overflow, never `value.join(', ')`. Suggestions come from `context.suggest?.(query, field)` (a `SuggestionSource` the app injects: values already used, a zodal-groups vocabulary, a server endpoint), so a renderer never imports a store.
+
+**Operations are declarative; execution is a command.** Render `OperationDefinition`s (label, icon, confirm, shortcut) as buttons or menu items, and on activation dispatch the command with the same id (`toCommandRecord(op, execute)` from `@zodal/core` builds one in acture's `CommandRecord` shape). Do not call a handler stored on the operation: there is none, by design.
+
 ## Generator Output Types Reference
 
 ### ColumnConfig (from toColumnDefs)
