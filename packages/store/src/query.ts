@@ -11,25 +11,39 @@
 import type { GetListParams, GetListResult } from './data-provider.js';
 import { filterToFunction } from './filters.js';
 
-const TYPE_RANK: Record<string, number> = {
-  number: 0, bigint: 0, string: 1, boolean: 2, object: 3, symbol: 4, function: 5,
+const rankOf = (v: unknown): number => {
+  switch (typeof v) {
+    case 'number':
+    case 'bigint':
+      return 0;
+    case 'string':
+      return 1;
+    case 'boolean':
+      return 2;
+    case 'object':
+      return v instanceof Date ? 3 : 4;
+    default:
+      return 5; // symbol, function
+  }
 };
 
 /**
  * Shared fallback for {@link compareValues} and {@link compareBinary}: a total,
- * engine-independent order for values of different types (numbers, then strings,
- * then booleans, then objects; NaN after every other number), so a sort over
- * mixed data is deterministic.
+ * transitive, engine-independent order for values of different types (numbers,
+ * then strings, then booleans, then Dates, then other objects, then the rest; NaN
+ * after every other number), so a sort over mixed data is deterministic.
  */
 function compareMixed(a: any, b: any): number {
-  const ta = TYPE_RANK[typeof a] ?? 9;
-  const tb = TYPE_RANK[typeof b] ?? 9;
-  if (ta !== tb) return ta - tb;
-  if (typeof a === 'number' && typeof b === 'number') {
+  const ra = rankOf(a);
+  const rb = rankOf(b);
+  if (ra !== rb) return ra - rb;
+  if (ra === 0) {
     const na = Number.isNaN(a);
     const nb = Number.isNaN(b);
     if (na || nb) return na === nb ? 0 : na ? 1 : -1;
   }
+  if (ra === 3) return a.getTime() - b.getTime();
+  if (ra >= 4) return 0; // objects, symbols, functions: no meaningful order; keep input order
   return a < b ? -1 : a > b ? 1 : 0;
 }
 

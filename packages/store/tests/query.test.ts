@@ -78,3 +78,14 @@ describe('ordering details', () => {
     expect(['a', 'B', 'a0', 'Zz'].sort(compareBinary)).toEqual(['B', 'Zz', 'a', 'a0']);
   });
 });
+
+describe('ordering is transitive across Dates and objects', () => {
+  it('Dates sort among themselves, before other objects', () => {
+    const d0 = new Date(0), d5 = new Date(5), o = {}, arr: unknown[] = [];
+    const sorted = [o, d5, arr, d0].sort(compareValues);
+    expect(sorted.slice(0, 2)).toEqual([d0, d5]);
+  });
+  it('symbols do not throw', () => {
+    expect(() => [Symbol('a'), Symbol('b'), 1].sort(compareValues)).not.toThrow();
+  });
+});

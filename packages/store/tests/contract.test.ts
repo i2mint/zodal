@@ -125,3 +125,17 @@ describe('in-memory provider: regressions found by review', () => {
     expect((await p.getOne('1')).thing.label).toBe('#1');
   });
 });
+
+describe('in-memory ids stay consistent through writes', () => {
+  it('a deleted id can be created again; an upserted id cannot be created', async () => {
+    const p = createInMemoryProvider([{ id: '1', name: 'a' }]);
+    await p.delete('1');
+    await p.create({ id: '1', name: 'again' });
+    await p.upsert!({ id: '9', name: 'up' });
+    await expect(p.create({ id: '9', name: 'dup' })).rejects.toThrow(/already exists/);
+  });
+  it('the kit passes when search covers only the name field', async () => {
+    const s = await providerContract({ make: (seed) => createInMemoryProvider(seed, { searchFields: ['name'] }) });
+    for (const c of s.filter((c) => c.name.startsWith('getList search'))) await c.run();
+  });
+});

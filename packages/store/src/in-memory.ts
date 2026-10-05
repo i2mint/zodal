@@ -56,11 +56,16 @@ export function createInMemoryProvider<T extends Record<string, any>>(
   const clone: <V>(v: V) => V = options.clone ?? ((v) => structuredClone(v));
   let items = initialData.map(clone);
   let nextId = items.length + 1;
+  // Ids in use, kept in step with `items`, so create's collision check and
+  // freshId are O(1) rather than a scan per call.
+  let usedIds = new Set(items.map((i) => String((i as any)[idField])));
+  const reindex = () => {
+    usedIds = new Set(items.map(getItemId));
+  };
 
   /** The next numeric id not already used (seeded ids may collide with a counter). */
   function freshId(): string {
-    const used = new Set(items.map(getItemId));
-    while (used.has(String(nextId))) nextId++;
+    while (usedIds.has(String(nextId))) nextId++;
     return String(nextId++);
   }
 
@@ -89,7 +94,7 @@ export function createInMemoryProvider<T extends Record<string, any>>(
     async create(data: Partial<T>): Promise<T> {
       await maybeDelay();
       const given = (data as any)[idField];
-      if (given != null && items.some((i) => getItemId(i) === String(given))) {
+      if (given != null && usedIds.has(String(given))) {
         throw new Error(`Item already exists: ${given}`);
       }
       const newItem = clone({
@@ -97,6 +102,7 @@ export function createInMemoryProvider<T extends Record<string, any>>(
         [idField]: given ?? freshId(),
       } as T);
       items.push(newItem);
+      usedIds.add(getItemId(newItem));
       return clone(newItem);
     },
 
@@ -105,6 +111,7 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       const index = items.findIndex(i => getItemId(i) === id);
       if (index === -1) throw new Error(`Item not found: ${id}`);
       items[index] = { ...items[index], ...clone(data) };
+      if (idField in data) reindex(); // an update may rename the id
       return clone(items[index]);
     },
 
@@ -118,6 +125,7 @@ export function createInMemoryProvider<T extends Record<string, any>>(
           updated.push(clone(items[index]));
         }
       }
+      if (idField in data) reindex();
       return updated;
     },
 
@@ -126,12 +134,14 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       const index = items.findIndex(i => getItemId(i) === id);
       if (index === -1) throw new Error(`Item not found: ${id}`);
       items.splice(index, 1);
+      usedIds.delete(id);
     },
 
     async deleteMany(ids: string[]): Promise<void> {
       await maybeDelay();
       const idSet = new Set(ids);
       items = items.filter(i => !idSet.has(getItemId(i)));
+      for (const id of ids) usedIds.delete(id);
     },
 
     async upsert(data: T): Promise<T> {
@@ -141,6 +151,7 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       const item = clone(data);
       if (index === -1) {
         items.push(item);
+        usedIds.add(id);
       } else {
         items[index] = item;
       }

@@ -16,6 +16,9 @@
  *                     -> ERROR: releasing would break that satellite
  *   already excluded  neither satisfies it (the satellite is already broken)
  *                     -> warning; an error with --strict
+ *   too wide          the range also accepts the next minor (e.g. `>=0.2.0 <1.0.0`),
+ *                     which in 0.x is the breaking one, so a break would reach apps
+ *                     unannounced (see docs/versioning.md) -> warning
  *
  * Exit code 1 on any error. Network: the npm registry (search + one GET per package).
  * A registry failure exits 2, except with --network-errors-warn (used on pull
@@ -96,7 +99,9 @@ async function main() {
       const okLocal = semver.satisfies(local[peer], range, { includePrerelease: true });
       const okPublished =
         published[peer] != null && semver.satisfies(published[peer], range, { includePrerelease: true });
-      const status = okLocal ? 'ok' : okPublished ? 'newly-excluded' : 'already-excluded';
+      const nextMinor = semver.inc(local[peer], 'minor');
+      const tooWide = okLocal && semver.satisfies(nextMinor, range, { includePrerelease: true });
+      const status = !okLocal ? (okPublished ? 'newly-excluded' : 'already-excluded') : tooWide ? 'too-wide' : 'ok';
       rows.push({ satellite: `${name}@${latest.version}`, peer, range, local: local[peer], published: published[peer], status });
     }
   }
@@ -111,11 +116,16 @@ async function main() {
   } else {
     console.log(`this checkout: ${CORE.map((p) => `@zodal/${p}@${local[`@zodal/${p}`]}`).join(', ')}`);
     for (const r of rows.filter((x) => x.status !== 'ok')) {
+      if (r.status === 'too-wide') {
+        console.log(`warning: ${r.satellite} peers ${r.peer}@"${r.range}" — also accepts the next (breaking) minor; use a caret`);
+        continue;
+      }
       const tag = r.status === 'newly-excluded' || strict ? 'ERROR' : 'warning';
       console.log(`${tag}: ${r.satellite} peers ${r.peer}@"${r.range}" — excludes ${r.local}` +
         (r.status === 'newly-excluded' ? ` (accepts the published ${r.published}: this release would break it)` : ' (already excluded the published version too)'));
     }
-    console.log(`${rows.filter((x) => x.status === 'ok').length}/${rows.length} satellite peer ranges accept this checkout's versions`);
+    const accepting = rows.filter((x) => x.status === 'ok' || x.status === 'too-wide').length;
+    console.log(`${accepting}/${rows.length} satellite peer ranges accept this checkout's versions`);
   }
   process.exit(errors.length ? 1 : 0);
 }

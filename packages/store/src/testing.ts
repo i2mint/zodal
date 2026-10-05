@@ -17,6 +17,11 @@
  * });
  * ```
  *
+ * Filter cases whose operators a provider leaves out of its declared
+ * `filterOperators` are skipped. A provider that cannot express a construct at all
+ * (e.g. `not` over a compound expression) must say so with `options.skip`, so
+ * the deviation is written down rather than silent.
+ *
  * It depends on no test framework: each case's `run` throws a
  * {@link ContractViolation} on failure, so it works under vitest, jest, node:test
  * or a plain script.
@@ -153,12 +158,9 @@ const sortedIds = (rows: readonly { id: string }[]) => [...ids(rows)].sort();
  * call really rejects, so capabilities must be honest.
  */
 export async function providerContract(options: ProviderContractOptions): Promise<ContractCase[]> {
-  const fresh = async () => {
-    const seed = CONTRACT_SEED.map((r) => ({ ...r, tags: [...r.tags] }));
-    const provider = await options.make(seed);
-    const caps: ProviderCapabilities = provider.getCapabilities?.() ?? DEFAULT_CAPABILITIES;
-    return { provider, caps };
-  };
+  const seedCopy = () => CONTRACT_SEED.map((r) => ({ ...r, tags: [...r.tags] }));
+  const capsOf = (provider: DataProvider<ContractRow>): ProviderCapabilities =>
+    provider.getCapabilities?.() ?? DEFAULT_CAPABILITIES;
 
   type Body = (p: DataProvider<ContractRow>, caps: ProviderCapabilities) => Promise<void>;
   type Gate = (caps: ProviderCapabilities) => string | undefined;
@@ -282,10 +284,11 @@ export async function providerContract(options: ProviderContractOptions): Promis
   });
 
   add('getList search with a filter and pagination: total counts every match', async (p) => {
-    // 'h' matches "Alpha Project" and (status) "archived" among the three web items,
-    // so a total counted before the search (3) or after the page (1) is caught.
+    // 'a ' (with the space) matches the names "Alpha Project" and "Gamma Platform",
+    // and nothing else whichever string fields a provider searches, so a total
+    // counted before the search (3) or after the page (1) is caught.
     const r = await p.getList({
-      search: 'h',
+      search: 'a ',
       filter: { field: 'tags', operator: 'arrayContains', value: 'web' },
       sort: [{ id: 'priority', desc: false }],
       pagination: { page: 1, pageSize: 1 },
@@ -301,7 +304,7 @@ export async function providerContract(options: ProviderContractOptions): Promis
     });
     equal(r.data.length, 2, 'page size');
     equal(r.total, 3, 'total');
-  });
+  }, ops('tags', 'arrayContains'));
 
   // ---- getOne --------------------------------------------------------------
 
@@ -479,20 +482,31 @@ export async function providerContract(options: ProviderContractOptions): Promis
     }
   });
 
-  const probe = await fresh();
-  const caps = probe.caps;
-  await options.dispose?.(probe.provider);
+  const probe = await options.make(seedCopy());
+  let caps: ProviderCapabilities;
+  try {
+    caps = capsOf(probe);
+  } finally {
+    await options.dispose?.(probe);
+  }
   return cases.map(({ name, body, gate }) => {
     const skip = options.skip?.[name] ?? gate?.(caps);
     const out: ContractCase = {
       name,
       run: async () => {
-        const { provider, caps: c } = await fresh();
+        const provider = await options.make(seedCopy());
+        let failure: unknown;
         try {
-          await body(provider, c);
-        } finally {
-          await options.dispose?.(provider);
+          await body(provider, capsOf(provider));
+        } catch (err) {
+          failure = err;
         }
+        try {
+          await options.dispose?.(provider);
+        } catch (err) {
+          if (failure === undefined) failure = err; // a case's own violation wins
+        }
+        if (failure !== undefined) throw failure;
       },
     };
     if (skip) out.skip = skip;
