@@ -130,11 +130,12 @@ describe('round 4: the name rule, calibrated', () => {
     'supabaseKey', 'hmacKey', 'openaiKey', 'anthropicKey', 'stripeKey', 'sharedKey', 'sslKey', 'tlsKey',
     'serviceAccountJson', 'githubPat', 'sasUrl', 'webhookUrl', 'presignedUrl', 'pgUrl', 'sessionToken',
     'stripeSecretKey', 'webhookSecret', 'signingSecret', 'serviceRoleKey', 'sasToken', 'bearerToken', 'idToken', 'keyPassword',
+    'contentKey', 'mediaKey', 'uploadKey', 'downloadKey', 'stateKey', 'configKey', 'signedUrlKey', 'blobKey',
   ])('%s is secret', (k) => expect(isSecretName(k)).toBe(true));
   it.each([
     'withCredentials', 'useCredentials', 'useCookie', 'isPin', 'mapPin', 'nextPageToken', 'continuationToken', 'pageToken',
     'cancellationToken', 'promptTokens', 'completionTokens', 'inputTokens', 'outputTokens', 'partitionKey', 'idempotencyKey',
-    'keyPrefix', 'publicKey', 'keyFile', 'passwordMinLength', 'tokenTtl', 'contentKey', 'blobKey', 'assetKey', 'thumbnailKey', 'configKey',
+    'keyPrefix', 'publicKey', 'keyFile', 'passwordMinLength', 'tokenTtl', 'thumbnailKey', 'typeKey', 'routeKey',
   ])('%s is not', (k) => expect(isSecretName(k)).toBe(false));
   it('ordinary auth schemas are accepted; their secret leaves are found', async () => {
     const { inspectSecrets } = await import('../src/sensitivity.js');
