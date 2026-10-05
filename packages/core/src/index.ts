@@ -87,3 +87,19 @@ export type {
   OperationEffect,
   ToCommandOptions,
 } from './commands.js';
+
+// Sensitivity: where secrets are in a schema, and how to keep them out of output
+export {
+  isSecretName,
+  isMarkedSecret,
+  isMarkedPublic,
+  hasDefault,
+  secretPaths,
+  inspectSecrets,
+  redact,
+  secretValues,
+  scrubSecrets,
+  REDACTED,
+  SchemaIntrospectionError,
+} from './sensitivity.js';
+export type { SecretPath, SecretInspection } from './sensitivity.js';

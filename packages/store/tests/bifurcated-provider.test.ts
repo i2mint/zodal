@@ -523,3 +523,15 @@ describe('URL seam', () => {
     expect(ref.url).toContain('s3.example');
   });
 });
+
+describe('bulk operations: missing ids skipped, failures propagate', () => {
+  it('a transient metadata error rejects updateMany/deleteMany instead of skipping silently', async () => {
+    const { createInMemoryProvider } = await import('../src/in-memory.js');
+    const { createBifurcatedProvider } = await import('../src/bifurcated-provider.js');
+    const meta = createInMemoryProvider<any>([{ id: 'a', title: 'A' }]);
+    const flaky = { ...meta, getList: () => Promise.reject(Object.assign(new Error('ECONNRESET'), { code: 'ECONNRESET' })) };
+    const p = createBifurcatedProvider<any>({ metadataProvider: flaky as any, contentProvider: createInMemoryProvider<any>([]), contentFields: ['body'] });
+    await expect(p.updateMany(['a'], { title: 'B' })).rejects.toThrow(/ECONNRESET/);
+    await expect(p.deleteMany(['a'])).rejects.toThrow(/ECONNRESET/);
+  });
+});

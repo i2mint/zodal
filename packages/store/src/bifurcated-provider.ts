@@ -133,6 +133,30 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     return result;
   }
 
+  /**
+   * Which of `ids` exist, asked of the metadata side (chunked `in` queries, with
+   * explicit pagination so a default page size cannot truncate the answer).
+   * Ids compare as strings, and numeric-looking ids are also asked as numbers,
+   * so stores with numeric keys answer too. A failing query propagates: only an
+   * id the store does not hold is skipped, never one we could not check.
+   */
+  async function existingIds(ids: string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids.map(String))];
+    const found = new Set<string>();
+    const CHUNK = 100;
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK);
+      const asked: (string | number)[] = [...chunk];
+      for (const id of chunk) if (/^-?\d+$/.test(id) && Number.isSafeInteger(Number(id))) asked.push(Number(id));
+      const { data } = await metadataProvider.getList({
+        filter: { field: idField, operator: 'in', value: asked },
+        pagination: { page: 1, pageSize: asked.length },
+      });
+      for (const row of data) found.add(String((row as Record<string, unknown>)[idField]));
+    }
+    return found;
+  }
+
   const provider: DataProvider<T> = {
     // ---- Reads ----
 
@@ -217,7 +241,11 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     },
 
     async updateMany(ids: string[], data: Partial<T>): Promise<T[]> {
-      return Promise.all(ids.map((id) => provider.update(id, data)));
+      // Ids with no item are skipped (the DataProvider contract): probe the
+      // metadata side, which holds every item.
+      const present = await existingIds(ids);
+      const todo = [...new Set(ids.map(String))].filter((id) => present.has(id));
+      return Promise.all(todo.map((id) => provider.update(id, data)));
     },
 
     async delete(id: string): Promise<void> {
@@ -227,7 +255,9 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     },
 
     async deleteMany(ids: string[]): Promise<void> {
-      await Promise.all(ids.map((id) => provider.delete(id)));
+      const present = await existingIds(ids);
+      const todo = [...new Set(ids.map(String))].filter((id) => present.has(id));
+      await Promise.all(todo.map((id) => provider.delete(id)));
     },
 
     // ---- Optional methods ----
@@ -251,7 +281,7 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
         canDelete: metaCaps.canDelete && contentCaps.canDelete,
         canBulkUpdate: metaCaps.canBulkUpdate && contentCaps.canBulkUpdate,
         canBulkDelete: metaCaps.canBulkDelete && contentCaps.canBulkDelete,
-        canUpsert: (metaCaps.canUpsert ?? false) && (contentCaps.canUpsert ?? false),
+        canUpsert: false, // this composite implements no upsert (it used to claim the children's)
 
         // Bifurcation metadata
         bifurcated: true,
