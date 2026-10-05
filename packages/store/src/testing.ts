@@ -36,13 +36,21 @@ export interface ContractRow {
 }
 
 /** The rows a provider under test must hold when a case starts (fresh copies per case). */
-export const CONTRACT_SEED: readonly ContractRow[] = Object.freeze([
+export const CONTRACT_SEED: readonly Readonly<ContractRow>[] = deepFreeze([
   { id: '1', name: 'Alpha Project', status: 'active', priority: 3, tags: ['web', 'frontend'] },
   { id: '2', name: 'Beta API', status: 'draft', priority: 1, tags: ['api'] },
   { id: '3', name: 'Gamma Platform', status: 'archived', priority: 5, tags: ['web', 'api', 'backend'] },
   { id: '4', name: 'Delta Service', status: 'active', priority: 2, tags: ['api', 'microservice'] },
   { id: '5', name: 'Epsilon UI', status: 'draft', priority: 4, tags: ['web', 'frontend', 'design'] },
 ] as ContractRow[]);
+
+function deepFreeze<V>(value: V): V {
+  if (value && typeof value === 'object') {
+    for (const v of Object.values(value)) deepFreeze(v);
+    Object.freeze(value);
+  }
+  return value;
+}
 
 export interface ProviderContractOptions {
   /**
@@ -56,6 +64,8 @@ export interface ProviderContractOptions {
    * A skip is a documented deviation from the contract, not a silent one.
    */
   skip?: Record<string, string>;
+  /** Release what `make` created (a temp dir, a bucket prefix...); called after each case. */
+  dispose?: (provider: DataProvider<ContractRow>) => void | Promise<void>;
 }
 
 export interface ContractCase {
@@ -91,6 +101,13 @@ function deepEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+  }
+  if (a instanceof Map || b instanceof Map || a instanceof Set || b instanceof Set) {
+    if (a.constructor !== b.constructor) return false;
+    return deepEqual([...(a as any).entries()], [...(b as any).entries()]);
+  }
   const ka = Object.keys(a as object);
   const kb = Object.keys(b as object);
   if (ka.length !== kb.length) return false;
@@ -113,10 +130,11 @@ function hasFields(actual: unknown, expected: Record<string, unknown>, what: str
   }
 }
 
-async function rejects(promise: Promise<unknown>, what: string): Promise<void> {
+/** `call` rejects or throws (synchronously too: a read-only stub may just `throw`). */
+async function rejects(call: () => unknown, what: string): Promise<void> {
   let threw = false;
   try {
-    await promise;
+    await call();
   } catch {
     threw = true;
   }
@@ -147,6 +165,18 @@ export async function providerContract(options: ProviderContractOptions): Promis
   const cases: { name: string; body: Body; gate?: Gate }[] = [];
   const add = (name: string, body: Body, gate?: Gate) => cases.push({ name, body, gate });
 
+  /** Skip when the provider declares `filterOperators` that leave one of `ops` out for `field`. */
+  const ops = (field: string, ...wanted: string[]): Gate => (caps) => {
+    const declared = caps.filterOperators;
+    if (!declared) return undefined;
+    const allowed = declared[field] ?? declared['*'];
+    if (!allowed) return undefined;
+    const missing = wanted.filter((o) => !(allowed as string[]).includes(o));
+    return missing.length
+      ? `provider declares filterOperators without ${missing.join(', ')} for "${field}"`
+      : undefined;
+  };
+
   // ---- getList: reads ------------------------------------------------------
 
   add('getList with no params returns every item and the total', async (p) => {
@@ -159,19 +189,19 @@ export async function providerContract(options: ProviderContractOptions): Promis
     const r = await p.getList({ filter: { field: 'status', operator: 'eq', value: 'active' } });
     equal(sortedIds(r.data), ['1', '4'], 'ids');
     equal(r.total, 2, 'total');
-  });
+  }, ops('status', 'eq'));
 
   add('getList filter arrayContains (a tag)', async (p) => {
     const r = await p.getList({ filter: { field: 'tags', operator: 'arrayContains', value: 'frontend' } });
     equal(sortedIds(r.data), ['1', '5'], 'ids');
-  });
+  }, ops('tags', 'arrayContains'));
 
   add('getList filter arrayContainsAny (any of several tags)', async (p) => {
     const r = await p.getList({
       filter: { field: 'tags', operator: 'arrayContainsAny', value: ['design', 'backend'] },
     });
     equal(sortedIds(r.data), ['3', '5'], 'ids');
-  });
+  }, ops('tags', 'arrayContainsAny'));
 
   add('getList filter and/or compound', async (p) => {
     const r = await p.getList({
@@ -188,7 +218,33 @@ export async function providerContract(options: ProviderContractOptions): Promis
       },
     });
     equal(sortedIds(r.data), ['3', '5'], 'ids');
-  });
+  }, (caps) => ops('priority', 'gte')(caps) ?? ops('status', 'eq')(caps));
+
+  add('getList filter not (negation of a compound)', async (p) => {
+    const r = await p.getList({
+      filter: {
+        not: {
+          or: [
+            { field: 'status', operator: 'eq', value: 'active' },
+            { field: 'priority', operator: 'gte', value: 5 },
+          ],
+        },
+      },
+    });
+    equal(sortedIds(r.data), ['2', '5'], 'ids');
+  }, (caps) => ops('status', 'eq')(caps) ?? ops('priority', 'gte')(caps));
+
+  add('getList filter contains (substring of a string field)', async (p) => {
+    const r = await p.getList({ filter: { field: 'name', operator: 'contains', value: 'Platform' } });
+    equal(sortedIds(r.data), ['3'], 'ids');
+  }, ops('name', 'contains'));
+
+  add('getList filter in and ne', async (p) => {
+    const r = await p.getList({ filter: { field: 'status', operator: 'in', value: ['draft', 'archived'] } });
+    equal(sortedIds(r.data), ['2', '3', '5'], 'in ids');
+    const n = await p.getList({ filter: { field: 'status', operator: 'ne', value: 'draft' } });
+    equal(sortedIds(n.data), ['1', '3', '4'], 'ne ids');
+  }, ops('status', 'in', 'ne'));
 
   add('getList search is a case-insensitive substring match', async (p) => {
     const r = await p.getList({ search: 'api' });
@@ -225,6 +281,19 @@ export async function providerContract(options: ProviderContractOptions): Promis
     equal(beyond.total, 5, 'total beyond the last page');
   });
 
+  add('getList search with a filter and pagination: total counts every match', async (p) => {
+    // 'h' matches "Alpha Project" and (status) "archived" among the three web items,
+    // so a total counted before the search (3) or after the page (1) is caught.
+    const r = await p.getList({
+      search: 'h',
+      filter: { field: 'tags', operator: 'arrayContains', value: 'web' },
+      sort: [{ id: 'priority', desc: false }],
+      pagination: { page: 1, pageSize: 1 },
+    });
+    equal(ids(r.data), ['1'], 'ids');
+    equal(r.total, 2, 'total');
+  }, ops('tags', 'arrayContains'));
+
   add('getList total counts filtered items, not the page', async (p) => {
     const r = await p.getList({
       filter: { field: 'tags', operator: 'arrayContains', value: 'web' },
@@ -242,7 +311,7 @@ export async function providerContract(options: ProviderContractOptions): Promis
   });
 
   add('getOne of a missing id rejects', async (p) => {
-    await rejects(p.getOne('nope'), 'getOne("nope")');
+    await rejects(() => p.getOne('nope'), 'getOne("nope")');
   });
 
   add('mutating a returned item, or its arrays, does not change the store', async (p) => {
@@ -277,7 +346,19 @@ export async function providerContract(options: ProviderContractOptions): Promis
     async (p) => {
       const created = await p.create({ name: 'Eta', status: 'draft', priority: 7, tags: [] });
       if (typeof created.id !== 'string' || created.id === '') fail(`create result: expected a string id, got ${show(created.id)}`);
+      if (CONTRACT_SEED.some((r) => r.id === created.id)) fail(`create result: assigned id "${created.id}" collides with an existing item`);
       hasFields(await p.getOne(created.id), { name: 'Eta' }, `getOne("${created.id}")`);
+      equal((await p.getList({})).total, 6, 'total after create');
+    },
+    can('canCreate', 'create'),
+  );
+
+  add(
+    'create with an id that already exists rejects',
+    async (p) => {
+      await rejects(() => p.create({ id: '1', name: 'dup', status: 'draft', priority: 0, tags: [] }), 'create({id: "1"})');
+      hasFields(await p.getOne('1'), { name: 'Alpha Project' }, 'getOne("1") after the refused create');
+      equal((await p.getList({})).total, 5, 'total after the refused create');
     },
     can('canCreate', 'create'),
   );
@@ -295,7 +376,7 @@ export async function providerContract(options: ProviderContractOptions): Promis
   add(
     'update of a missing id rejects',
     async (p) => {
-      await rejects(p.update('nope', { name: 'x' }), 'update("nope")');
+      await rejects(() => p.update('nope', { name: 'x' }), 'update("nope")');
     },
     can('canUpdate', 'update'),
   );
@@ -313,10 +394,21 @@ export async function providerContract(options: ProviderContractOptions): Promis
   );
 
   add(
+    'updateMany skips ids that do not exist',
+    async (p) => {
+      const updated = await p.updateMany(['1', 'nope'], { priority: 8 });
+      equal(sortedIds(updated), ['1'], 'updated ids');
+      hasFields(await p.getOne('1'), { priority: 8 }, 'getOne("1")');
+      equal((await p.getList({})).total, 5, 'total (no item created for the missing id)');
+    },
+    can('canBulkUpdate', 'updateMany'),
+  );
+
+  add(
     'delete removes the item',
     async (p) => {
       await p.delete('4');
-      await rejects(p.getOne('4'), 'getOne("4") after delete');
+      await rejects(() => p.getOne('4'), 'getOne("4") after delete');
       equal((await p.getList({})).total, 4, 'total after delete');
     },
     can('canDelete', 'delete'),
@@ -325,7 +417,7 @@ export async function providerContract(options: ProviderContractOptions): Promis
   add(
     'delete of a missing id rejects',
     async (p) => {
-      await rejects(p.delete('nope'), 'delete("nope")');
+      await rejects(() => p.delete('nope'), 'delete("nope")');
     },
     can('canDelete', 'delete'),
   );
@@ -335,6 +427,15 @@ export async function providerContract(options: ProviderContractOptions): Promis
     async (p) => {
       await p.deleteMany(['1', '2']);
       equal(sortedIds((await p.getList({})).data), ['3', '4', '5'], 'ids after deleteMany');
+    },
+    can('canBulkDelete', 'deleteMany'),
+  );
+
+  add(
+    'deleteMany skips ids that do not exist',
+    async (p) => {
+      await p.deleteMany(['2', 'nope']);
+      equal(sortedIds((await p.getList({})).data), ['1', '3', '4', '5'], 'ids after deleteMany');
     },
     can('canBulkDelete', 'deleteMany'),
   );
@@ -374,18 +475,24 @@ export async function providerContract(options: ProviderContractOptions): Promis
       ['canBulkDelete', () => p.deleteMany(['1'])],
     ];
     for (const [flag, call] of refused) {
-      if (!caps[flag]) await rejects(call(), `${String(flag)} is false, so the call`);
+      if (!caps[flag]) await rejects(call, `${String(flag)} is false, so the call`);
     }
   });
 
-  const { caps } = await fresh();
+  const probe = await fresh();
+  const caps = probe.caps;
+  await options.dispose?.(probe.provider);
   return cases.map(({ name, body, gate }) => {
     const skip = options.skip?.[name] ?? gate?.(caps);
     const out: ContractCase = {
       name,
       run: async () => {
         const { provider, caps: c } = await fresh();
-        await body(provider, c);
+        try {
+          await body(provider, c);
+        } finally {
+          await options.dispose?.(provider);
+        }
       },
     };
     if (skip) out.skip = skip;

@@ -35,14 +35,32 @@ export type DataChangeEvent<T> =
  * Normalized data access interface for collection CRUD operations.
  *
  * All methods return Promises to support both sync and async data sources.
+ * The semantics below are the contract every adapter is tested against with
+ * `providerContract` from `@zodal/store/testing`.
+ *
+ * Items returned by any method are the caller's to mutate: changing one (or an
+ * array inside it) never changes what the provider stores.
  */
 export interface DataProvider<T> {
+  /** Filter, search, sort, then paginate (1-based); `total` counts every match. */
   getList(params: GetListParams): Promise<GetListResult<T>>;
+  /** Rejects when no item has this id. */
   getOne(id: string): Promise<T>;
+  /**
+   * Store a new item. Assigns an id when `data` has none. Rejects when an item
+   * with the given id already exists (use `upsert` to overwrite).
+   */
   create(data: Partial<T>): Promise<T>;
+  /** Shallow-merge `data` into the item. Rejects when no item has this id. */
   update(id: string, data: Partial<T>): Promise<T>;
+  /**
+   * Shallow-merge the same `data` into each listed item. Ids with no item are
+   * skipped; resolves with the items that were updated.
+   */
   updateMany(ids: string[], data: Partial<T>): Promise<T[]>;
+  /** Rejects when no item has this id. */
   delete(id: string): Promise<void>;
+  /** Delete each listed item; ids with no item are skipped. */
   deleteMany(ids: string[]): Promise<void>;
 
   /**

@@ -64,3 +64,17 @@ describe('compareValues / matchesSearch', () => {
     expect(matchesSearch({ a: 'x' }, '')).toBe(true);
   });
 });
+
+describe('ordering details', () => {
+  it('compareValues gives a total, symmetric order across types and NaN', () => {
+    const vals = [3, 'a', NaN, 1, true, null, 'B'];
+    const sorted = [...vals].sort(compareValues);
+    expect(sorted).toEqual([null, 1, 3, NaN, 'a', 'B', true]);
+    expect(Math.sign(compareValues(1, 'a'))).toBe(-Math.sign(compareValues('a', 1)));
+  });
+
+  it('compareBinary orders strings by code unit', async () => {
+    const { compareBinary } = await import('../src/query.js');
+    expect(['a', 'B', 'a0', 'Zz'].sort(compareBinary)).toEqual(['B', 'Zz', 'a', 'a0']);
+  });
+});

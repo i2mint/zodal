@@ -18,8 +18,15 @@
  *                     -> warning; an error with --strict
  *
  * Exit code 1 on any error. Network: the npm registry (search + one GET per package).
+ * A registry failure exits 2, except with --network-errors-warn (used on pull
+ * requests), which reports it as a warning and exits 0: a registry hiccup must not
+ * turn a PR red, but a release must never go out unchecked.
  *
- * Usage: node scripts/check-satellite-peers.mjs [--strict] [--json]
+ * Satellites are found by registry search UNION the list in KNOWN_SATELLITES:
+ * search can lag a newly published package, and finding nothing is an error,
+ * never a pass.
+ *
+ * Usage: node scripts/check-satellite-peers.mjs [--strict] [--json] [--network-errors-warn]
  */
 
 import { readFileSync } from 'node:fs';
@@ -33,6 +40,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 const args = new Set(process.argv.slice(2));
 const strict = args.has('--strict');
 const asJson = args.has('--json');
+const networkErrorsWarn = args.has('--network-errors-warn');
+
+// Published packages that peer on core/store/ui, kept here so a lagging or failing
+// search cannot make the check vacuous. Add a satellite when it is first published.
+const KNOWN_SATELLITES = [
+  '@zodal/store-fs', '@zodal/store-http', '@zodal/store-localstorage', '@zodal/store-s3',
+  '@zodal/store-supabase', '@zodal/ui-shadcn', '@zodal/ui-vanilla',
+  '@zodal/dials-core', '@zodal/dials-ui', '@zodal/dials-ui-vanilla', '@zodal/dials-ui-shadcn',
+  '@zodal/dials-codegen', '@zodal/dials-store-env', '@zodal/dials-store-jsonc', '@zodal/dials-store-secret',
+];
+
+class NetworkError extends Error {}
 
 const localVersion = (pkg) =>
   JSON.parse(readFileSync(join(here, '..', 'packages', pkg, 'package.json'), 'utf8')).version;
@@ -45,8 +64,8 @@ async function getJson(url) {
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
       return await res.json();
     } catch (err) {
-      if (attempt >= 3) throw new Error(`GET ${url} failed: ${err.message}`);
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
+      if (attempt >= 5) throw new NetworkError(`GET ${url} failed: ${err.message}`);
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
     }
   }
 }
@@ -55,9 +74,10 @@ async function getJson(url) {
 // package by a while; such a package has no satellites depending on it yet.
 async function publishedZodalPackages() {
   const found = await getJson(`${REGISTRY}/-/v1/search?text=${encodeURIComponent('@zodal')}&size=250`);
-  return (found?.objects ?? [])
-    .map((o) => o.package.name)
-    .filter((name) => name.startsWith('@zodal/') && !CORE.includes(name.slice('@zodal/'.length)));
+  const searched = (found?.objects ?? []).map((o) => o.package.name);
+  return [...new Set([...searched, ...KNOWN_SATELLITES])]
+    .filter((name) => name.startsWith('@zodal/') && !CORE.includes(name.slice('@zodal/'.length)))
+    .sort();
 }
 
 async function main() {
@@ -81,6 +101,10 @@ async function main() {
     }
   }
 
+  if (rows.length === 0) {
+    console.error('check-satellite-peers: no satellite peer ranges found: refusing to pass a vacuous check');
+    process.exit(1);
+  }
   const errors = rows.filter((r) => r.status === 'newly-excluded' || (strict && r.status === 'already-excluded'));
   if (asJson) {
     console.log(JSON.stringify({ local, published, rows, errors: errors.length }, null, 2));
@@ -97,6 +121,10 @@ async function main() {
 }
 
 main().catch((err) => {
+  if (err instanceof NetworkError && networkErrorsWarn) {
+    console.log(`::warning::check-satellite-peers could not reach the registry (${err.message}); not checked on this run`);
+    process.exit(0);
+  }
   console.error(`check-satellite-peers: ${err.message}`);
   process.exit(2);
 });

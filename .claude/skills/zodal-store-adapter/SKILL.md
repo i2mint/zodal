@@ -30,13 +30,13 @@ Your adapter package should depend on:
 - `@zodal/core` — for types (`SortingState`, `FilterExpression`, `FilterOperator`)
 - `@zodal/store` — for the `DataProvider` interface, `ProviderCapabilities`, `applyQuery()` for client-side query fallback (filter, search, sort, paginate), and `@zodal/store/testing` for the conformance kit
 
-Declare the peers as `">=0.2.1 <1.0.0"`, never a caret on `0.x` (`^0.2.1` means `<0.3.0`, so the next minor release of core would orphan your adapter). zodal's CI runs `scripts/check-satellite-peers.mjs` against every published `@zodal` package to catch exactly this.
+Declare the peers with a caret on the lowest version you need (`^0.2.1` for `applyQuery` and the kit). In `0.x` the minor number is the breaking one, so `^0.2.1` correctly excludes a breaking `0.3.0`; zodal's CI (`scripts/check-satellite-peers.mjs`) refuses a core release that would newly exclude a published satellite, so the break is caught at release time, not in an app. Do not use `>=X <1.0.0`: it accepts a breaking `0.3.0` silently (see `docs/versioning.md`).
 
 ```json
 {
   "peerDependencies": {
-    "@zodal/core": ">=0.2.1 <1.0.0",
-    "@zodal/store": ">=0.2.1 <1.0.0"
+    "@zodal/core": "^0.2.1",
+    "@zodal/store": "^0.2.1"
   }
 }
 ```

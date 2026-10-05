@@ -16,7 +16,7 @@ export { DEFAULT_CAPABILITIES } from './capabilities.js';
 export { filterToFunction } from './filters.js';
 
 // Client-side query evaluation (shared by adapters)
-export { applyQuery, compareValues, matchesSearch } from './query.js';
+export { applyQuery, compareValues, compareBinary, matchesSearch } from './query.js';
 export type { ApplyQueryOptions } from './query.js';
 
 // In-memory adapter

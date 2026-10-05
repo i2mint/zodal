@@ -39,14 +39,14 @@ Your renderer package should depend on:
 ```json
 {
   "peerDependencies": {
-    "@zodal/core": ">=0.2.0 <1.0.0",
-    "@zodal/ui": ">=0.2.0 <1.0.0",
+    "@zodal/core": "^0.2.1",
+    "@zodal/ui": "^0.2.1",
     "react": "^18.0.0 || ^19.0.0"
   }
 }
 ```
 
-Never a caret on `0.x` for a `@zodal/*` peer: `^0.1.0` means `<0.2.0`, so the next core release orphans the renderer (zodal's CI check `scripts/check-satellite-peers.mjs` reports it).
+Use a caret on the lowest `@zodal/*` version you need, and keep it current: `^0.1.0` means `<0.2.0`, so it excludes every 0.2.x release. zodal's CI check `scripts/check-satellite-peers.mjs` refuses a core release that would newly exclude a published renderer (see `docs/versioning.md`).
 
 ## The Renderer Registry
 

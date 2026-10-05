@@ -11,21 +11,58 @@
 import type { GetListParams, GetListResult } from './data-provider.js';
 import { filterToFunction } from './filters.js';
 
+const TYPE_RANK: Record<string, number> = {
+  number: 0, bigint: 0, string: 1, boolean: 2, object: 3, symbol: 4, function: 5,
+};
+
+/**
+ * Shared fallback for {@link compareValues} and {@link compareBinary}: a total,
+ * engine-independent order for values of different types (numbers, then strings,
+ * then booleans, then objects; NaN after every other number), so a sort over
+ * mixed data is deterministic.
+ */
+function compareMixed(a: any, b: any): number {
+  const ta = TYPE_RANK[typeof a] ?? 9;
+  const tb = TYPE_RANK[typeof b] ?? 9;
+  if (ta !== tb) return ta - tb;
+  if (typeof a === 'number' && typeof b === 'number') {
+    const na = Number.isNaN(a);
+    const nb = Number.isNaN(b);
+    if (na || nb) return na === nb ? 0 : na ? 1 : -1;
+  }
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
  * Default ordering for client-side sort.
  *
  * `null`/`undefined` sort first; strings use `localeCompare`; `Date`s compare by
- * time; anything else by `<`. Note that `localeCompare` is locale-aware, so it does
- * not preserve the byte order of keys such as fractional indexes: pass a binary
- * comparator through {@link ApplyQueryOptions.compare} for those.
+ * time; values of different types follow a fixed type order. Note that
+ * `localeCompare` is locale-aware, so it does not preserve the byte order of keys
+ * such as fractional indexes, and it orders `'a'` before `'B'`: use
+ * {@link compareBinary} (through {@link ApplyQueryOptions.compare}) for those.
  */
 export function compareValues(a: unknown, b: unknown): number {
   if (a === b) return 0;
-  if (a == null) return -1;
+  if (a == null) return b == null ? 0 : -1;
   if (b == null) return 1;
   if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
   if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
-  return (a as any) < (b as any) ? -1 : 1;
+  return compareMixed(a, b);
+}
+
+/**
+ * Code-point ordering: like {@link compareValues} but strings compare by UTF-16
+ * code unit (`'B' < 'a'`), which preserves the order of fractional-index keys and
+ * matches a binary (`C`) database collation.
+ */
+export function compareBinary(a: unknown, b: unknown): number {
+  if (a === b) return 0;
+  if (a == null) return b == null ? 0 : -1;
+  if (b == null) return 1;
+  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
+  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+  return compareMixed(a, b);
 }
 
 /**

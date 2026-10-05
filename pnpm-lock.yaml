@@ -39,7 +39,7 @@ importers:
   packages/store:
     dependencies:
       '@zodal/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
     devDependencies:
       tsup:
@@ -55,7 +55,7 @@ importers:
   packages/ui:
     dependencies:
       '@zodal/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../core
     devDependencies:
       '@types/node':

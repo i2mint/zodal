@@ -16,6 +16,14 @@ export interface InMemoryProviderOptions {
   simulateDelay?: number;
   /** Searchable fields for the `search` parameter. Default: all string fields. */
   searchFields?: string[];
+  /**
+   * How items are copied into and out of the store, so that a caller mutating a
+   * returned item never changes the store. Default: `structuredClone`, which
+   * requires plain data (objects, arrays, Dates, Maps...): it throws on functions
+   * and Proxies (e.g. immer drafts) and drops class prototypes. Pass your own
+   * copier for such items, or `(v) => v` to share references (not recommended).
+   */
+  clone?: <V>(value: V) => V;
 }
 
 /**
@@ -45,9 +53,16 @@ export function createInMemoryProvider<T extends Record<string, any>>(
   // Internal mutable store. Items go in and come out as deep copies
   // (structuredClone), so a caller mutating a returned item, or one of its arrays
   // such as `tags`, never changes the store behind the provider's back.
-  const clone = <V>(v: V): V => structuredClone(v);
+  const clone: <V>(v: V) => V = options.clone ?? ((v) => structuredClone(v));
   let items = initialData.map(clone);
   let nextId = items.length + 1;
+
+  /** The next numeric id not already used (seeded ids may collide with a counter). */
+  function freshId(): string {
+    const used = new Set(items.map(getItemId));
+    while (used.has(String(nextId))) nextId++;
+    return String(nextId++);
+  }
 
   const maybeDelay = () =>
     delay > 0 ? new Promise<void>(r => setTimeout(r, delay)) : Promise.resolve();
@@ -73,9 +88,13 @@ export function createInMemoryProvider<T extends Record<string, any>>(
 
     async create(data: Partial<T>): Promise<T> {
       await maybeDelay();
+      const given = (data as any)[idField];
+      if (given != null && items.some((i) => getItemId(i) === String(given))) {
+        throw new Error(`Item already exists: ${given}`);
+      }
       const newItem = clone({
         ...data,
-        [idField]: (data as any)[idField] ?? String(nextId++),
+        [idField]: given ?? freshId(),
       } as T);
       items.push(newItem);
       return clone(newItem);

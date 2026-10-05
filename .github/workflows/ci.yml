@@ -45,7 +45,7 @@ jobs:
       # Fails only on a NEW exclusion; satellites that already exclude the published
       # version are reported as warnings (--strict makes them errors).
       - name: Satellite peer ranges
-        run: node scripts/check-satellite-peers.mjs
+        run: node scripts/check-satellite-peers.mjs ${{ github.event_name == 'pull_request' && '--network-errors-warn' || '' }}
 
   gate:
     name: Release gate
