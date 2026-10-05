@@ -1,6 +1,6 @@
 {
   "name": "@zodal/store",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DataProvider interface, capability discovery, and adapters for zodal",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,6 +12,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "require": "./dist/testing.cjs"
     }
   },
   "publishConfig": {
@@ -27,7 +32,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@zodal/core": "workspace:*"
+    "@zodal/core": "workspace:^"
   },
   "peerDependencies": {
     "zod": "^3.24.0 || ^4.0.0"

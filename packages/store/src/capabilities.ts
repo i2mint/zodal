@@ -25,7 +25,11 @@ export interface ProviderCapabilities {
   serverSearch: boolean;
   serverPagination: boolean;
 
-  /** Per-field filter operator support (optional fine-grained discovery) */
+  /**
+   * Per-field filter operator support (optional fine-grained discovery). Keys are
+   * field names, plus `'*'` for every field without its own entry. A field's own
+   * entry REPLACES the `'*'` list for that field; it does not add to it.
+   */
   filterOperators?: Record<string, FilterOperator[]>;
 
   /** Pagination style supported */

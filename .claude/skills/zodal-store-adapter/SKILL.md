@@ -28,13 +28,15 @@ A `DataProvider<T>` is zodal's normalized CRUD + query interface. It's the **onl
 ### Dependencies
 Your adapter package should depend on:
 - `@zodal/core` — for types (`SortingState`, `FilterExpression`, `FilterOperator`)
-- `@zodal/store` — for the `DataProvider` interface, `ProviderCapabilities`, and optionally `filterToFunction()` for client-side fallback filtering
+- `@zodal/store` — for the `DataProvider` interface, `ProviderCapabilities`, `applyQuery()` for client-side query fallback (filter, search, sort, paginate), and `@zodal/store/testing` for the conformance kit
+
+Declare the peers with a caret on the lowest version you need (`^0.2.1` for `applyQuery` and the kit). In `0.x` the minor number is the breaking one, so `^0.2.1` correctly excludes a breaking `0.3.0`; zodal's CI (`scripts/check-satellite-peers.mjs`) refuses a core release that would newly exclude a published satellite, so the break is caught at release time, not in an app. Do not use `>=X <1.0.0`: it accepts a breaking `0.3.0` silently (see `docs/versioning.md`).
 
 ```json
 {
   "peerDependencies": {
-    "@zodal/core": "^0.1.0",
-    "@zodal/store": "^0.1.0"
+    "@zodal/core": "^0.2.1",
+    "@zodal/store": "^0.2.1"
   }
 }
 ```
@@ -167,40 +169,23 @@ async getList(params) {
 ```
 
 **Strategy B: Client-side fallback** (for backends that can't filter/sort)
+
+Use `applyQuery` (from `@zodal/store` 0.2.1): filter, search, count, sort and paginate in one shared implementation. Do not hand-roll these steps; every adapter that did drifted slightly from the others.
+
 ```typescript
-import { filterToFunction } from '@zodal/store';
+import { applyQuery } from '@zodal/store';
 
 async getList(params) {
-  let items = await fetchAllItems(); // your backend fetch
-
-  // Client-side filter using zodal's built-in utility
-  if (params.filter) {
-    const predicate = filterToFunction<T>(params.filter);
-    items = items.filter(predicate);
-  }
-
-  const total = items.length;
-
-  // Client-side sort
-  if (params.sort?.length) {
-    items.sort((a, b) => {
-      for (const s of params.sort!) {
-        const cmp = a[s.id] < b[s.id] ? -1 : a[s.id] > b[s.id] ? 1 : 0;
-        if (cmp !== 0) return s.desc ? -cmp : cmp;
-      }
-      return 0;
-    });
-  }
-
-  // Client-side pagination
-  if (params.pagination) {
-    const { page, pageSize } = params.pagination;
-    items = items.slice((page - 1) * pageSize, page * pageSize);
-  }
-
-  return { data: items, total };
+  const items = await fetchAllItems(); // your backend fetch
+  return applyQuery(items, params, {
+    searchFields,                      // optional; default: every string field
+    // excludeFromSearch: contentFields, // e.g. for a content provider
+    // skip: { filter: true },           // steps your backend already did server-side
+  });
 }
 ```
+
+Return copies, not the objects you store: a caller that mutates a returned item (or its `tags` array) must not change your store. `structuredClone` does it.
 
 ### Step 3: Translate FilterExpression to your backend
 
@@ -325,78 +310,28 @@ zodal-store-mybackend/
 
 ## Testing Your Adapter
 
-Test every DataProvider method against the contract. Use this pattern:
+**Run the conformance kit first.** `@zodal/store/testing` states the whole `DataProvider` contract (CRUD, filters including tag operators, search, sort, 1-based pagination and `total`, errors on missing ids, copies not aliases, honest capabilities) as framework-agnostic cases:
 
 ```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it } from 'vitest';
+import { providerContract } from '@zodal/store/testing';
 import { createMyBackendProvider } from '../src/index.js';
 
-describe('createMyBackendProvider', () => {
-  let provider: DataProvider<TestItem>;
+const cases = await providerContract({
+  make: async (seed) => {
+    const provider = createMyBackendProvider({ /* fresh test config */ });
+    for (const row of seed) await provider.create(row); // or seed the backend directly
+    return provider;
+  },
+  // skip: { 'getList sort by several keys': 'why this backend cannot' },  // documented deviations only
+});
 
-  beforeEach(() => {
-    provider = createMyBackendProvider({ /* test config */ });
-  });
-
-  // --- CRUD contract tests ---
-  it('creates and retrieves an item', async () => {
-    const created = await provider.create({ name: 'Test' });
-    expect(created).toHaveProperty('id');
-    const fetched = await provider.getOne(created.id);
-    expect(fetched.name).toBe('Test');
-  });
-
-  it('updates an item', async () => {
-    const created = await provider.create({ name: 'Before' });
-    const updated = await provider.update(created.id, { name: 'After' });
-    expect(updated.name).toBe('After');
-  });
-
-  it('deletes an item', async () => {
-    const created = await provider.create({ name: 'Doomed' });
-    await provider.delete(created.id);
-    await expect(provider.getOne(created.id)).rejects.toThrow();
-  });
-
-  // --- getList contract tests ---
-  it('filters with FilterExpression', async () => {
-    await provider.create({ name: 'Alpha', priority: 1 });
-    await provider.create({ name: 'Beta', priority: 3 });
-    const { data } = await provider.getList({
-      filter: { field: 'priority', operator: 'gte', value: 2 },
-    });
-    expect(data).toHaveLength(1);
-    expect(data[0].name).toBe('Beta');
-  });
-
-  it('sorts results', async () => {
-    await provider.create({ name: 'Zebra' });
-    await provider.create({ name: 'Alpha' });
-    const { data } = await provider.getList({
-      sort: [{ id: 'name', desc: false }],
-    });
-    expect(data[0].name).toBe('Alpha');
-  });
-
-  it('paginates results', async () => {
-    for (let i = 0; i < 25; i++) {
-      await provider.create({ name: `Item ${i}` });
-    }
-    const { data, total } = await provider.getList({
-      pagination: { page: 2, pageSize: 10 },
-    });
-    expect(data).toHaveLength(10);
-    expect(total).toBe(25);
-  });
-
-  // --- Capabilities ---
-  it('reports capabilities', () => {
-    const caps = provider.getCapabilities?.();
-    expect(caps).toBeDefined();
-    expect(caps!.canCreate).toBe(true);
-  });
+describe('my backend: DataProvider contract', () => {
+  for (const c of cases) (c.skip ? it.skip : it)(c.name, c.run);
 });
 ```
+
+Writes the provider declares it cannot do (`canCreate: false`, ...) are skipped automatically, and the kit then checks that those calls really reject. Add backend-specific tests (serialization, server-side translation, credentials) beside it.
 
 ## Bifurcation: Using Your Adapter with BifurcatedProvider
 

@@ -53,3 +53,9 @@
 **Issue**: Internal imports use `.js` extensions for ESM compatibility (e.g., `'./types.js'`). This is correct for ESM but may confuse developers used to extensionless imports.
 
 **Status**: This is standard practice for ESM-first TypeScript packages. tsup handles the CJS build.
+
+## In-memory provider copies items with `structuredClone` (since 0.2.1)
+
+`createInMemoryProvider` used to return shallow copies from `getOne` and the stored objects themselves from `getList`, so a caller mutating a returned item's array (e.g. `tags.push(...)`) silently changed the store. Since 0.2.1 items are copied in and out with `structuredClone`. Consequences: items must be plain data (objects, arrays, `Date`, `Map`, `Set`...); functions and Proxies (immer drafts, MobX/Vue reactive objects) throw `DataCloneError`, and class instances come back without their prototype. Each `getList` call also returns fresh objects, so reference identity does not survive between fetches. Pass `clone` (e.g. a shallow copier) to `createInMemoryProvider` to change this.
+
+Also since 0.2.1, `create` with an id that already exists rejects (it used to add a duplicate), and auto-assigned ids never collide with seeded ones.

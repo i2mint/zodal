@@ -5,10 +5,9 @@
  * Useful for prototyping, testing, and small datasets.
  */
 
-import type { SortingState, FilterExpression } from '@zodal/core';
 import type { DataProvider, GetListParams, GetListResult } from './data-provider.js';
 import type { ProviderCapabilities } from './capabilities.js';
-import { filterToFunction } from './filters.js';
+import { applyQuery } from './query.js';
 
 export interface InMemoryProviderOptions {
   /** Field name used as the unique identifier. Default: 'id'. */
@@ -17,6 +16,14 @@ export interface InMemoryProviderOptions {
   simulateDelay?: number;
   /** Searchable fields for the `search` parameter. Default: all string fields. */
   searchFields?: string[];
+  /**
+   * How items are copied into and out of the store, so that a caller mutating a
+   * returned item never changes the store. Default: `structuredClone`, which
+   * requires plain data (objects, arrays, Dates, Maps...): it throws on functions
+   * and Proxies (e.g. immer drafts) and drops class prototypes. Pass your own
+   * copier for such items, or `(v) => v` to share references (not recommended).
+   */
+  clone?: <V>(value: V) => V;
 }
 
 /**
@@ -43,9 +50,24 @@ export function createInMemoryProvider<T extends Record<string, any>>(
   const delay = options.simulateDelay ?? 0;
   const searchFields = options.searchFields;
 
-  // Internal mutable store
-  let items = [...initialData];
+  // Internal mutable store. Items go in and come out as deep copies
+  // (structuredClone), so a caller mutating a returned item, or one of its arrays
+  // such as `tags`, never changes the store behind the provider's back.
+  const clone: <V>(v: V) => V = options.clone ?? ((v) => structuredClone(v));
+  let items = initialData.map(clone);
   let nextId = items.length + 1;
+  // Ids in use, kept in step with `items`, so create's collision check and
+  // freshId are O(1) rather than a scan per call.
+  let usedIds = new Set(items.map((i) => String((i as any)[idField])));
+  const reindex = () => {
+    usedIds = new Set(items.map(getItemId));
+  };
+
+  /** The next numeric id not already used (seeded ids may collide with a counter). */
+  function freshId(): string {
+    while (usedIds.has(String(nextId))) nextId++;
+    return String(nextId++);
+  }
 
   const maybeDelay = () =>
     delay > 0 ? new Promise<void>(r => setTimeout(r, delay)) : Promise.resolve();
@@ -54,92 +76,43 @@ export function createInMemoryProvider<T extends Record<string, any>>(
     return String((item as any)[idField]);
   }
 
-  function matchesSearch(item: T, search: string): boolean {
-    if (!search) return true;
-    const lowerSearch = search.toLowerCase();
-    const fields = searchFields ?? Object.keys(item).filter(k => typeof (item as any)[k] === 'string');
-    return fields.some(field => {
-      const val = (item as any)[field];
-      return typeof val === 'string' && val.toLowerCase().includes(lowerSearch);
-    });
-  }
-
-  function compareValues(a: any, b: any): number {
-    if (a === b) return 0;
-    if (a == null) return -1;
-    if (b == null) return 1;
-    if (typeof a === 'string' && typeof b === 'string') {
-      return a.localeCompare(b);
-    }
-    if (a instanceof Date && b instanceof Date) {
-      return a.getTime() - b.getTime();
-    }
-    return a < b ? -1 : 1;
-  }
-
   return {
     async getList(params: GetListParams): Promise<GetListResult<T>> {
       await maybeDelay();
 
-      let result = [...items];
-
-      // Apply structured filters
-      if (params.filter) {
-        const predicate = filterToFunction<T>(params.filter);
-        result = result.filter(predicate);
-      }
-
-      // Apply search
-      if (params.search) {
-        result = result.filter(item => matchesSearch(item, params.search!));
-      }
-
-      const total = result.length;
-
-      // Apply sorting
-      if (params.sort && params.sort.length > 0) {
-        result.sort((a, b) => {
-          for (const sortCol of params.sort!) {
-            const cmp = compareValues((a as any)[sortCol.id], (b as any)[sortCol.id]);
-            if (cmp !== 0) return sortCol.desc ? -cmp : cmp;
-          }
-          return 0;
-        });
-      }
-
-      // Apply pagination
-      if (params.pagination) {
-        const { page, pageSize } = params.pagination;
-        const start = (page - 1) * pageSize;
-        result = result.slice(start, start + pageSize);
-      }
-
-      return { data: result, total };
+      const result = applyQuery(items, params, { searchFields });
+      return { data: result.data.map(clone), total: result.total };
     },
 
     async getOne(id: string): Promise<T> {
       await maybeDelay();
       const item = items.find(i => getItemId(i) === id);
       if (!item) throw new Error(`Item not found: ${id}`);
-      return { ...item };
+      return clone(item);
     },
 
     async create(data: Partial<T>): Promise<T> {
       await maybeDelay();
-      const newItem = {
+      const given = (data as any)[idField];
+      if (given != null && usedIds.has(String(given))) {
+        throw new Error(`Item already exists: ${given}`);
+      }
+      const newItem = clone({
         ...data,
-        [idField]: (data as any)[idField] ?? String(nextId++),
-      } as T;
+        [idField]: given ?? freshId(),
+      } as T);
       items.push(newItem);
-      return { ...newItem };
+      usedIds.add(getItemId(newItem));
+      return clone(newItem);
     },
 
     async update(id: string, data: Partial<T>): Promise<T> {
       await maybeDelay();
       const index = items.findIndex(i => getItemId(i) === id);
       if (index === -1) throw new Error(`Item not found: ${id}`);
-      items[index] = { ...items[index], ...data };
-      return { ...items[index] };
+      items[index] = { ...items[index], ...clone(data) };
+      if (idField in data) reindex(); // an update may rename the id
+      return clone(items[index]);
     },
 
     async updateMany(ids: string[], data: Partial<T>): Promise<T[]> {
@@ -148,10 +121,11 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       for (const id of ids) {
         const index = items.findIndex(i => getItemId(i) === id);
         if (index !== -1) {
-          items[index] = { ...items[index], ...data };
-          updated.push({ ...items[index] });
+          items[index] = { ...items[index], ...clone(data) };
+          updated.push(clone(items[index]));
         }
       }
+      if (idField in data) reindex();
       return updated;
     },
 
@@ -160,25 +134,28 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       const index = items.findIndex(i => getItemId(i) === id);
       if (index === -1) throw new Error(`Item not found: ${id}`);
       items.splice(index, 1);
+      usedIds.delete(id);
     },
 
     async deleteMany(ids: string[]): Promise<void> {
       await maybeDelay();
       const idSet = new Set(ids);
       items = items.filter(i => !idSet.has(getItemId(i)));
+      for (const id of ids) usedIds.delete(id);
     },
 
     async upsert(data: T): Promise<T> {
       await maybeDelay();
       const id = getItemId(data);
       const index = items.findIndex(i => getItemId(i) === id);
-      const item = { ...data };
+      const item = clone(data);
       if (index === -1) {
         items.push(item);
+        usedIds.add(id);
       } else {
         items[index] = item;
       }
-      return { ...item };
+      return clone(item);
     },
 
     getCapabilities(): ProviderCapabilities {
