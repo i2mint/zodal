@@ -1,6 +1,6 @@
 {
   "name": "@zodal/store",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "DataProvider interface, capability discovery, and adapters for zodal",
   "license": "Apache-2.0",
   "type": "module",
@@ -17,6 +17,11 @@
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "require": "./dist/testing.cjs"
+    },
+    "./descriptor": {
+      "types": "./dist/descriptor.d.ts",
+      "import": "./dist/descriptor.js",
+      "require": "./dist/descriptor.cjs"
     }
   },
   "publishConfig": {

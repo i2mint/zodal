@@ -308,6 +308,33 @@ zodal-store-mybackend/
   README.md
 ```
 
+## Describe Your Provider (the backend menu)
+
+Export a descriptor next to the factory, so apps, playgrounds and agents can list your backend, render its options as a form, check it can run here, and create it by name (`@zodal/store/descriptor`, from 0.2.2):
+
+```typescript
+import { z } from 'zod';
+import { defineProviderDescriptor } from '@zodal/store/descriptor';
+
+export const descriptor = defineProviderDescriptor({
+  name: 'myBackend',                       // unique in a menu
+  label: 'My backend',
+  description: 'Items as rows in My Backend.',
+  package: '@zodal/store-mybackend',
+  runtime: 'node',                         // 'browser' | 'node' | 'any'
+  options: z.object({
+    url: z.string().url(),
+    apiKey: z.string().meta({ sensitivity: 'secret' }),   // masked in forms, never exported as a value
+    client: z.custom<MyClient>().optional(),               // non-serializable options are z.custom()
+  }),
+  capabilities: { serverFilter: true, serverSort: true },  // summary for the menu
+  supports: () => typeof fetch === 'function',              // a real feature check
+  create: (options) => createMyBackendProvider(options),
+});
+```
+
+A satellite describes only itself; the catalog that aggregates descriptors belongs to the app (no satellite imports another). For metadata + content, apps compose with `bifurcatedDescriptor(resolve)`, which takes the app's lookup function.
+
 ## Testing Your Adapter
 
 **Run the conformance kit first.** `@zodal/store/testing` states the whole `DataProvider` contract (CRUD, filters including tag operators, search, sort, 1-based pagination and `total`, errors on missing ids, copies not aliases, honest capabilities) as framework-agnostic cases:
