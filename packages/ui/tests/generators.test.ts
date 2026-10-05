@@ -352,3 +352,30 @@ describe('Complete pipeline integration', () => {
     expect(desc).toContain('deactivate [item]');
   });
 });
+
+describe('toFormConfig — tag fields', () => {
+  it('an array of an enum is a tags field with its closed vocabulary as options', () => {
+    const c = defineCollection(z.object({
+      id: z.string(),
+      labels: z.array(z.enum(['urgent', 'later'])),
+      tags: z.array(z.string()),
+    }));
+    const byName = Object.fromEntries(toFormConfig(c).map((f) => [f.name, f]));
+    expect(byName.labels.type).toBe('tags');
+    expect(byName.labels.options?.map((o) => o.value)).toEqual(['urgent', 'later']);
+    expect(byName.labels.allowCreate).toBe(false);
+    expect(byName.tags.type).toBe('tags');
+    expect(byName.tags.options).toBeUndefined();
+    expect(byName.tags.allowCreate).toBe(true);
+  });
+
+  it('a numeric enum array does not crash the form, and filter/columns carry the vocabulary too', () => {
+    const c = defineCollection(z.object({ id: z.string(), levels: z.array(z.enum({ LOW: 0, HIGH: 1 })), labels: z.array(z.enum(['x', 'y'])) }));
+    const form = Object.fromEntries(toFormConfig(c).map((f) => [f.name, f]));
+    expect(form.levels.options?.map((o) => o.value)).toEqual(['0', '1']);
+    const filter = Object.fromEntries(toFilterConfig(c).map((f) => [f.name, f]));
+    expect(filter.labels.options?.map((o) => o.value)).toEqual(['x', 'y']);
+    const cols = Object.fromEntries(toColumnDefs(c).map((col: any) => [col.accessorKey ?? col.id, col]));
+    expect(cols.labels.meta.enumValues).toEqual(['x', 'y']);
+  });
+});

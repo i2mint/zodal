@@ -315,6 +315,12 @@ for (const col of columns) {
 }
 ```
 
+## Tag Fields and Operations
+
+**Tag-like fields.** An array (or set) field becomes a form field of `type: 'tags'`. When its values are closed (an enum, literals, a numeric enum: `getVocabulary` in `@zodal/core`), the allowed values are in `options` and `allowCreate` is `false`; otherwise `allowCreate` is `true`. Filters (`contains`) and column metadata (`meta.enumValues`) carry the same vocabulary. Render these as chips (add/remove by keyboard, create a new value only when `allowCreate`), and a chip cell with overflow, never `value.join(', ')`. Field components take `FieldRenderProps` (`{ field, config, context }`, from `@zodal/ui`), and suggestions come from `context.suggest?.(query, field, { signal, limit })` (a `SuggestionSource` the app injects: values already used, a zodal-groups vocabulary, a server endpoint), so a renderer never imports a store. Abort the previous request when the user keeps typing.
+
+**Operations are declarative; execution is a command.** Render `OperationDefinition`s (label, icon, confirm, shortcut) as buttons or menu items, and on activation dispatch the command whose id is `operationCommandId(namespace, op)`. The app builds those commands with `toCommandRecord(op, execute, { namespace })` from `@zodal/core` (acture's `CommandRecord` shape; `execute` returns `ok(value)` or `fail(code, message)`). A confirmation (`op.confirm`) is the renderer's to show before dispatching: commands carry no confirm, so gate destructive ones with `when` for other surfaces.
+
 ## Generator Output Types Reference
 
 ### ColumnConfig (from toColumnDefs)

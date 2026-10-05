@@ -33,8 +33,53 @@ export const PRIORITY = {
 export interface RendererContext {
   /** The render mode: 'cell' for table cells, 'form' for form fields, 'filter' for filter widgets. */
   mode: 'cell' | 'form' | 'filter';
+  /**
+   * Where a tag-like widget (a `'tags'` form field, a `contains` filter) gets its
+   * suggestions: the values already used in the collection, a zodal-groups
+   * vocabulary, a server endpoint. Injected by the app, so no renderer imports a
+   * store. Absent: the widget offers the field's `options`, or free text.
+   * Testers may read it as a hint (a source exists: prefer a combobox); the
+   * component receives it through {@link FieldRenderProps.context}.
+   */
+  suggest?: SuggestionSource;
   /** Additional context from the consumer. */
   [key: string]: unknown;
+}
+
+/** One suggestion offered by a tag-like widget. */
+export interface Suggestion {
+  value: string;
+  label: string;
+}
+
+/** Options for one suggestion request. */
+export interface SuggestOptions {
+  /** Aborted when the user keeps typing: drop the stale request. */
+  signal?: AbortSignal;
+  /** At most this many suggestions. */
+  limit?: number;
+}
+
+/**
+ * Suggestions for `query` (what the user typed so far) in the field named
+ * `field`. Values are strings (a numeric vocabulary is stringified, as in
+ * `getVocabulary`).
+ */
+export type SuggestionSource = (
+  query: string,
+  field: string,
+  options?: SuggestOptions,
+) => readonly Suggestion[] | Promise<readonly Suggestion[]>;
+
+/**
+ * What a field component receives: its affordance, its generated config, and the
+ * render context (including `suggest`). Renderer packages use this shape for
+ * their form and filter components so the context reaches the widget.
+ */
+export interface FieldRenderProps<C = unknown> {
+  field: ResolvedFieldAffordance;
+  config: C;
+  context?: RendererContext;
 }
 
 /**

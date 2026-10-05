@@ -57,6 +57,8 @@ export {
   unwrapZodSchema,
   hasZodCheck,
   getEnumValues,
+  getVocabulary,
+  getVocabularyEntries,
   getZodMeta,
   getNumericBounds,
   humanizeFieldName,
@@ -64,6 +66,7 @@ export {
 
 // Codec types
 export type { Codec } from './codec-types.js';
+export type { VocabularyEntry } from './inference.js';
 export {
   composeCodecs,
   identityCodec,
@@ -73,3 +76,14 @@ export {
   dateEpochMsCodec,
   jsonCodec,
 } from './codec-types.js';
+
+// Operations as commands (acture-shaped, no acture dependency)
+export { toCommandRecord, ok, fail, operationCommandId, normalizeKeybinding } from './commands.js';
+export type {
+  OperationCommand,
+  OperationCommandResult,
+  OperationCommandError,
+  OperationPatch,
+  OperationEffect,
+  ToCommandOptions,
+} from './commands.js';

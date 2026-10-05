@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance, FilterType } from '@zodal/core';
-import { getEnumValues, getNumericBounds } from '@zodal/core';
+import { getVocabulary, getNumericBounds } from '@zodal/core';
 
 /**
  * A framework-agnostic column definition.
@@ -162,7 +162,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
         copyable: fa.copyable,
         truncate: fa.truncate,
         tooltip: fa.tooltip,
-        enumValues: fieldSchema ? getEnumValues(fieldSchema) ?? undefined : undefined,
+        enumValues: fieldSchema ? getVocabulary(fieldSchema) ?? undefined : undefined,
         numericBounds: fieldSchema ? getNumericBounds(fieldSchema) : undefined,
         pinned: fa.pinned,
         storageRole: fa.storageRole === 'content' ? 'content' : undefined,
