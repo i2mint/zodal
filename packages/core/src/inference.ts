@@ -77,49 +77,81 @@ export function getEnumValues(schema: z.ZodType): string[] | null {
   return null;
 }
 
+/** One value of a closed vocabulary. */
+export interface VocabularyEntry {
+  /** The value as a string (what a widget shows and keys on). */
+  value: string;
+  /** The value as the schema accepts it (a number for a numeric enum): send this back. */
+  raw: string | number | boolean | bigint;
+  /** A label: the enum member name when there is one, else the value. */
+  label: string;
+}
+
 /**
- * The closed vocabulary of a field, as strings, or null when it is open.
+ * The closed vocabulary of a field, or null when it is open.
  *
- * Covers an enum (string or numeric, e.g. from a TS enum), a literal or a union
- * of literals, and an array or set of any of those (a tag field with allowed
- * values), through optional/nullable/default/readonly/catch wrappers. Values are
- * stringified, so `z.enum({ A: 0, B: 1 })` gives `['0', '1']` rather than
- * crashing a label formatter.
+ * Covers an enum (string, numeric or mixed TS enums, without TypeScript's
+ * reverse mappings), a literal or a union of literals, and an array or set of any
+ * of those (a tag field with allowed values), through every wrapper. `null` /
+ * `undefined` members of a union mean "may be empty", not "open". Duplicates (by
+ * string value) are dropped.
  */
-export function getVocabulary(schema: z.ZodType): string[] | null {
-  const leaf = (s: any, depth: number): string[] | null => {
-    if (!s || depth > 8) return null;
+export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | null {
+  const WRAP = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
+  const leaf = (s: any, depth: number): VocabularyEntry[] | null => {
+    if (!s || depth > 16) return null;
     const def = s._zod?.def;
     if (!def) return null;
+    if (WRAP.has(def.type)) return leaf(def.innerType, depth + 1);
     switch (def.type) {
-      case 'optional': case 'nullable': case 'default': case 'prefault':
-      case 'readonly': case 'catch': case 'nonoptional':
-        return leaf(def.innerType, depth + 1);
       case 'enum': {
-        const values = def.entries ? Object.values(def.entries) : def.values;
-        return Array.isArray(values) ? [...new Set(values.map((v: unknown) => String(v)))] : null;
+        const entries: Record<string, unknown> = def.entries ?? {};
+        const out: VocabularyEntry[] = [];
+        for (const [key, value] of Object.entries(entries)) {
+          // TypeScript's reverse mapping of a numeric member: { "0": "A" } beside { A: 0 }.
+          const forward = typeof value === 'string' ? entries[value] : undefined;
+          if (typeof forward === 'number' && String(forward) === key) continue;
+          if (typeof value === 'string' || typeof value === 'number') {
+            out.push({ value: String(value), raw: value, label: Array.isArray(entries) ? String(value) : key });
+          }
+        }
+        return out.length ? out : null;
       }
       case 'literal': {
         const values: unknown[] = def.values ?? (def.value !== undefined ? [def.value] : []);
-        return values.length ? values.map((v) => String(v)) : null;
+        const out = values
+          .filter((v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint')
+          .map((v) => ({ value: String(v), raw: v as VocabularyEntry['raw'], label: String(v) }));
+        return out.length ? out : null;
       }
+      case 'null':
+      case 'undefined':
+        return [];
       case 'union': {
-        const out: string[] = [];
+        const out: VocabularyEntry[] = [];
         for (const option of def.options ?? []) {
           const v = leaf(option, depth + 1);
-          if (!v) return null; // any open member makes the vocabulary open
+          if (!v) return null; // an open member makes the vocabulary open
           out.push(...v);
         }
-        return out.length ? [...new Set(out)] : null;
+        return out.length ? out : null;
       }
       default:
         return null;
     }
   };
-  const unwrapped = unwrapZodSchema(schema) as any;
+  let unwrapped: any = schema;
+  for (let i = 0; i < 16 && WRAP.has(unwrapped?._zod?.def?.type); i++) unwrapped = unwrapped._zod.def.innerType;
   const def = unwrapped?._zod?.def;
-  if (def?.type === 'array' || def?.type === 'set') return leaf(def.element ?? def.valueType, 0);
-  return leaf(unwrapped, 0);
+  const entries = def?.type === 'array' || def?.type === 'set' ? leaf(def.element ?? def.valueType, 0) : leaf(unwrapped, 0);
+  if (!entries) return null;
+  const seen = new Set<string>();
+  return entries.filter((e) => (seen.has(e.value) ? false : (seen.add(e.value), true)));
+}
+
+/** The closed vocabulary's values as strings (see {@link getVocabularyEntries}), or null when open. */
+export function getVocabulary(schema: z.ZodType): string[] | null {
+  return getVocabularyEntries(schema)?.map((e) => e.value) ?? null;
 }
 
 /** Read Zod v4 metadata from the global registry. */

@@ -7,7 +7,8 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FilterType } from '@zodal/core';
-import { getVocabulary, getNumericBounds } from '@zodal/core';
+import { getVocabularyEntries, getNumericBounds } from '@zodal/core';
+import { toOption, type VocabularyOption } from './form-config.js';
 
 export interface FilterFieldConfig {
   /** Field key. */
@@ -16,8 +17,8 @@ export interface FilterFieldConfig {
   label: string;
   /** Filter UI type. */
   filterType: FilterType;
-  /** Options for select/multiselect filters. */
-  options?: { label: string; value: string }[];
+  /** Options for select/multiselect filters (and `contains` on a collection field with a closed vocabulary). */
+  options?: VocabularyOption[];
   /** Numeric bounds for range filters. */
   bounds?: { min?: number; max?: number };
   /** Zod type. */
@@ -43,13 +44,14 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
       ? affordance.filterable
       : 'search';
 
-    let options: { label: string; value: string }[] | undefined;
-    const enumValues = getVocabulary(fieldSchema);
-    if (enumValues && (filterType === 'select' || filterType === 'multiSelect' || filterType === 'contains')) {
-      options = enumValues.map(v => ({
-        label: v.charAt(0).toUpperCase() + v.slice(1),
-        value: v,
-      }));
+    // A closed vocabulary gives the filter its choices. For `contains`, only on a
+    // collection field (array/set: element membership); on a string, `contains`
+    // is a substring match and exact-value choices would mislead.
+    let options: VocabularyOption[] | undefined;
+    const vocabulary = getVocabularyEntries(fieldSchema);
+    const isCollection = affordance.zodType === 'array' || affordance.zodType === 'set';
+    if (vocabulary && (filterType === 'select' || filterType === 'multiSelect' || (filterType === 'contains' && isCollection))) {
+      options = vocabulary.map(toOption);
     }
 
     let bounds: { min?: number; max?: number } | undefined;

@@ -23,3 +23,18 @@ describe('getVocabulary', () => {
     expect(getVocabulary(schema as any)).toBeNull();
   });
 });
+
+describe('getVocabularyEntries', () => {
+  it('a TS numeric enum: no reverse mappings, typed raw values, member names as labels', async () => {
+    const { getVocabularyEntries } = await import('../src/inference.js');
+    var N: any; (function (N: any) { N[N.A = 0] = 'A'; N[N.B = 1] = 'B'; })(N || (N = {}));
+    const e = getVocabularyEntries(z.enum(N) as any)!;
+    expect(e).toEqual([{ value: '0', raw: 0, label: 'A' }, { value: '1', raw: 1, label: 'B' }]);
+    expect((z.enum(N) as any).safeParse(e[0].raw).success).toBe(true);
+  });
+  it('literal duplicates dropped; null members do not open the vocabulary', async () => {
+    const { getVocabulary } = await import('../src/inference.js');
+    expect(getVocabulary(z.literal([1, '1', true]) as any)).toEqual(['1', 'true']);
+    expect(getVocabulary(z.union([z.enum(['a', 'b']), z.null()]) as any)).toEqual(['a', 'b']);
+  });
+});

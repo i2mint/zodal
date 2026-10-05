@@ -43,3 +43,28 @@ describe('operationCommandId / normalizeKeybinding', () => {
     expect(normalizeKeybinding('mod+k mod+s')).toBe('$mod+k $mod+s');
   });
 });
+
+describe('review round 2', () => {
+  it('everything is importable from the package entry point', async () => {
+    const core = await import('../src/index.js');
+    for (const name of ['toCommandRecord', 'ok', 'fail', 'operationCommandId', 'normalizeKeybinding', 'getVocabulary', 'getVocabularyEntries']) {
+      expect(typeof (core as any)[name], name).toBe('function');
+    }
+  });
+  it('ids: acronyms, separators, refusals that name what is wrong', () => {
+    expect(operationCommandId('notes', { name: 'URLFetch' })).toBe('notes.urlFetch');
+    expect(operationCommandId('notes', { name: 'bulk_delete' })).toBe('notes.bulkDelete');
+    expect(() => operationCommandId('notes', { name: 'café' })).toThrow(/ASCII/);
+    expect(() => operationCommandId('2notes', { name: 'x' })).toThrow(/namespace/);
+  });
+  it('key aliases', () => {
+    expect(normalizeKeybinding('esc')).toBe('Escape');
+    expect(normalizeKeybinding('mod+space')).toBe('$mod+Space');
+    expect(normalizeKeybinding('ctrl++')).toBe('Control++');
+    expect(normalizeKeybinding('cmdorctrl+up')).toBe('$mod+ArrowUp');
+  });
+  it('a thrown error keeps its string code', async () => {
+    const r = await toCommandRecord(archive, () => { throw Object.assign(new Error('x'), { code: 'not_found' }); }).execute(undefined, {});
+    expect(r).toEqual({ ok: false, error: { code: 'not_found', message: 'x' } });
+  });
+});

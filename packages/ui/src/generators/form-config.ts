@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance } from '@zodal/core';
-import { getVocabulary } from '@zodal/core';
+import { getVocabularyEntries } from '@zodal/core';
 
 export interface FormFieldConfig {
   /** Field key. */
@@ -29,7 +29,7 @@ export interface FormFieldConfig {
   /** Default value. */
   defaultValue?: unknown;
   /** Options for select/multiselect fields, and the allowed values of a closed tag vocabulary. */
-  options?: { label: string; value: string }[];
+  options?: VocabularyOption[];
   /** For a `'tags'` field: may the user add values not in `options`? (False when the vocabulary is closed.) */
   allowCreate?: boolean;
   /** Display order. */
@@ -67,6 +67,26 @@ function inferFormWidgetType(zodType: string, fa: FieldAffordance): string {
 }
 
 /**
+ * One selectable value. `value` is a string for widgets to key on; `raw` is the
+ * value as the schema accepts it (a number for a numeric enum): write `raw` back.
+ */
+export interface VocabularyOption {
+  label: string;
+  value: string;
+  raw?: string | number | boolean | bigint;
+}
+
+/**
+ * A vocabulary entry as a widget option; the label is capitalized. `raw` is set
+ * only when it differs from the string `value` (numbers, booleans), so string
+ * vocabularies keep the plain `{ label, value }` shape.
+ */
+export function toOption(e: { value: string; raw: VocabularyOption['raw']; label: string }): VocabularyOption {
+  const label = e.label.charAt(0).toUpperCase() + e.label.slice(1);
+  return typeof e.raw === 'string' ? { label, value: e.value } : { label, value: e.value, raw: e.raw };
+}
+
+/**
  * Generate form field configurations for create or edit forms.
  */
 export function toFormConfig<T extends z.ZodObject<any>>(
@@ -96,14 +116,10 @@ export function toFormConfig<T extends z.ZodObject<any>>(
 
     // Closed vocabulary (an enum, literals, or an array of them: a 'tags' widget
     // with allowed values). Open array fields accept new values (allowCreate).
-    let options: { label: string; value: string }[] | undefined;
-    const enumValues = getVocabulary(fieldSchema);
-    if (enumValues) {
-      options = enumValues.map(v => ({
-        label: v.charAt(0).toUpperCase() + v.slice(1),
-        value: v,
-      }));
-    }
+    let options: VocabularyOption[] | undefined;
+    const vocabulary = getVocabularyEntries(fieldSchema);
+    const enumValues = vocabulary?.map((e) => e.value) ?? null;
+    if (vocabulary) options = vocabulary.map(toOption);
 
     fields.push({
       name: key,

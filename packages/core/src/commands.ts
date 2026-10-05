@@ -80,14 +80,24 @@ export function fail(code: string, message: string, details?: unknown): Operatio
   return { ok: false, error: details === undefined ? { code, message } : { code, message, details } };
 }
 
-/** `bulk-delete` → `bulkDelete`; `Archive` → `archive` (one acture id segment). */
-function toIdSegment(name: string): string {
-  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean);
-  if (words.length === 0) throw new Error(`Operation name "${name}" has no letters or digits`);
+/**
+ * One acture id segment from a name: `bulk-delete`/`bulk_delete` → `bulkDelete`,
+ * `Archive` → `archive`, `URLFetch` → `urlFetch`. ASCII only: a name with other
+ * characters is refused rather than silently shortened (`café` would collide
+ * with `caf`).
+ */
+function toIdSegment(name: string, what: string): string {
+  if (!/^[\x20-\x7e]+$/.test(name)) throw new Error(`${what} "${name}" must be printable ASCII to become a command id`);
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean);
+  if (words.length === 0) throw new Error(`${what} "${name}" has no letters or digits`);
   const seg = words
-    .map((w, i) => (i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1)))
+    .map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
     .join('');
-  if (!/^[a-z]/.test(seg)) throw new Error(`Operation name "${name}" must start with a letter`);
+  if (!/^[a-z]/.test(seg)) throw new Error(`${what} "${name}" must start with a letter`);
   return seg;
 }
 
@@ -97,23 +107,35 @@ function toIdSegment(name: string): string {
  * on both sides, where the command is registered and where a renderer dispatches.
  */
 export function operationCommandId(namespace: string | undefined, operation: Pick<OperationDefinition, 'name'>): string {
-  const ns = namespace ? namespace.split('.').map(toIdSegment).join('.') : '';
-  const own = toIdSegment(operation.name);
+  const ns = namespace ? namespace.split('.').map((s) => toIdSegment(s, 'Command namespace segment')).join('.') : '';
+  const own = toIdSegment(operation.name, 'Operation name');
   return ns ? `${ns}.${own}` : own;
 }
 
 const KEY_NAMES: Record<string, string> = {
-  ctrl: 'Control', control: 'Control', cmd: 'Meta', meta: 'Meta', command: 'Meta',
-  alt: 'Alt', option: 'Alt', shift: 'Shift', mod: '$mod',
+  // modifiers: `ctrl` is Control on every platform; use `mod` for Cmd-on-Mac / Ctrl-elsewhere
+  ctrl: 'Control', control: 'Control', cmd: 'Meta', meta: 'Meta', command: 'Meta', super: 'Meta',
+  alt: 'Alt', option: 'Alt', opt: 'Alt', shift: 'Shift', mod: '$mod', cmdorctrl: '$mod', commandorcontrol: '$mod',
+  // keys, as KeyboardEvent.key names
+  esc: 'Escape', escape: 'Escape', del: 'Delete', delete: 'Delete', backspace: 'Backspace',
+  enter: 'Enter', return: 'Enter', tab: 'Tab', space: 'Space', spacebar: 'Space',
+  up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+  home: 'Home', end: 'End', pageup: 'PageUp', pagedown: 'PageDown', ins: 'Insert', insert: 'Insert',
 };
 
-/** `"ctrl+d"` → `"Control+d"`, `"mod+k"` → `"$mod+k"`: the key names acture's hotkeys expect. */
+/**
+ * `"ctrl+d"` → `"Control+d"`, `"mod+k"` → `"$mod+k"`, `"esc"` → `"Escape"`:
+ * the names acture's hotkeys (tinykeys) expect. Chords are space-separated.
+ * `ctrl` means Control everywhere; write `mod` for Cmd on a Mac and Ctrl
+ * elsewhere.
+ */
 export function normalizeKeybinding(shortcut: string): string {
   return shortcut
-    .split(' ')
+    .trim()
+    .split(/\s+/)
     .map((chord) =>
       chord
-        .split('+')
+        .split(/\+(?!$)/)
         .map((k) => KEY_NAMES[k.toLowerCase()] ?? k)
         .join('+'),
     )
@@ -170,7 +192,9 @@ export function toCommandRecord<P = unknown, R = unknown>(
       try {
         return await execute(params, ctx);
       } catch (err) {
-        return fail('execute_threw', err instanceof Error ? err.message : String(err));
+        // Keep a string `code` the error carries (as acture's dispatcher does); never the raw object.
+        const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : 'execute_threw';
+        return fail(code, err instanceof Error ? err.message : String(err));
       }
     },
   };
