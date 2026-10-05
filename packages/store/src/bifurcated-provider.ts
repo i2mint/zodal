@@ -134,14 +134,27 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
   }
 
   /**
-   * Which of `ids` exist, asked of the metadata side in one query. A failure of
-   * that query propagates: only an id the store does not hold is skipped, never
-   * one we could not check.
+   * Which of `ids` exist, asked of the metadata side (chunked `in` queries, with
+   * explicit pagination so a default page size cannot truncate the answer).
+   * Ids compare as strings, and numeric-looking ids are also asked as numbers,
+   * so stores with numeric keys answer too. A failing query propagates: only an
+   * id the store does not hold is skipped, never one we could not check.
    */
   async function existingIds(ids: string[]): Promise<Set<string>> {
-    if (ids.length === 0) return new Set();
-    const { data } = await metadataProvider.getList({ filter: { field: idField, operator: 'in', value: ids } });
-    return new Set(data.map((row) => String((row as Record<string, unknown>)[idField])));
+    const unique = [...new Set(ids.map(String))];
+    const found = new Set<string>();
+    const CHUNK = 100;
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK);
+      const asked: (string | number)[] = [...chunk];
+      for (const id of chunk) if (/^-?\d+$/.test(id) && Number.isSafeInteger(Number(id))) asked.push(Number(id));
+      const { data } = await metadataProvider.getList({
+        filter: { field: idField, operator: 'in', value: asked },
+        pagination: { page: 1, pageSize: asked.length },
+      });
+      for (const row of data) found.add(String((row as Record<string, unknown>)[idField]));
+    }
+    return found;
   }
 
   const provider: DataProvider<T> = {
@@ -231,7 +244,8 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
       // Ids with no item are skipped (the DataProvider contract): probe the
       // metadata side, which holds every item.
       const present = await existingIds(ids);
-      return Promise.all(ids.filter((id) => present.has(id)).map((id) => provider.update(id, data)));
+      const todo = [...new Set(ids.map(String))].filter((id) => present.has(id));
+      return Promise.all(todo.map((id) => provider.update(id, data)));
     },
 
     async delete(id: string): Promise<void> {
@@ -242,7 +256,8 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
 
     async deleteMany(ids: string[]): Promise<void> {
       const present = await existingIds(ids);
-      await Promise.all(ids.filter((id) => present.has(id)).map((id) => provider.delete(id)));
+      const todo = [...new Set(ids.map(String))].filter((id) => present.has(id));
+      await Promise.all(todo.map((id) => provider.delete(id)));
     },
 
     // ---- Optional methods ----

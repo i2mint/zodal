@@ -28,8 +28,9 @@ describe('secretPaths', () => {
       tuple: z.tuple([z.string(), secret]),
     });
     const got = secretPaths(s).map((p) => p.join('.')).sort();
+    // `auth` and `creds` are secret names themselves, so those whole containers are secret.
     expect(got).toEqual([
-      'auth.apiKey', 'creds.*.token', 'either.pin', 'init.headers.*', 'lazyS', 'nullableDefault',
+      'auth', 'creds', 'either.pin', 'init.headers.*', 'lazyS', 'nullableDefault',
       'password', 'piped', 'top', 'tuple.1',
     ]);
   });
@@ -56,13 +57,13 @@ describe('secretPaths', () => {
 });
 
 describe('redact / secretValues / scrubSecrets', () => {
-  const paths = [['auth', 'apiKey'], ['creds', '*', 'token'], ['init', 'headers', '*']];
-  const value = { bucket: 'b', auth: { apiKey: 'AKIA1234' }, creds: [{ token: 'tok-1' }, { token: 'tok-2' }], init: { headers: { Authorization: 'Bearer zzz' } } };
+  const paths = [['account', 'apiKey'], ['list', '*', 'token'], ['init', 'headers', '*']];
+  const value = { bucket: 'b', account: { apiKey: 'AKIA1234' }, list: [{ token: 'tok-1' }, { token: 'tok-2' }], init: { headers: { Authorization: 'Bearer zzz' } } };
 
   it('redacts every path, wildcards included, without touching the input', () => {
     const r = redact(value, paths);
-    expect(r).toEqual({ bucket: 'b', auth: { apiKey: REDACTED }, creds: [{ token: REDACTED }, { token: REDACTED }], init: { headers: { Authorization: REDACTED } } });
-    expect(value.auth.apiKey).toBe('AKIA1234');
+    expect(r).toEqual({ bucket: 'b', account: { apiKey: REDACTED }, list: [{ token: REDACTED }, { token: REDACTED }], init: { headers: { Authorization: REDACTED } } });
+    expect(value.account.apiKey).toBe('AKIA1234');
   });
 
   it('collects secret strings and scrubs them from text', () => {
@@ -73,5 +74,34 @@ describe('redact / secretValues / scrubSecrets', () => {
 
   it('a whole-value secret path redacts the whole value', () => {
     expect(redact('sk-live', [[]])).toBe(REDACTED);
+  });
+});
+
+describe('round 2 of the leak hunt', () => {
+  it('names: database URLs, plural tokens, short forms; not token budgets', () => {
+    for (const k of ['databaseUrl', 'mongoUri', 'apiTokens', 'accessTokens', 'pwd', 'accountKey', 'passcode', 'otp', 'jwt', 'auth', 'creds']) expect(isSecretName(k), k).toBe(true);
+    for (const k of ['maxTokens', 'tokenCount', 'tokenLimit', 'numTokens']) expect(isSecretName(k), k).toBe(false);
+  });
+  it('a secret record key makes the whole record secret', () => {
+    expect(secretPaths(z.object({ q: z.record(z.string().meta({ sensitivity: 'secret' }), z.number()) })).map((p) => p.join('.'))).toEqual(['q']);
+  });
+  it('container defaults, tuple defaults and meta.default are found', async () => {
+    const { inspectSecrets } = await import('../src/sensitivity.js');
+    const pub = (s: any) => inspectSecrets(s).published.map((p) => p.join('.'));
+    expect(pub(z.object({ list: z.array(z.object({ token: z.string() })).default([{ token: 'sk-L' }]) }))).toEqual(['list.*.token']);
+    expect(pub(z.object({ m: z.record(z.string(), z.object({ apiKey: z.string() })).default({ prod: { apiKey: 'sk-R' } }) }))).toEqual(['m.*.apiKey']);
+    expect(pub(z.object({ t: z.tuple([z.string(), z.string().meta({ sensitivity: 'secret' })]).default(['a', 'sk-T']) }))).toEqual(['t.1']);
+    expect(pub(z.object({ s: z.string().meta({ sensitivity: 'secret', default: 'sk-M' }) }))).toEqual(['s']);
+    expect(pub(z.object({ maxTokens: z.number().default(1000) }))).toEqual([]);
+  });
+  it('Map values and header pairs; Headers-like objects; cycles terminate', () => {
+    expect(secretValues({ h: new Map([['k', 'sk-MAP']]) }, [['h', '*']])).toContain('sk-MAP');
+    expect(redact({ headers: [['Authorization', 'Bearer x'], ['Accept', 'json']] }, [])).toEqual({ headers: [['Authorization', REDACTED], ['Accept', 'json']] });
+    class Headers2 { get() { return 'Bearer x'; } }
+    expect(redact({ h: new Headers2() }, [])).toEqual({ h: REDACTED });
+    const a: any = { name: 'n' }; a.x = a; a.y = a;
+    const t0 = Date.now();
+    expect(redact(a, []).x).toBe(REDACTED);
+    expect(Date.now() - t0).toBeLessThan(500);
   });
 });

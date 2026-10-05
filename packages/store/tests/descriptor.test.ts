@@ -49,8 +49,8 @@ describe('provider descriptors', () => {
   it('finds nested and name-only secrets as paths', () => {
     // `credentials` is itself a secret-looking name, so the whole object is secret (fail-safe).
     expect(secretOptionPaths(s3Like).map((p) => p.join('.')).sort()).toEqual(['credentials', 'sessionPin']);
-    const nested = defineProviderDescriptor({ ...s3Like, name: 'nested', options: z.object({ auth: z.object({ accessKeyId: z.string(), region: z.string() }) }) });
-    expect(secretOptionPaths(nested).map((p) => p.join('.'))).toEqual(['auth.accessKeyId']);
+    const nested = defineProviderDescriptor({ ...s3Like, name: 'nested', options: z.object({ account: z.object({ accessKeyId: z.string(), region: z.string() }) }) });
+    expect(secretOptionPaths(nested).map((p) => p.join('.'))).toEqual(['account.accessKeyId']);
     expect(secretOptionPaths(inMemoryDescriptor)).toEqual([]);
   });
 
@@ -110,14 +110,48 @@ describe('provider descriptors', () => {
     const hdr = mk('hdr', z.object({ headers: z.record(z.string(), z.string()) }));
     expect(redactOptions(hdr, { headers: { Authorization: 'Bearer zzz', Accept: 'json' } })).toEqual({ headers: { Authorization: '[secret]', Accept: 'json' } });
     // nested live options are paths
-    const nl = mk('nl', z.object({ auth: z.object({ client: z.custom<object>(), region: z.string() }) }));
-    expect(liveOptionPaths(nl)).toEqual([['auth', 'client']]);
-    expect(splitOptions(nl, { auth: { client: { k: 1 }, region: 'eu' } }).data).toEqual({ auth: { region: 'eu' } });
+    const nl = mk('nl', z.object({ conn: z.object({ client: z.custom<object>(), region: z.string() }) }));
+    expect(liveOptionPaths(nl)).toEqual([['conn', 'client']]);
+    expect(splitOptions(nl, { conn: { client: { k: 1 }, region: 'eu' } }).data).toEqual({ conn: { region: 'eu' } });
     // a default inside a union branch, a container default, a catch and examples are all refused for marked secrets
     expect(() => mk('u', z.object({ a: z.union([z.object({ k: z.string().meta({ sensitivity: 'secret' }).default('sk-U') }), z.object({ j: z.number() })]) }))).toThrow(/would be published/);
     expect(() => mk('c', z.object({ auth: z.object({ apiKey: z.string() }).default({ apiKey: 'sk-C' }) }))).toThrow(/would be published/);
     expect(() => mk('k', z.object({ s: z.string().meta({ sensitivity: 'secret' }).catch('sk-K') }))).toThrow(/would be published/);
     expect(() => mk('x', z.object({ s: z.string().meta({ sensitivity: 'secret', examples: ['sk-X'] }) }))).toThrow(/would be published/);
+  });
+
+  it('round 2: record keys never printed; env-fallback secrets withheld; Map values; composites; intersections', async () => {
+    const mk = (name: string, options: any, create: any = () => createInMemoryProvider([])) =>
+      defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+    const S = 'sk-live-SECRET123';
+    const rec = mk('rec', z.object({ apiKeys: z.record(z.string(), z.number()) }));
+    const e1 = await createFromDescriptor(rec, { apiKeys: { [S]: 'x' } }).catch((e) => e as Error);
+    expect(e1.message).not.toContain(S);
+    expect(e1.message).toMatch(/apiKeys\.\*/);
+    process.env.ZODAL_TEST_KEY = S;
+    const env = mk('env', z.object({ apiKey: z.string().optional().transform((v) => v ?? process.env.ZODAL_TEST_KEY!) }),
+      (o: any) => { throw new Error(`401 for key ${o.apiKey}`); });
+    const e2 = await createFromDescriptor(env, {}).catch((e) => e as Error);
+    expect(e2.message).not.toContain(S);
+    const mp = mk('mp', z.object({ headers: z.map(z.string(), z.string().meta({ sensitivity: 'secret' })) }),
+      (o: any) => { throw new Error(`bad header ${[...o.headers.values()][0]}`); });
+    const e3 = await createFromDescriptor(mp, { headers: new Map([['Authorization', S]]) }).catch((e) => e as Error);
+    expect(e3.message).not.toContain(S);
+    const inter = mk('inter', z.object({ region: z.string() }).and(z.object({ client: z.custom<object>() })));
+    expect(liveOptionPaths(inter)).toEqual([['client']]);
+    const fnCaps = { ...bifurcatedDescriptor([inMemoryDescriptor]), name: 'fnCaps', capabilities: () => ({}) } as ProviderDescriptor;
+    const outer = bifurcatedDescriptor([fnCaps, inMemoryDescriptor], { name: 'outer' });
+    await expect(createFromDescriptor(outer, { metadata: { name: 'fnCaps' }, content: { name: 'inMemory' }, contentFields: ['b'] })).rejects.toThrow(/Invalid options/);
+  });
+
+  it('bifurcated bulk ops: numeric ids, pagination defaults and duplicates', async () => {
+    const { createBifurcatedProvider } = await import('../src/bifurcated-provider.js');
+    const meta = createInMemoryProvider<any>(Array.from({ length: 30 }, (_, i) => ({ id: i + 1, title: `t${i}` })));
+    const paged = { ...meta, getList: (p: any) => meta.getList({ ...p, pagination: p.pagination ?? { page: 1, pageSize: 10 } }) };
+    const p = createBifurcatedProvider<any>({ metadataProvider: paged as any, contentProvider: createInMemoryProvider<any>([]), contentFields: ['body'] });
+    const ids = Array.from({ length: 30 }, (_, i) => String(i + 1));
+    const updated = await p.updateMany([...ids, '1'], { title: 'x' });
+    expect(updated.length).toBe(30);
   });
 
   it('bifurcated: duplicate child names refused; required child options validated up front; transforms run once', async () => {

@@ -21,6 +21,10 @@
  * through {@link redactOptions}; validation and creation errors are scrubbed of
  * secret values before they are thrown.
  *
+ * **Scope.** These guarantees cover the descriptor helpers: once a provider is
+ * created, errors it throws later (from `getList`, ...) are its own; adapters
+ * should not put option values in their messages.
+ *
  * **Live options.** Options that are not data (a client instance, a `fetch`, a
  * callback) are declared `z.custom()` (or marked `.meta({ serializable: false })`);
  * {@link splitOptions} separates them from the shareable part.
@@ -90,6 +94,8 @@ export interface ProviderDescriptor<O = any, T extends Record<string, any> = any
    * the static {@link secretOptionPaths} of `options`.
    */
   secretPaths?(options: unknown): SecretPath[];
+  /** True for a descriptor composed of other descriptors (e.g. bifurcated); composites cannot be children. */
+  composite?: boolean;
   /** Build the provider from validated options. */
   create(options: O): DataProvider<T> | Promise<DataProvider<T>>;
 }
@@ -182,14 +188,23 @@ export function liveOptionPaths(descriptor: ProviderDescriptor): SecretPath[] {
       case 'optional': case 'nullable': case 'default': case 'prefault': case 'readonly': case 'catch': case 'nonoptional':
         return walk(def.innerType, path, depth + 1);
       case 'pipe':
-        return walk(def.in, path, depth + 1);
+        walk(def.in, path, depth + 1);
+        return walk(def.out, path, depth + 1);
       case 'lazy':
         return walk(def.getter(), path, depth + 1);
       case 'object': {
         const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
         for (const [k, f] of Object.entries(shape ?? {})) walk(f, [...path, k], depth + 1);
+        if (def.catchall) walk(def.catchall, [...path, '*'], depth + 1);
         return;
       }
+      case 'tuple':
+        (def.items ?? []).forEach((item: unknown, i: number) => walk(item, [...path, i], depth + 1));
+        if (def.rest) walk(def.rest, [...path, '*'], depth + 1);
+        return;
+      case 'intersection':
+        walk(def.left, path, depth + 1);
+        return walk(def.right, path, depth + 1);
       case 'array': case 'set':
         return walk(def.element ?? def.valueType, [...path, '*'], depth + 1);
       case 'record': case 'map':
@@ -269,8 +284,8 @@ export function describedCapabilities<O>(
 }
 
 /** A Zod issue described from its structure only: never its message text, which can echo input. */
-function describeIssue(issue: any): string {
-  const where = issue.path?.length ? issue.path.join('.') : '(options)';
+function describeIssue(issue: any, schema: unknown): string {
+  const where = issue.path?.length ? safePath(schema, issue.path).join('.') : '(options)';
   const parts: string[] = [issue.code];
   if (issue.expected !== undefined) parts.push(`expected ${String(issue.expected)}`);
   if (issue.minimum !== undefined) parts.push(`minimum ${String(issue.minimum)}`);
@@ -281,6 +296,58 @@ function describeIssue(issue: any): string {
 }
 
 const secretLike = (k: string) => k.length > 24 || /[^\w.-]/.test(k);
+
+/**
+ * An issue path with every segment that is not a schema-declared object key (a
+ * record or map key, which is user data) replaced by `*`. Array indexes stay.
+ */
+function safePath(schema: unknown, path: readonly PropertyKey[]): string[] {
+  const out: string[] = [];
+  let nodes: any[] = [schema];
+  for (const seg of path) {
+    const next: any[] = [];
+    let declared = false;
+    for (let n of nodes) {
+      for (let i = 0; i < 32 && n?._zod?.def; i++) {
+        const t = n._zod.def.type;
+        if (['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional'].includes(t)) n = n._zod.def.innerType;
+        else if (t === 'pipe') n = n._zod.def.in;
+        else if (t === 'lazy') n = n._zod.def.getter();
+        else break;
+      }
+      const def = n?._zod?.def;
+      if (!def) continue;
+      if (def.type === 'object') {
+        const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
+        if (typeof seg === 'string' && shape && Object.prototype.hasOwnProperty.call(shape, seg)) {
+          declared = true;
+          next.push(shape[seg]);
+        } else if (def.catchall) next.push(def.catchall);
+      } else if (def.type === 'array' || def.type === 'set') next.push(def.element ?? def.valueType);
+      else if (def.type === 'tuple') next.push(...(def.items ?? []), ...(def.rest ? [def.rest] : []));
+      else if (def.type === 'record' || def.type === 'map') next.push(def.valueType);
+      else if (def.type === 'union') nodes.push(...(def.options ?? []));
+      else if (def.type === 'intersection') nodes.push(def.left, def.right);
+    }
+    out.push(typeof seg === 'number' ? String(seg) : declared ? String(seg) : '*');
+    nodes = next;
+  }
+  return out;
+}
+
+/** A plain-data snapshot of the options, read once (getters run once; live objects kept by reference). */
+function snapshot<V>(value: V, depth = 0, seen = new WeakSet<object>()): V {
+  if (value === null || typeof value !== 'object' || depth > 32) return value;
+  if (seen.has(value as object)) return value;
+  seen.add(value as object);
+  if (Array.isArray(value)) return value.map((v) => snapshot(v, depth + 1, seen)) as V;
+  if (Object.getPrototypeOf(value) === Object.prototype) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as object)) out[k] = snapshot(v, depth + 1, seen);
+    return out as V;
+  }
+  return value;
+}
 
 /**
  * What to say about an error thrown while validating or creating: its message
@@ -328,16 +395,20 @@ export async function createFromDescriptor<O, T extends Record<string, any>>(
   descriptor: ProviderDescriptor<O, T>,
   options: unknown,
 ): Promise<DataProvider<T>> {
-  const secrets = secretsIn(descriptor, options);
+  const input = snapshot(options);
+  const rawSecrets = secretsIn(descriptor, input);
   let parsed: ReturnType<typeof descriptor.options.safeParse>;
   try {
-    parsed = descriptor.options.safeParse(options);
+    parsed = descriptor.options.safeParse(input);
   } catch (err) {
-    throw new Error(`Invalid options for provider "${descriptor.name}": ${safeErrorText(err, secrets)}`);
+    throw new Error(`Invalid options for provider "${descriptor.name}": ${safeErrorText(err, rawSecrets)}`);
   }
   if (!parsed.success) {
-    throw new Error(`Invalid options for provider "${descriptor.name}": ${parsed.error.issues.map(describeIssue).join('; ')}`);
+    const lines = parsed.error.issues.map((issue) => describeIssue(issue, descriptor.options));
+    throw new Error(`Invalid options for provider "${descriptor.name}": ${lines.join('; ')}`);
   }
+  // A secret may appear only after parsing (a transform falling back to an environment variable).
+  const secrets = [...new Set([...rawSecrets, ...secretsIn(descriptor, parsed.data)])];
   return createSafely(descriptor, parsed.data as O, secrets);
 }
 
@@ -390,7 +461,7 @@ export function bifurcatedDescriptor(
   children: readonly ProviderDescriptor[],
   { name = 'bifurcated', label = 'Metadata + content' }: { name?: string; label?: string } = {},
 ): ProviderDescriptor<BifurcatedDescriptorOptions> {
-  const leaves = children.filter((d) => !describedCapabilities(d).bifurcated);
+  const leaves = children.filter((d) => !d.composite && !(typeof d.capabilities === 'object' && d.capabilities?.bifurcated));
   if (leaves.length === 0) throw new Error(`${name}: needs at least one non-composite child descriptor`);
   const dup = leaves.find((d, i) => leaves.findIndex((e) => e.name === d.name) !== i);
   if (dup) throw new Error(`${name}: two child descriptors are named "${dup.name}"`);
@@ -421,6 +492,7 @@ export function bifurcatedDescriptor(
       detailStrategy: z.enum(['eager', 'reference']).optional(),
     }) as unknown as ZodType<BifurcatedDescriptorOptions>,
     capabilities: { bifurcated: true },
+    composite: true,
     secretPaths: (options: any) => [
       ...childSecretPaths('metadata', options?.metadata),
       ...childSecretPaths('content', options?.content),

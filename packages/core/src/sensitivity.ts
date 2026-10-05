@@ -40,7 +40,9 @@ const SECRET_NAME = new RegExp(
       'secrets?', 'secret ?(?:id|key)', 'client ?secret',
       'passwords?', 'passwd', 'pass ?phrase', 'pin',
       'credentials?',
-      'token', '(?:access|auth|refresh|bearer|id|session|csrf|api) ?token',
+      'token', 'tokens', '(?:access|auth|refresh|bearer|id|session|csrf|api|personal ?access) ?tokens?', 'jwt', 'otp', 'passcode',
+      'pwd', 'auth', 'creds', 'account ?key',
+      '(?:database|db|redis|mongo|mongodb|postgres|postgresql|mysql|amqp|connection) ?(?:url|uri|string)',
       'api ?keys?', 'access ?keys?', 'private ?keys?', 'secret ?access ?key', 'signing ?key',
       'service ?role ?key', 'anon ?key', 'session ?key', 'encryption ?key', 'master ?key',
       'connection ?string', 'dsn', 'authorization', 'bearer', 'cookie',
@@ -49,6 +51,8 @@ const SECRET_NAME = new RegExp(
 );
 
 /** Split a dotted/snake/camelCase key into lowercased, space-separated words. */
+const NOT_SECRET = /(?:^| )(?:max|min|num|count|total|limit) ?tokens?(?: |$)|tokens? ?(?:count|limit|budget|usage|used)(?: |$)/;
+
 function normalizeKey(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -64,7 +68,8 @@ function normalizeKey(key: string): string {
  * `publicKey`, `isPrivate` do not.
  */
 export function isSecretName(key: string): boolean {
-  return SECRET_NAME.test(normalizeKey(key));
+  const k = normalizeKey(key);
+  return SECRET_NAME.test(k) && !NOT_SECRET.test(k);
 }
 
 const WRAPPERS = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
@@ -121,6 +126,7 @@ function publishedValues(schema: unknown): unknown[] {
     const meta = metaOf(s);
     if (Array.isArray(meta?.examples)) found.push(...meta.examples);
     if (meta && 'example' in meta) found.push(meta.example);
+    if (meta && 'default' in meta) found.push(meta.default);
     if (def.type === 'default' || def.type === 'prefault') {
       found.push(typeof def.defaultValue === 'function' ? safeCall(def.defaultValue) : def.defaultValue);
     }
@@ -149,77 +155,125 @@ export function hasDefault(schema: unknown): boolean {
 export interface SecretInspection {
   /** Every path to a secret. `[]` alone means the whole value is secret. */
   paths: SecretPath[];
+  /** The subset of `paths` marked explicitly (`.meta({ sensitivity: 'secret' })`), not matched by name. */
+  marked: SecretPath[];
   /**
-   * Secrets whose value would be published with the schema (a default, a catch
-   * value, examples; on the field or on a container above it): explicitly
-   * marked secrets always, name-matched ones when the published value is a
-   * non-empty string.
+   * Secrets whose value would be published with the schema: a default, catch
+   * value, example or `meta.default` on the field or on any container above it
+   * holds a value at that secret's path. Marked secrets: any value; name-matched
+   * ones: a non-empty string.
    */
   published: SecretPath[];
 }
 
-/** {@link secretPaths}, plus which secrets would leak through the schema itself. */
+const key = (p: SecretPath) => JSON.stringify(p);
+
+/** {@link secretPaths}, plus which are marked, and which would leak through the schema itself. */
 export function inspectSecrets(schema: unknown): SecretInspection {
   const paths = new Map<string, SecretPath>();
-  const published = new Map<string, SecretPath>();
+  const marked = new Map<string, SecretPath>();
+  const containers: { path: SecretPath; values: unknown[] }[] = [];
 
-  const leaks = (s: unknown, marked: boolean, above: unknown[]): boolean => {
-    const values = [...above, ...publishedValues(s)];
-    return marked ? values.some((v) => v !== undefined) : values.some((v) => typeof v === 'string' && v.length > 0);
-  };
-
-  const walk = (s: unknown, path: (string | number)[], depth: number, above: unknown[], byName: boolean): void => {
+  const walk = (s: unknown, path: (string | number)[], depth: number, byName: boolean): void => {
     if (depth > MAX_DEPTH) {
       throw new SchemaIntrospectionError(`schema nested deeper than ${MAX_DEPTH} levels at "${path.join('.')}"; refusing to report "no secrets"`);
     }
     const def = defOf(s);
-    const marked = isMarkedSecret(s);
-    if (marked || byName) {
-      paths.set(JSON.stringify(path), path);
-      if (leaks(s, marked, above)) published.set(JSON.stringify(path), path);
+    const isMarked = isMarkedSecret(s);
+    const published = publishedValues(s);
+    if (published.length) containers.push({ path: [...path], values: published });
+    if (isMarked || byName) {
+      paths.set(key(path), path);
+      if (isMarked) marked.set(key(path), path);
       return;
     }
-    // A container's own default would publish the secrets inside it.
-    const here = [...above, ...publishedValues(s).filter((v) => v !== null && typeof v === 'object')];
     switch (def.type) {
       case 'optional': case 'nullable': case 'default': case 'prefault':
       case 'readonly': case 'catch': case 'nonoptional':
-        return walk(def.innerType, path, depth + 1, here, false);
+        return walk(def.innerType, path, depth + 1, false);
       case 'pipe':
-        walk(def.in, path, depth + 1, here, false);
-        return walk(def.out, path, depth + 1, here, false);
+        walk(def.in, path, depth + 1, false);
+        return walk(def.out, path, depth + 1, false);
       case 'lazy':
-        return walk(def.getter(), path, depth + 1, here, false);
+        return walk(def.getter(), path, depth + 1, false);
       case 'object': {
         const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
-        for (const [key, field] of Object.entries(shape ?? {})) {
-          const nested = here.map((v) => (v && typeof v === 'object' ? (v as any)[key] : undefined)).filter((v) => v !== undefined);
-          walk(field, [...path, key], depth + 1, nested, isSecretName(key));
-        }
-        if (def.catchall) walk(def.catchall, [...path, '*'], depth + 1, [], false);
+        for (const [k, field] of Object.entries(shape ?? {})) walk(field, [...path, k], depth + 1, isSecretName(k));
+        if (def.catchall) walk(def.catchall, [...path, '*'], depth + 1, false);
         return;
       }
       case 'array': case 'set':
-        return walk(def.element ?? def.valueType, [...path, '*'], depth + 1, [], false);
+        return walk(def.element ?? def.valueType, [...path, '*'], depth + 1, false);
       case 'record': case 'map':
-        return walk(def.valueType, [...path, '*'], depth + 1, [], false);
+        // A secret key (a token used as a record key) makes the whole record secret.
+        if (def.keyType && secretPaths(def.keyType).length) {
+          paths.set(key(path), path);
+          if (isMarkedSecret(def.keyType)) marked.set(key(path), path);
+          return;
+        }
+        return walk(def.valueType, [...path, '*'], depth + 1, false);
       case 'tuple':
-        (def.items ?? []).forEach((item: unknown, i: number) => walk(item, [...path, i], depth + 1, [], false));
-        if (def.rest) walk(def.rest, [...path, '*'], depth + 1, [], false);
+        (def.items ?? []).forEach((item: unknown, i: number) => walk(item, [...path, i], depth + 1, false));
+        if (def.rest) walk(def.rest, [...path, '*'], depth + 1, false);
         return;
       case 'union':
-        for (const option of def.options ?? []) walk(option, path, depth + 1, here, false);
+        for (const option of def.options ?? []) walk(option, path, depth + 1, false);
         return;
       case 'intersection':
-        walk(def.left, path, depth + 1, here, false);
-        return walk(def.right, path, depth + 1, here, false);
+        walk(def.left, path, depth + 1, false);
+        return walk(def.right, path, depth + 1, false);
       default:
         return; // leaves: string, number, custom, enum, literal...
     }
   };
 
-  walk(schema, [], 0, [], false);
-  return { paths: [...paths.values()], published: [...published.values()] };
+  walk(schema, [], 0, false);
+
+  // A published value (default, catch, example) on a node leaks every secret beneath it.
+  const published = new Map<string, SecretPath>();
+  for (const c of containers) {
+    for (const p of paths.values()) {
+      if (p.length < c.path.length || !c.path.every((seg, i) => seg === p[i] || p[i] === '*' || seg === '*')) continue;
+      const rel = p.slice(c.path.length);
+      const isMarked = marked.has(key(p));
+      for (const v of c.values) {
+        const found = rel.length === 0 ? [v] : valuesAt(v, rel);
+        if (found.some((x) => (isMarked ? x !== undefined && x !== null : containsNonEmptyString(x)))) {
+          published.set(key(p), p);
+        }
+      }
+    }
+  }
+  return { paths: [...paths.values()], marked: [...marked.values()], published: [...published.values()] };
+}
+
+/** A non-empty string anywhere inside `x` (a name-matched secret only leaks text, not a numeric setting). */
+function containsNonEmptyString(x: unknown, depth = 0): boolean {
+  if (typeof x === 'string') return x.length > 0;
+  if (!x || typeof x !== 'object' || depth > 8) return false;
+  return childrenOf(x).some((v) => containsNonEmptyString(v, depth + 1));
+}
+
+/** Every value found at `path` inside `value` (`'*'` fans out over arrays, objects, Maps and Sets). */
+function valuesAt(value: unknown, path: SecretPath): unknown[] {
+  let frontier: unknown[] = [value];
+  for (const seg of path) {
+    const next: unknown[] = [];
+    for (const node of frontier) {
+      if (node === null || typeof node !== 'object') continue;
+      if (seg === '*') next.push(...childrenOf(node));
+      else if (node instanceof Map) next.push(node.get(seg));
+      else next.push((node as any)[seg]);
+    }
+    frontier = next;
+  }
+  return frontier;
+}
+
+function childrenOf(node: object): unknown[] {
+  if (node instanceof Map) return [...node.values()];
+  if (node instanceof Set) return [...node.values()];
+  return Object.values(node);
 }
 
 /** Every path to a secret inside `schema`. `[]` (the empty path) means the whole value is secret. */
@@ -236,76 +290,65 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 /**
  * A copy of `value` with every value at a secret path replaced by
  * {@link REDACTED}, and every key that looks like a secret replaced too (the
- * runtime keys of records and loose objects are checked by name). Never writes
- * into `value`. A non-plain object (class instance, Map, Set, null-prototype
- * object) that a secret path enters, or that holds secret-named keys, is replaced
- * whole: it cannot be copied safely, so it is not shown.
+ * runtime keys of records and loose objects, and `[name, value]` header pairs,
+ * are checked by name). Never writes into `value`. Objects that cannot be copied
+ * safely (class instances, Maps, Sets, `Headers`, null-prototype objects) are
+ * replaced whole, except `Date`s; an object met twice (shared or circular) is
+ * replaced by the marker the second time.
  */
 export function redact<V>(value: V, paths: readonly SecretPath[]): V {
-  return redactNode(value, paths, 0) as V;
+  return redactNode(value, paths, 0, new WeakSet()) as V;
 }
 
-function redactNode(node: unknown, paths: readonly SecretPath[], depth: number): unknown {
+function redactNode(node: unknown, paths: readonly SecretPath[], depth: number, seen: WeakSet<object>): unknown {
   if (paths.some((p) => p.length === 0)) return node === undefined ? node : REDACTED;
-  if (depth > MAX_DEPTH) return REDACTED;
+  if (node === null || typeof node !== 'object') return node;
+  if (node instanceof Date) return new Date(node.getTime());
+  if (depth > MAX_DEPTH || seen.has(node)) return REDACTED;
+  seen.add(node);
   if (Array.isArray(node)) {
-    return node.map((item, i) => redactNode(item, childPaths(paths, i), depth + 1));
+    // A [name, value] pair whose name looks like a secret (HTTP header tuples).
+    if (node.length === 2 && typeof node[0] === 'string' && isSecretName(node[0])) return [node[0], REDACTED];
+    return node.map((item, i) => redactNode(item, childPaths(paths, i), depth + 1, seen));
   }
   if (isPlainObject(node)) {
     const out: Record<string, unknown> = {};
-    for (const [key, v] of Object.entries(node)) {
-      out[key] = isSecretName(key) && v !== undefined ? REDACTED : redactNode(v, childPaths(paths, key), depth + 1);
+    for (const [k, v] of Object.entries(node)) {
+      out[k] = isSecretName(k) && v !== undefined ? REDACTED : redactNode(v, childPaths(paths, k), depth + 1, seen);
     }
     return out;
   }
-  if (node !== null && typeof node === 'object') {
-    // Not safely copyable: hide it if any secret could be inside.
-    if (paths.length > 0 || containsSecretNamedKey(node, 0)) return REDACTED;
-  }
-  return node;
+  return REDACTED; // not plain data: it cannot be copied or inspected safely, so it is not shown
 }
 
-function childPaths(paths: readonly SecretPath[], key: string | number): SecretPath[] {
+function childPaths(paths: readonly SecretPath[], k: string | number): SecretPath[] {
   const out: SecretPath[] = [];
   for (const p of paths) {
     if (p.length === 0) continue;
-    if (p[0] === '*' || String(p[0]) === String(key)) out.push(p.slice(1));
+    if (p[0] === '*' || String(p[0]) === String(k)) out.push(p.slice(1));
   }
   return out;
 }
 
-function containsSecretNamedKey(node: unknown, depth: number): boolean {
-  if (node === null || typeof node !== 'object' || depth > 8) return false;
-  if (node instanceof Map) return [...node.entries()].some(([k, v]) => (typeof k === 'string' && isSecretName(k)) || containsSecretNamedKey(v, depth + 1));
-  if (node instanceof Set) return [...node.values()].some((v) => containsSecretNamedKey(v, depth + 1));
-  try {
-    return Object.entries(node).some(([k, v]) => isSecretName(k) || containsSecretNamedKey(v, depth + 1));
-  } catch {
-    return true;
-  }
-}
-
-/** Every primitive at a secret path in `value` (strings and numbers, any length): used to scrub them out of text. */
+/** Every primitive at a secret path in `value` (strings and numbers, any length; Map and Set contents too): used to scrub text. */
 export function secretValues(value: unknown, paths: readonly SecretPath[]): string[] {
   const found = new Set<string>();
-  const visit = (node: any, path: SecretPath, i: number): void => {
-    if (i === path.length) {
-      collectPrimitives(node, found, 0);
-      return;
-    }
-    if (node === null || typeof node !== 'object') return;
-    const seg = path[i];
-    const keys = seg === '*' ? Object.keys(node) : [String(seg)];
-    for (const k of keys) if (k in node) visit(node[k], path, i + 1);
-  };
-  for (const p of paths) visit(value, p, 0);
+  for (const p of paths) for (const v of valuesAt(value, p)) collectPrimitives(v, found, 0, new WeakSet());
   return [...found].filter((s) => s.length > 0);
 }
 
-function collectPrimitives(node: unknown, into: Set<string>, depth: number): void {
-  if (depth > 8) return;
-  if (typeof node === 'string' || typeof node === 'number' || typeof node === 'bigint') into.add(String(node));
-  else if (node && typeof node === 'object') for (const v of Object.values(node)) collectPrimitives(v, into, depth + 1);
+function collectPrimitives(node: unknown, into: Set<string>, depth: number, seen: WeakSet<object>): void {
+  if (depth > MAX_DEPTH) return;
+  if (typeof node === 'string' || typeof node === 'number' || typeof node === 'bigint') {
+    into.add(String(node));
+    return;
+  }
+  if (node && typeof node === 'object') {
+    if (seen.has(node)) return;
+    seen.add(node);
+    const kids = node instanceof Map ? [...node.keys(), ...node.values()] : childrenOf(node);
+    for (const v of kids) collectPrimitives(v, into, depth + 1, seen);
+  }
 }
 
 /**
