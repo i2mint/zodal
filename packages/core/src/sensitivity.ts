@@ -48,6 +48,10 @@ const NON_SECRET_KEY_QUALIFIER = new Set([
   'shard', 'sharding', 'bucket', 'file', 'entry', 'record', 'item', 'query', 'search', 'cursor', 'routing', 'message',
   'translation', 'i18n', 'locale', 'react', 'list', 'cell', 'node', 'edge', 'stream', 'topic', 'queue', 'metric', 'label',
   'hot', 'short', 'shortcut', 'keyboard', 'sequence', 'order', 'parent', 'child', 'path', 'prefix', 'suffix', 'name',
+  // Structural lookups only. Words like content/media/upload/state/config/url/blob are NOT here:
+  // contentKey (DRM), mediaKey (E2E media), uploadKey (app signing), stateKey (OAuth HMAC)
+  // are real secrets, so those stay fail-closed; mark an S3-style object-key field public instead.
+  'route', 'version', 'tag', 'category', 'type', 'kind', 'schema', 'image', 'thumbnail',
 ]);
 const NON_SECRET_TOKEN_QUALIFIER = new Set([
   'page', 'continuation', 'cancellation', 'pagination', 'cursor', 'prompt', 'completion', 'input', 'output',
