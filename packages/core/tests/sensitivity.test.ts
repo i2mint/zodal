@@ -134,7 +134,7 @@ describe('round 4: the name rule, calibrated', () => {
   it.each([
     'withCredentials', 'useCredentials', 'useCookie', 'isPin', 'mapPin', 'nextPageToken', 'continuationToken', 'pageToken',
     'cancellationToken', 'promptTokens', 'completionTokens', 'inputTokens', 'outputTokens', 'partitionKey', 'idempotencyKey',
-    'keyPrefix', 'publicKey', 'keyFile', 'passwordMinLength', 'tokenTtl',
+    'keyPrefix', 'publicKey', 'keyFile', 'passwordMinLength', 'tokenTtl', 'contentKey', 'blobKey', 'assetKey', 'thumbnailKey', 'configKey',
   ])('%s is not', (k) => expect(isSecretName(k)).toBe(false));
   it('ordinary auth schemas are accepted; their secret leaves are found', async () => {
     const { inspectSecrets } = await import('../src/sensitivity.js');

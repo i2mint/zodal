@@ -48,6 +48,8 @@ const NON_SECRET_KEY_QUALIFIER = new Set([
   'shard', 'sharding', 'bucket', 'file', 'entry', 'record', 'item', 'query', 'search', 'cursor', 'routing', 'message',
   'translation', 'i18n', 'locale', 'react', 'list', 'cell', 'node', 'edge', 'stream', 'topic', 'queue', 'metric', 'label',
   'hot', 'short', 'shortcut', 'keyboard', 'sequence', 'order', 'parent', 'child', 'path', 'prefix', 'suffix', 'name',
+  'content', 'blob', 'asset', 'media', 'upload', 'download', 'image', 'thumbnail', 'video', 'audio', 'document', 'state',
+  'session storage', 'local storage', 'route', 'url', 'version', 'tag', 'category', 'type', 'kind', 'schema', 'config',
 ]);
 const NON_SECRET_TOKEN_QUALIFIER = new Set([
   'page', 'continuation', 'cancellation', 'pagination', 'cursor', 'prompt', 'completion', 'input', 'output',
