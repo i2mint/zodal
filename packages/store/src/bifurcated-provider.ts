@@ -133,14 +133,15 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     return result;
   }
 
-  /** Does the metadata side hold this id? (Any rejection from getOne counts as "no".) */
-  async function exists(id: string): Promise<boolean> {
-    try {
-      await metadataProvider.getOne(id);
-      return true;
-    } catch {
-      return false;
-    }
+  /**
+   * Which of `ids` exist, asked of the metadata side in one query. A failure of
+   * that query propagates: only an id the store does not hold is skipped, never
+   * one we could not check.
+   */
+  async function existingIds(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const { data } = await metadataProvider.getList({ filter: { field: idField, operator: 'in', value: ids } });
+    return new Set(data.map((row) => String((row as Record<string, unknown>)[idField])));
   }
 
   const provider: DataProvider<T> = {
@@ -229,11 +230,8 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     async updateMany(ids: string[], data: Partial<T>): Promise<T[]> {
       // Ids with no item are skipped (the DataProvider contract): probe the
       // metadata side, which holds every item.
-      const updated: T[] = [];
-      for (const id of ids) {
-        if (await exists(id)) updated.push(await provider.update(id, data));
-      }
-      return updated;
+      const present = await existingIds(ids);
+      return Promise.all(ids.filter((id) => present.has(id)).map((id) => provider.update(id, data)));
     },
 
     async delete(id: string): Promise<void> {
@@ -243,9 +241,8 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     },
 
     async deleteMany(ids: string[]): Promise<void> {
-      for (const id of ids) {
-        if (await exists(id)) await provider.delete(id);
-      }
+      const present = await existingIds(ids);
+      await Promise.all(ids.filter((id) => present.has(id)).map((id) => provider.delete(id)));
     },
 
     // ---- Optional methods ----

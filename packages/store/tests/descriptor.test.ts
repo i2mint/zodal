@@ -7,7 +7,8 @@ import {
   secretOptionPaths,
   redactOptions,
   splitOptions,
-  liveOptionKeys,
+  liveOptionPaths,
+  LIVE,
   describedCapabilities,
   inMemoryDescriptor,
   bifurcatedDescriptor,
@@ -55,11 +56,11 @@ describe('provider descriptors', () => {
 
   it('redacts and splits options for sharing; live options are left out', () => {
     const opts = { bucket: 'b', credentials: { accessKeyId: 'AKIA9999', secretAccessKey: 'shh-very' }, client: { x: 1 } };
-    expect(redactOptions(s3Like, opts)).toEqual({ bucket: 'b', credentials: '[secret]', client: { x: 1 } });
-    expect(liveOptionKeys(s3Like)).toEqual(['client']);
+    expect(redactOptions(s3Like, opts)).toEqual({ bucket: 'b', credentials: '[secret]', client: LIVE });
+    expect(liveOptionPaths(s3Like)).toEqual([['client']]);
     const split = splitOptions(s3Like, opts);
     expect(split.data).toEqual({ bucket: 'b', credentials: '[secret]' });
-    expect(split.live).toEqual(['client']);
+    expect(split.live).toEqual([['client']]);
   });
 
   it('never puts a secret value in an error', async () => {
@@ -77,9 +78,58 @@ describe('provider descriptors', () => {
   });
 
   it('refuses a secret with a default, a non-v4 schema, and an unknown runtime', () => {
-    expect(() => defineProviderDescriptor({ ...s3Like, options: z.object({ apiKey: z.string().default('sk-live') }) })).toThrow(/has a default/);
+    expect(() => defineProviderDescriptor({ ...s3Like, options: z.object({ apiKey: z.string().default('sk-live') }) })).toThrow(/would be published/);
+    // a name-only match with a non-string default is not a secret leak (maxTokens is not a secret at all)
+    expect(() => defineProviderDescriptor({ ...s3Like, name: 'llm', options: z.object({ maxTokens: z.number().default(1000), pinCount: z.number().default(3) }) })).not.toThrow();
     expect(() => defineProviderDescriptor({ ...s3Like, options: { safeParse: () => ({}) } as any })).toThrow(/Zod v4/);
     expect(() => defineProviderDescriptor({ ...s3Like, runtime: 'nodejs' as any })).toThrow(/runtime/);
+  });
+
+  it('regressions from the verification review: no leak paths', async () => {
+    const mk = (name: string, options: any, create: any = () => createInMemoryProvider([])) =>
+      defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+    // a transform that throws, with a secret in the options
+    const tr = mk('tr', z.object({ apiKey: z.string(), url: z.string().transform((u) => { throw new Error(`bad key sk-LEAK-0001 for ${u}`); }) }));
+    const e1 = await createFromDescriptor(tr, { apiKey: 'sk-LEAK-0001', url: 'x' }).catch((e) => e as Error);
+    expect(e1.message).not.toContain('sk-LEAK-0001');
+    // a short or numeric secret echoed by an object-level refine
+    const ref = mk('ref', z.object({ pin: z.string(), n: z.number() }).refine(() => false, { error: (i: any) => `pin=${i.input.pin} n=${i.input.n}` }));
+    const e2 = await createFromDescriptor(ref, { pin: '123', n: 987654 }).catch((e) => e as Error);
+    expect(e2.message).not.toContain('123');
+    // an encoded secret in a create() error
+    const enc = mk('enc', z.object({ password: z.string() }), (o: any) => { throw new Error(`u:${encodeURIComponent(o.password)}@h ${JSON.stringify(o.password)}`); });
+    const e3 = await createFromDescriptor(enc, { password: 'p@ss"word/1' }).catch((e) => e as Error);
+    expect(e3.message).not.toMatch(/p%40ss|p@ss/);
+    // redact never writes into the caller's object, even through a class instance
+    class Auth { constructor(public password: string) {} }
+    const live = mk('live', z.object({ auth: z.custom<Auth>() }));
+    const o = { auth: new Auth('hunter2') };
+    expect(JSON.stringify(redactOptions(live, o))).not.toContain('hunter2');
+    expect(o.auth.password).toBe('hunter2');
+    // a record of headers: the runtime key Authorization is redacted by name
+    const hdr = mk('hdr', z.object({ headers: z.record(z.string(), z.string()) }));
+    expect(redactOptions(hdr, { headers: { Authorization: 'Bearer zzz', Accept: 'json' } })).toEqual({ headers: { Authorization: '[secret]', Accept: 'json' } });
+    // nested live options are paths
+    const nl = mk('nl', z.object({ auth: z.object({ client: z.custom<object>(), region: z.string() }) }));
+    expect(liveOptionPaths(nl)).toEqual([['auth', 'client']]);
+    expect(splitOptions(nl, { auth: { client: { k: 1 }, region: 'eu' } }).data).toEqual({ auth: { region: 'eu' } });
+    // a default inside a union branch, a container default, a catch and examples are all refused for marked secrets
+    expect(() => mk('u', z.object({ a: z.union([z.object({ k: z.string().meta({ sensitivity: 'secret' }).default('sk-U') }), z.object({ j: z.number() })]) }))).toThrow(/would be published/);
+    expect(() => mk('c', z.object({ auth: z.object({ apiKey: z.string() }).default({ apiKey: 'sk-C' }) }))).toThrow(/would be published/);
+    expect(() => mk('k', z.object({ s: z.string().meta({ sensitivity: 'secret' }).catch('sk-K') }))).toThrow(/would be published/);
+    expect(() => mk('x', z.object({ s: z.string().meta({ sensitivity: 'secret', examples: ['sk-X'] }) }))).toThrow(/would be published/);
+  });
+
+  it('bifurcated: duplicate child names refused; required child options validated up front; transforms run once', async () => {
+    expect(() => bifurcatedDescriptor([inMemoryDescriptor, inMemoryDescriptor])).toThrow(/two child descriptors/);
+    let runs = 0;
+    const once = defineProviderDescriptor({ ...s3Like, name: 'once', capabilities: undefined,
+      options: z.object({ endpoint: z.string().transform((s) => { runs++; return new URL(s); }) }),
+      create: () => createInMemoryProvider([]) });
+    const bif = bifurcatedDescriptor([inMemoryDescriptor, once]);
+    await expect(createFromDescriptor(bif, { metadata: { name: 'once' }, content: { name: 'inMemory' }, contentFields: ['body'] })).rejects.toThrow(/metadata\.options\.endpoint/);
+    await createFromDescriptor(bif, { metadata: { name: 'once', options: { endpoint: 'https://a.b' } }, content: { name: 'inMemory' }, contentFields: ['body'] });
+    expect(runs).toBe(1);
   });
 
   it('resolves option-dependent capabilities', () => {

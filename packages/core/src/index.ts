@@ -94,10 +94,11 @@ export {
   isMarkedSecret,
   hasDefault,
   secretPaths,
+  inspectSecrets,
   redact,
   secretValues,
   scrubSecrets,
   REDACTED,
   SchemaIntrospectionError,
 } from './sensitivity.js';
-export type { SecretPath } from './sensitivity.js';
+export type { SecretPath, SecretInspection } from './sensitivity.js';

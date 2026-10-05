@@ -29,10 +29,9 @@
 import { z, type ZodType } from 'zod';
 import {
   secretPaths,
-  hasDefault,
+  inspectSecrets,
   redact,
   secretValues,
-  scrubSecrets,
   type SecretPath,
 } from '@zodal/core';
 import type { DataProvider } from './data-provider.js';
@@ -115,33 +114,14 @@ export function defineProviderDescriptor<O, T extends Record<string, any> = any>
   if (!(descriptor.options as any)?._zod) {
     throw new Error(`Provider descriptor "${name}": options must be a Zod v4 schema (secret detection needs it)`);
   }
-  for (const path of secretPaths(descriptor.options)) {
-    if (hasDefault(schemaAt(descriptor.options, path))) {
-      throw new Error(
-        `Provider descriptor "${name}": secret option "${path.join('.')}" has a default value, which would be published with the schema`,
-      );
-    }
+  const { published } = inspectSecrets(descriptor.options);
+  if (published.length) {
+    throw new Error(
+      `Provider descriptor "${name}": secret option(s) ${published.map((p) => `"${p.join('.') || '(options)'}"`).join(', ')} ` +
+        'would be published with the schema (a default, catch value or example); remove it',
+    );
   }
   return descriptor;
-}
-
-/** The schema at a path (following objects, wrappers and `'*'`), or undefined. Used for the default check. */
-function schemaAt(schema: unknown, path: SecretPath): unknown {
-  let s: any = schema;
-  for (const seg of path) {
-    for (let i = 0; i < 12 && s?._zod?.def; i++) {
-      const t = s._zod.def.type;
-      if (t === 'optional' || t === 'nullable' || t === 'default' || t === 'readonly') s = s._zod.def.innerType;
-      else if (t === 'pipe') s = s._zod.def.in;
-      else break;
-    }
-    const def = s?._zod?.def;
-    if (!def) return undefined;
-    if (def.type === 'object') s = (typeof def.shape === 'function' ? def.shape() : def.shape)?.[seg];
-    else if (seg === '*') s = def.element ?? def.valueType;
-    else return undefined;
-  }
-  return s;
 }
 
 /** The runtime this code is executing in, by feature rather than by `window`. */
@@ -180,47 +160,102 @@ export function secretOptionPaths(descriptor: ProviderDescriptor, options?: unkn
   return [...own, ...extra.filter((p) => !seen.has(JSON.stringify(p)))];
 }
 
-/** A copy of `options` with every secret replaced by `'[secret]'`: the only form to display, log, share or export. */
-export function redactOptions<O>(descriptor: ProviderDescriptor<O>, options: O): O {
-  return redact(options, secretOptionPaths(descriptor, options));
-}
+/** The marker written in place of a live (non-data) option by {@link redactOptions}. */
+export const LIVE = '[live]';
 
-/** Top-level keys whose schema is not data (`z.custom()`, or `.meta({ serializable: false })`). */
-export function liveOptionKeys(descriptor: ProviderDescriptor): string[] {
-  const def = (descriptor.options as any)?._zod?.def;
-  const shape = def?.type === 'object' ? (typeof def.shape === 'function' ? def.shape() : def.shape) : undefined;
-  if (!shape) return [];
-  return Object.entries(shape)
-    .filter(([, field]) => isLive(field))
-    .map(([key]) => key);
-}
-
-function isLive(schema: any): boolean {
-  for (let s = schema, i = 0; s?._zod?.def && i < 12; i++) {
+/**
+ * Paths to options that are not data: `z.custom()` / `z.function()` fields, or
+ * fields marked `.meta({ serializable: false })`, at any depth (`'*'` for any
+ * index or key). They are supplied in code, never shared, logged or exported.
+ */
+export function liveOptionPaths(descriptor: ProviderDescriptor): SecretPath[] {
+  const out = new Map<string, SecretPath>();
+  const walk = (s: any, path: (string | number)[], depth: number): void => {
+    const def = s?._zod?.def;
+    if (!def || depth > 32) return;
     const meta = typeof s.meta === 'function' ? s.meta() : undefined;
-    if (meta?.serializable === false) return true;
-    const t = s._zod.def.type;
-    if (t === 'custom' || t === 'function') return true;
-    if (t === 'optional' || t === 'nullable' || t === 'default' || t === 'readonly') s = s._zod.def.innerType;
-    else return false;
+    if (meta?.serializable === false || def.type === 'custom' || def.type === 'function') {
+      out.set(JSON.stringify(path), path);
+      return;
+    }
+    switch (def.type) {
+      case 'optional': case 'nullable': case 'default': case 'prefault': case 'readonly': case 'catch': case 'nonoptional':
+        return walk(def.innerType, path, depth + 1);
+      case 'pipe':
+        return walk(def.in, path, depth + 1);
+      case 'lazy':
+        return walk(def.getter(), path, depth + 1);
+      case 'object': {
+        const shape = typeof def.shape === 'function' ? def.shape() : def.shape;
+        for (const [k, f] of Object.entries(shape ?? {})) walk(f, [...path, k], depth + 1);
+        return;
+      }
+      case 'array': case 'set':
+        return walk(def.element ?? def.valueType, [...path, '*'], depth + 1);
+      case 'record': case 'map':
+        return walk(def.valueType, [...path, '*'], depth + 1);
+      case 'union':
+        for (const o of def.options ?? []) walk(o, path, depth + 1);
+        return;
+      default:
+        return;
+    }
+  };
+  walk(descriptor.options, [], 0);
+  return [...out.values()];
+}
+
+function replaceAt(value: unknown, path: SecretPath, replacement: unknown, i = 0): unknown {
+  if (i === path.length) return replacement;
+  if (Array.isArray(value)) {
+    return value.map((v, idx) => (path[i] === '*' || String(path[i]) === String(idx) ? replaceAt(v, path, replacement, i + 1) : v));
   }
-  return false;
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = path[i] === '*' || String(path[i]) === k ? replaceAt(v, path, replacement, i + 1) : v;
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * A copy of `options` that is safe to display, log, share or export: secrets
+ * replaced by `'[secret]'`, live options (clients, functions) by `'[live]'`.
+ * Never writes into `options`.
+ */
+export function redactOptions<O>(descriptor: ProviderDescriptor<O>, options: O): O {
+  let out: unknown = redact(options, secretOptionPaths(descriptor, options));
+  for (const path of liveOptionPaths(descriptor)) out = replaceAt(out, path, LIVE);
+  return out as O;
 }
 
 /**
  * Split options into what can be shared and what cannot: `data` (redacted, live
- * keys removed: safe for a share link, a saved view, a code exporter),
- * `secretPaths` (to read from the environment instead), and `live` (keys the app
- * must supply in code: clients, functions).
+ * options removed: safe for a share link, a saved view, a code exporter),
+ * `secretPaths` (to read from the environment instead), and `live` (paths the
+ * app must supply in code: clients, functions).
  */
 export function splitOptions<O extends Record<string, unknown>>(
   descriptor: ProviderDescriptor<O>,
   options: O,
-): { data: Partial<O>; secretPaths: SecretPath[]; live: string[] } {
-  const live = liveOptionKeys(descriptor);
-  const data = redactOptions(descriptor, options) as Record<string, unknown>;
-  for (const key of live) delete data[key];
+): { data: Partial<O>; secretPaths: SecretPath[]; live: SecretPath[] } {
+  const live = liveOptionPaths(descriptor);
+  let data: unknown = redact(options, secretOptionPaths(descriptor, options));
+  for (const path of live) data = replaceAt(data, path, undefined);
+  data = dropUndefined(data);
   return { data: data as Partial<O>, secretPaths: secretOptionPaths(descriptor, options), live };
+}
+
+function dropUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(dropUndefined);
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) if (v !== undefined) out[k] = dropUndefined(v);
+    return out;
+  }
+  return value;
 }
 
 /** The menu-time capability summary, resolved against `options` when it depends on them. */
@@ -233,42 +268,77 @@ export function describedCapabilities<O>(
   return caps ?? {};
 }
 
+/** A Zod issue described from its structure only: never its message text, which can echo input. */
+function describeIssue(issue: any): string {
+  const where = issue.path?.length ? issue.path.join('.') : '(options)';
+  const parts: string[] = [issue.code];
+  if (issue.expected !== undefined) parts.push(`expected ${String(issue.expected)}`);
+  if (issue.minimum !== undefined) parts.push(`minimum ${String(issue.minimum)}`);
+  if (issue.maximum !== undefined) parts.push(`maximum ${String(issue.maximum)}`);
+  if (issue.format !== undefined) parts.push(`format ${String(issue.format)}`);
+  if (Array.isArray(issue.keys)) parts.push(`keys ${issue.keys.map((k: string) => (secretLike(k) ? '[secret]' : k)).join(',')}`);
+  return `${where}: ${parts.join(', ')}`;
+}
+
+const secretLike = (k: string) => k.length > 24 || /[^\w.-]/.test(k);
+
+/**
+ * What to say about an error thrown while validating or creating: its message
+ * only when the options hold no secret values (so nothing can be echoed,
+ * encoded or not), else just its type.
+ */
+function safeErrorText(err: unknown, secrets: readonly string[]): string {
+  const name = err instanceof Error ? err.name : typeof err;
+  if (secrets.length > 0) return `${name} (message withheld: these options contain secrets)`;
+  return err instanceof Error ? `${name}: ${err.message}` : String(err);
+}
+
+function secretsIn(descriptor: ProviderDescriptor, options: unknown): string[] {
+  let paths: SecretPath[];
+  try {
+    paths = secretOptionPaths(descriptor, options);
+  } catch {
+    paths = secretPaths(descriptor.options);
+  }
+  return secretValues(options, paths);
+}
+
+/** `create` with an error that never carries secret values. */
+async function createSafely<O, T extends Record<string, any>>(
+  descriptor: ProviderDescriptor<O, T>,
+  parsed: O,
+  secrets: readonly string[],
+): Promise<DataProvider<T>> {
+  try {
+    return await descriptor.create(parsed);
+  } catch (err) {
+    throw new Error(`Provider "${descriptor.name}" could not be created: ${safeErrorText(err, secrets)}`);
+  }
+}
+
 /**
  * Validate `options` against the descriptor's schema, then create the provider.
  *
- * Errors name the descriptor and never contain secret values: validation issues
- * on secret paths are reported by path and code only, and any message (from
- * validation or from `create`) is scrubbed of the secret strings in `options`.
+ * Errors name the descriptor and never contain option values: validation issues
+ * are described from their structure (path, code, expected type, bounds), never
+ * from Zod's message text; an error thrown by a transform, a refinement or
+ * `create` keeps its message only when the options hold no secrets.
  */
 export async function createFromDescriptor<O, T extends Record<string, any>>(
   descriptor: ProviderDescriptor<O, T>,
   options: unknown,
 ): Promise<DataProvider<T>> {
-  let paths: SecretPath[];
+  const secrets = secretsIn(descriptor, options);
+  let parsed: ReturnType<typeof descriptor.options.safeParse>;
   try {
-    paths = secretOptionPaths(descriptor, options);
-  } catch {
-    paths = secretOptionPaths(descriptor);
-  }
-  const secrets = secretValues(options, paths);
-  const scrub = (text: string) => scrubSecrets(text, secrets);
-
-  const parsed = descriptor.options.safeParse(options);
-  if (!parsed.success) {
-    const onSecret = (issuePath: readonly PropertyKey[]) =>
-      paths.some((p) => p.length <= issuePath.length && p.every((seg, i) => seg === '*' || String(seg) === String(issuePath[i])));
-    const lines = parsed.error.issues.map((issue) => {
-      const where = issue.path.length ? issue.path.join('.') : '(options)';
-      return onSecret(issue.path) ? `${where}: ${issue.code}` : `${where}: ${scrub(issue.message)}`;
-    });
-    throw new Error(`Invalid options for provider "${descriptor.name}": ${lines.join('; ')}`);
-  }
-  try {
-    return await descriptor.create(parsed.data);
+    parsed = descriptor.options.safeParse(options);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Provider "${descriptor.name}" could not be created: ${scrub(message)}`);
+    throw new Error(`Invalid options for provider "${descriptor.name}": ${safeErrorText(err, secrets)}`);
   }
+  if (!parsed.success) {
+    throw new Error(`Invalid options for provider "${descriptor.name}": ${parsed.error.issues.map(describeIssue).join('; ')}`);
+  }
+  return createSafely(descriptor, parsed.data as O, secrets);
 }
 
 // ---------------------------------------------------------------------------
@@ -322,10 +392,13 @@ export function bifurcatedDescriptor(
 ): ProviderDescriptor<BifurcatedDescriptorOptions> {
   const leaves = children.filter((d) => !describedCapabilities(d).bifurcated);
   if (leaves.length === 0) throw new Error(`${name}: needs at least one non-composite child descriptor`);
+  const dup = leaves.find((d, i) => leaves.findIndex((e) => e.name === d.name) !== i);
+  if (dup) throw new Error(`${name}: two child descriptors are named "${dup.name}"`);
   const byName = new Map(leaves.map((d) => [d.name, d]));
   const childSchema = z.discriminatedUnion(
     'name',
-    leaves.map((d) => z.object({ name: z.literal(d.name), options: (d.options as ZodType).optional() })) as any,
+    // prefault({}): omitted child options are validated as {} (required fields still fail here, not at create).
+    leaves.map((d) => z.object({ name: z.literal(d.name), options: (d.options as any).prefault({}) })) as any,
   );
   const childSecretPaths = (side: 'metadata' | 'content', choice: any): SecretPath[] => {
     const d = byName.get(choice?.name);
@@ -358,7 +431,8 @@ export function bifurcatedDescriptor(
         if (!(await isProviderSupported(d))) {
           throw new Error(`${side} provider "${d.name}" cannot run here`);
         }
-        return createFromDescriptor(d, choice.options ?? {});
+        // Already parsed by the union: create directly (a second parse would re-run transforms).
+        return createSafely(d, choice.options as any, secretsIn(d, choice.options));
       };
       const metadataProvider = await build('metadata', metadata);
       const contentProvider = await build('content', content);
