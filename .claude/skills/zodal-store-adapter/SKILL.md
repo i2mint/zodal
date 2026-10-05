@@ -310,30 +310,34 @@ zodal-store-mybackend/
 
 ## Describe Your Provider (the backend menu)
 
-Export a descriptor next to the factory, so apps, playgrounds and agents can list your backend, render its options as a form, check it can run here, and create it by name (`@zodal/store/descriptor`, from 0.2.2):
+Export a descriptor next to the factory, so apps, playgrounds and agents can list your backend, show its options, check it can run here, and create it by name (`@zodal/store/descriptor`, from 0.2.2; Zod v4 only):
 
 ```typescript
 import { z } from 'zod';
 import { defineProviderDescriptor } from '@zodal/store/descriptor';
 
 export const descriptor = defineProviderDescriptor({
-  name: 'myBackend',                       // unique in a menu
+  name: 'myBackend',                                   // unique in a menu
   label: 'My backend',
   description: 'Items as rows in My Backend.',
-  package: '@zodal/store-mybackend',
-  runtime: 'node',                         // 'browser' | 'node' | 'any'
+  source: { module: '@zodal/store-mybackend', export: 'descriptor' },  // for exporters and lazy loading
+  runtime: 'node',                                     // 'browser' | 'node' | 'any'; advisory once supports() exists
   options: z.object({
     url: z.string().url(),
-    apiKey: z.string().meta({ sensitivity: 'secret' }),   // masked in forms, never exported as a value
-    client: z.custom<MyClient>().optional(),               // non-serializable options are z.custom()
+    apiKey: z.string(),                                // a secret by its name; or mark any field .meta({ sensitivity: 'secret' })
+    client: z.custom<MyClient>().optional(),           // non-data options are z.custom(): never shared or exported
   }),
-  capabilities: { serverFilter: true, serverSort: true },  // summary for the menu
-  supports: () => typeof fetch === 'function',              // a real feature check
-  create: (options) => createMyBackendProvider(options),
+  capabilities: (o) => ({ serverFilter: true, serverSearch: Boolean(o.url) }),  // static, or derived from options
+  supports: () => typeof fetch === 'function',         // a real feature check
+  create: async (o) => (await import('./provider.js')).createMyBackendProvider(o),  // lazy: listing loads no SDK
 });
 ```
 
-A satellite describes only itself; the catalog that aggregates descriptors belongs to the app (no satellite imports another). For metadata + content, apps compose with `bifurcatedDescriptor(resolve)`, which takes the app's lookup function.
+Rules the helpers enforce or rely on:
+- **Secrets never leave as values.** `secretOptionPaths` finds marked and secret-named fields at any depth (a secret-named container makes the whole container secret). Display, log, share or export options only through `redactOptions` / `splitOptions`; `createFromDescriptor` scrubs secret values from every error. A secret with a `.default(...)` is refused (the default would ship in the schema).
+- **Declare every option `create` reads**: validation strips unknown keys.
+- A satellite describes only itself; the app aggregates descriptors. For metadata + content, the app builds `bifurcatedDescriptor(children)` from its own list of descriptors (a real discriminated union, so child forms and child secrets work).
+- Rendering options as a form is not yet a zodal generator (`toFormConfig` targets collection records, and its name heuristics make `*Key`/`*Id` fields read-only): see the zodal issue on an options-form generator.
 
 ## Testing Your Adapter
 

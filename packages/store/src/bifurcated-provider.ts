@@ -133,6 +133,16 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     return result;
   }
 
+  /** Does the metadata side hold this id? (Any rejection from getOne counts as "no".) */
+  async function exists(id: string): Promise<boolean> {
+    try {
+      await metadataProvider.getOne(id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   const provider: DataProvider<T> = {
     // ---- Reads ----
 
@@ -217,7 +227,13 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     },
 
     async updateMany(ids: string[], data: Partial<T>): Promise<T[]> {
-      return Promise.all(ids.map((id) => provider.update(id, data)));
+      // Ids with no item are skipped (the DataProvider contract): probe the
+      // metadata side, which holds every item.
+      const updated: T[] = [];
+      for (const id of ids) {
+        if (await exists(id)) updated.push(await provider.update(id, data));
+      }
+      return updated;
     },
 
     async delete(id: string): Promise<void> {
@@ -227,7 +243,9 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
     },
 
     async deleteMany(ids: string[]): Promise<void> {
-      await Promise.all(ids.map((id) => provider.delete(id)));
+      for (const id of ids) {
+        if (await exists(id)) await provider.delete(id);
+      }
     },
 
     // ---- Optional methods ----
@@ -251,7 +269,7 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
         canDelete: metaCaps.canDelete && contentCaps.canDelete,
         canBulkUpdate: metaCaps.canBulkUpdate && contentCaps.canBulkUpdate,
         canBulkDelete: metaCaps.canBulkDelete && contentCaps.canBulkDelete,
-        canUpsert: (metaCaps.canUpsert ?? false) && (contentCaps.canUpsert ?? false),
+        canUpsert: false, // this composite implements no upsert (it used to claim the children's)
 
         // Bifurcation metadata
         bifurcated: true,
