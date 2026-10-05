@@ -38,3 +38,10 @@ describe('getVocabularyEntries', () => {
     expect(getVocabulary(z.union([z.enum(['a', 'b']), z.null()]) as any)).toEqual(['a', 'b']);
   });
 });
+
+describe('labels stay as before for string enums', () => {
+  it('a TS string enum labels by value, as on main', async () => {
+    const { getVocabularyEntries } = await import('../src/inference.js');
+    expect(getVocabularyEntries(z.enum({ ACTIVE: 'active', DONE: 'done' }) as any)!.map((e) => e.label)).toEqual(['active', 'done']);
+  });
+});

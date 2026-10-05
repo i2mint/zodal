@@ -112,7 +112,8 @@ export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | nul
           const forward = typeof value === 'string' ? entries[value] : undefined;
           if (typeof forward === 'number' && String(forward) === key) continue;
           if (typeof value === 'string' || typeof value === 'number') {
-            out.push({ value: String(value), raw: value, label: Array.isArray(entries) ? String(value) : key });
+            // The member name labels a numeric member (0 → "A"); a string member keeps its value as label.
+            out.push({ value: String(value), raw: value, label: typeof value === 'number' ? key : String(value) });
           }
         }
         return out.length ? out : null;
