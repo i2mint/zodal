@@ -129,12 +129,12 @@ Official packages use `@zodal/store-<backend>`; community packages use `zodal-st
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" }
   },
   "peerDependencies": {
-    "@zodal/core": "^0.1.0",
-    "@zodal/store": "^0.1.0"
+    "@zodal/core": ">=0.2.1 <1.0.0",
+    "@zodal/store": ">=0.2.1 <1.0.0"
   },
   "devDependencies": {
-    "@zodal/core": "^0.1.0",
-    "@zodal/store": "^0.1.0",
+    "@zodal/core": "^0.2.1",
+    "@zodal/store": "^0.2.1",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
@@ -146,6 +146,8 @@ Official packages use `@zodal/store-<backend>`; community packages use `zodal-st
   }
 }
 ```
+
+Peer ranges are `>=X <1.0.0`, never a caret on `0.x` (`^0.1.0` means `<0.2.0`: every core release would orphan the satellite; zodal's CI runs `scripts/check-satellite-peers.mjs` to catch it). Dev dependencies may use a caret.
 
 Note: `types` must come first in the `exports` condition map for correct TypeScript resolution. Satellite packages are NOT part of the monorepo pnpm workspace — use real version ranges (not `workspace:*`) for `@zodal/*` dev dependencies.
 

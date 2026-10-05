@@ -5,10 +5,9 @@
  * Useful for prototyping, testing, and small datasets.
  */
 
-import type { SortingState, FilterExpression } from '@zodal/core';
 import type { DataProvider, GetListParams, GetListResult } from './data-provider.js';
 import type { ProviderCapabilities } from './capabilities.js';
-import { filterToFunction } from './filters.js';
+import { applyQuery } from './query.js';
 
 export interface InMemoryProviderOptions {
   /** Field name used as the unique identifier. Default: 'id'. */
@@ -43,8 +42,11 @@ export function createInMemoryProvider<T extends Record<string, any>>(
   const delay = options.simulateDelay ?? 0;
   const searchFields = options.searchFields;
 
-  // Internal mutable store
-  let items = [...initialData];
+  // Internal mutable store. Items go in and come out as deep copies
+  // (structuredClone), so a caller mutating a returned item, or one of its arrays
+  // such as `tags`, never changes the store behind the provider's back.
+  const clone = <V>(v: V): V => structuredClone(v);
+  let items = initialData.map(clone);
   let nextId = items.length + 1;
 
   const maybeDelay = () =>
@@ -54,92 +56,37 @@ export function createInMemoryProvider<T extends Record<string, any>>(
     return String((item as any)[idField]);
   }
 
-  function matchesSearch(item: T, search: string): boolean {
-    if (!search) return true;
-    const lowerSearch = search.toLowerCase();
-    const fields = searchFields ?? Object.keys(item).filter(k => typeof (item as any)[k] === 'string');
-    return fields.some(field => {
-      const val = (item as any)[field];
-      return typeof val === 'string' && val.toLowerCase().includes(lowerSearch);
-    });
-  }
-
-  function compareValues(a: any, b: any): number {
-    if (a === b) return 0;
-    if (a == null) return -1;
-    if (b == null) return 1;
-    if (typeof a === 'string' && typeof b === 'string') {
-      return a.localeCompare(b);
-    }
-    if (a instanceof Date && b instanceof Date) {
-      return a.getTime() - b.getTime();
-    }
-    return a < b ? -1 : 1;
-  }
-
   return {
     async getList(params: GetListParams): Promise<GetListResult<T>> {
       await maybeDelay();
 
-      let result = [...items];
-
-      // Apply structured filters
-      if (params.filter) {
-        const predicate = filterToFunction<T>(params.filter);
-        result = result.filter(predicate);
-      }
-
-      // Apply search
-      if (params.search) {
-        result = result.filter(item => matchesSearch(item, params.search!));
-      }
-
-      const total = result.length;
-
-      // Apply sorting
-      if (params.sort && params.sort.length > 0) {
-        result.sort((a, b) => {
-          for (const sortCol of params.sort!) {
-            const cmp = compareValues((a as any)[sortCol.id], (b as any)[sortCol.id]);
-            if (cmp !== 0) return sortCol.desc ? -cmp : cmp;
-          }
-          return 0;
-        });
-      }
-
-      // Apply pagination
-      if (params.pagination) {
-        const { page, pageSize } = params.pagination;
-        const start = (page - 1) * pageSize;
-        result = result.slice(start, start + pageSize);
-      }
-
-      return { data: result, total };
+      const result = applyQuery(items, params, { searchFields });
+      return { data: result.data.map(clone), total: result.total };
     },
 
     async getOne(id: string): Promise<T> {
       await maybeDelay();
       const item = items.find(i => getItemId(i) === id);
       if (!item) throw new Error(`Item not found: ${id}`);
-      return { ...item };
+      return clone(item);
     },
 
     async create(data: Partial<T>): Promise<T> {
       await maybeDelay();
-      const newItem = {
+      const newItem = clone({
         ...data,
         [idField]: (data as any)[idField] ?? String(nextId++),
-      } as T;
+      } as T);
       items.push(newItem);
-      return { ...newItem };
+      return clone(newItem);
     },
 
     async update(id: string, data: Partial<T>): Promise<T> {
       await maybeDelay();
       const index = items.findIndex(i => getItemId(i) === id);
       if (index === -1) throw new Error(`Item not found: ${id}`);
-      items[index] = { ...items[index], ...data };
-      return { ...items[index] };
+      items[index] = { ...items[index], ...clone(data) };
+      return clone(items[index]);
     },
 
     async updateMany(ids: string[], data: Partial<T>): Promise<T[]> {
@@ -148,8 +95,8 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       for (const id of ids) {
         const index = items.findIndex(i => getItemId(i) === id);
         if (index !== -1) {
-          items[index] = { ...items[index], ...data };
-          updated.push({ ...items[index] });
+          items[index] = { ...items[index], ...clone(data) };
+          updated.push(clone(items[index]));
         }
       }
       return updated;
@@ -172,13 +119,13 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       await maybeDelay();
       const id = getItemId(data);
       const index = items.findIndex(i => getItemId(i) === id);
-      const item = { ...data };
+      const item = clone(data);
       if (index === -1) {
         items.push(item);
       } else {
         items[index] = item;
       }
-      return { ...item };
+      return clone(item);
     },
 
     getCapabilities(): ProviderCapabilities {

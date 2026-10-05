@@ -7,9 +7,11 @@
     "test": "turbo test",
     "test:integration": "vitest run --config tests/vitest.config.ts",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "check:peers": "node scripts/check-satellite-peers.mjs"
   },
   "devDependencies": {
+    "semver": "^7.6.0",
     "turbo": "^2.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0",
