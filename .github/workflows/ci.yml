@@ -1,3 +1,6 @@
+# npm auth: trusted publishing (OIDC) only. Never add an NPM_TOKEN secret.
+# npmjs.com -> each package -> Settings -> Trusted Publisher -> GitHub Actions:
+#   owner/repo = i2mint/zodal, workflow filename = ci.yml, no environment.
 name: CI
 
 on:
@@ -85,6 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -96,9 +100,16 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm >= 11.5.1 (required for OIDC trusted publishing)
+        run: |
+          if ! node -e "const [a,b,c]=process.argv[1].split('.').map(Number);process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)" "$(npm --version)"; then
+            npm install -g npm@^11.5.1
+          fi
+          npm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -108,7 +119,6 @@ jobs:
 
       - name: Publish packages
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           FORCE_PUBLISH: ${{ needs.gate.outputs.force }}
         run: |
           set -euo pipefail
@@ -116,12 +126,12 @@ jobs:
           if [ "$FORCE_PUBLISH" = "true" ]; then
             FORCE="--no-git-checks"
           fi
-          # No `|| true` here. An expired NPM_TOKEN makes the registry answer 404 to the
+          # No `|| true` here. A failed auth makes the registry answer 404 to the
           # PUT, and swallowing that exit code reported the whole run as green while npm
           # stayed on the previous version — the failure mode this step now refuses.
           # `pnpm -r publish` already skips a version the registry has, so re-running a
           # publish stays idempotent without hiding errors.
-          pnpm -r publish --access public $FORCE
+          pnpm -r publish --access public --provenance $FORCE
 
       # A publish is only real if the registry serves it. Ask the registry, don't infer it
       # from an exit code.
