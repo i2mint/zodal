@@ -71,15 +71,23 @@ export type SuggestionSource = (
   options?: SuggestOptions,
 ) => readonly Suggestion[] | Promise<readonly Suggestion[]>;
 
+/** How a field component reads and writes its value. */
+export interface FieldBinding<V = unknown> {
+  value: V;
+  onChange: (value: V) => void;
+}
+
 /**
- * What a field component receives: its affordance, its generated config, and the
- * render context (including `suggest`). Renderer packages use this shape for
- * their form and filter components so the context reaches the widget.
+ * What a field component (form or filter) receives: its value binding, its
+ * generated config, the render context (including `suggest`), and the field's
+ * resolved affordance. This is the shape renderer packages have always used for
+ * `field` (the binding); the affordance travels beside it.
  */
-export interface FieldRenderProps<C = unknown> {
-  field: ResolvedFieldAffordance;
+export interface FieldRenderProps<C = unknown, V = unknown> {
+  field: FieldBinding<V>;
   config: C;
   context?: RendererContext;
+  affordance?: ResolvedFieldAffordance;
 }
 
 /**

@@ -75,6 +75,7 @@ export type {
   SuggestionSource,
   SuggestOptions,
   FieldRenderProps,
+  FieldBinding,
 } from './registry/tester.js';
 
 // AI prompt generator
