@@ -72,15 +72,44 @@ export type SuggestionSource = (
 ) => readonly Suggestion[] | Promise<readonly Suggestion[]>;
 
 /**
- * What a field component receives: its affordance, its generated config, and the
- * render context (including `suggest`). Renderer packages use this shape for
- * their form and filter components so the context reaches the widget.
+ * How a field component reads and writes its value. Renderers may read `value`
+ * lazily (a host can pass a getter), which a DOM renderer needs to stay mounted
+ * across changes instead of being rebuilt on every keystroke.
  */
-export interface FieldRenderProps<C = unknown> {
-  field: ResolvedFieldAffordance;
+export interface FieldBinding<V = unknown> {
+  value: V;
+  onChange: (value: V) => void;
+  /** The field's name (also what `context.suggest` is asked about). */
+  name?: string;
+  onBlur?: () => void;
+  /** A host form library's ref callback, when it wants the element. */
+  ref?: (element: unknown) => void;
+}
+
+/**
+ * What a field component (form or filter) receives: its value binding, its
+ * generated config, the render context (including `suggest`), and the field's
+ * resolved affordance. This is the shape renderer packages have always used for
+ * `field` (the binding); the affordance travels beside it. Optional so far:
+ * everything but `field` and `config`; a renderer needing the affordance falls
+ * back to `config`.
+ */
+export interface FieldRenderProps<C = unknown, V = unknown> {
+  field: FieldBinding<V>;
   config: C;
   context?: RendererContext;
+  affordance?: ResolvedFieldAffordance;
+  /** A validation message to show (a host form library maps its field state here). */
+  error?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
+  required?: boolean;
+  /** Aborted when the component is unmounted or replaced: cancel pending work (suggestions...). */
+  signal?: AbortSignal;
 }
+
+/** A filter component's props: its value may be `undefined` (the filter cleared). */
+export type FilterFieldProps<C = unknown, V = unknown> = FieldRenderProps<C, V | undefined>;
 
 /**
  * A tester function: returns a priority score (> 0 means match) or -1 (no match).
