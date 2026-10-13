@@ -9,8 +9,12 @@ on:
   pull_request:
     branches: [main]
 
+# A newer push to a PR cancels the older run. Every push to main gets its own group (keyed
+# by sha), so a main run is never cancelled by the next push: cancelling one between
+# `pnpm -r publish` and tagging left a version on npm with no verification and no tag.
+# The publish job below has its own non-cancelling group so releases never overlap.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -86,6 +90,12 @@ jobs:
     needs: [validate, gate]
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # Releases never overlap and a running one is never cancelled. Only an armed release joins
+    # the shared group: a run whose publish job is skipped gets a group of its own, so it can
+    # never take the single pending slot from a release that is waiting its turn.
+    concurrency:
+      group: ${{ needs.gate.outputs.publish == 'true' && format('npm-publish-{0}', github.repository) || format('no-publish-{0}', github.run_id) }}
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
