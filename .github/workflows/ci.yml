@@ -90,9 +90,11 @@ jobs:
     needs: [validate, gate]
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    # Releases never overlap and a running one is never cancelled.
+    # Releases never overlap and a running one is never cancelled. Only an armed release joins
+    # the shared group: a run whose publish job is skipped gets a group of its own, so it can
+    # never take the single pending slot from a release that is waiting its turn.
     concurrency:
-      group: npm-publish-${{ github.repository }}
+      group: ${{ needs.gate.outputs.publish == 'true' && format('npm-publish-{0}', github.repository) || format('no-publish-{0}', github.run_id) }}
       cancel-in-progress: false
     permissions:
       contents: write
