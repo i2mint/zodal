@@ -31,6 +31,17 @@ export type {
   CollectionStore,
 } from './state/store.js';
 
+// Persisted view state (view mode, collapsed groups, sort, search, filters)
+export { ViewStateSchema, createViewStateStore, defaultViewState } from './state/view-state.js';
+export type {
+  ViewState,
+  ViewStateFields,
+  ViewStateProvider,
+  ViewStateStore,
+  ViewStateStoreOptions,
+  HydrateOptions,
+} from './state/view-state.js';
+
 // Zustand adapter
 export { createZustandStoreSlice } from './state/zustand.js';
 export type { BoundCollectionActions, ZustandCollectionState } from './state/zustand.js';

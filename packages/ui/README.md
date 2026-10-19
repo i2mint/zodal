@@ -40,5 +40,21 @@ const prompt = toPrompt(collection);
 - **Generators** -- `toColumnDefs()`, `toFormConfig()`, `toFilterConfig()` (headless, framework-agnostic)
 - **State** -- `createCollectionStore()` (pure functions) + 5 composable slices
 - **Zustand adapter** -- `createZustandStoreSlice()` for Zustand `create()` integration
+- **Persisted view state** -- `createViewStateStore()`: the view mode, collapsed groups, sort, search and filters a person chose, written through a `DataProvider` and read back on the next visit (a choice made before the stored record arrives wins)
 - **Renderer registry** -- ranked testers with priority bands and `explain()` debugging
 - **AI tools** -- `toPrompt()` for LLM consumption, `toCode()` for TypeScript codegen
+
+## Remembering a person's view
+
+```typescript
+import { createViewStateStore } from '@zodal/ui';
+import { createLocalStorageProvider } from '@zodal/store-localstorage';
+
+const view = createViewStateStore(products, createLocalStorageProvider({ storageKey: 'app.views', idField: 'id' }), { key: 'products' });
+await view.hydrate({ groups: categoryIds }); // the stored choices, or the collection's defaults
+view.set({ viewMode: 'grid' });              // written through
+view.toggleGroup('archived');
+const off = view.subscribe((state) => render(state));
+```
+
+This is the working view state (one record per collection and key, last write wins), not named saved views. A record of an older shape is mapped by `migrate`; a stored view the collection no longer offers opens on its `defaultView`.
