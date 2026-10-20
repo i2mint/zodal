@@ -23,7 +23,8 @@
     "access": "public"
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "scripts": {
     "build": "tsup",
