@@ -485,7 +485,11 @@ export function scrubSecrets(text: string, secrets: readonly string[]): string {
   const variants = new Set<string>();
   for (const s of secrets) {
     variants.add(s);
-    variants.add(encodeURIComponent(s));
+    try {
+      variants.add(encodeURIComponent(s));
+    } catch {
+      // a lone surrogate has no URL encoding, so it cannot appear URL-encoded either
+    }
     variants.add(JSON.stringify(s).slice(1, -1));
   }
   let out = text;
