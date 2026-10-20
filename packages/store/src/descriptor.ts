@@ -21,9 +21,12 @@
  * through {@link redactOptions}; validation and creation errors are scrubbed of
  * secret values before they are thrown.
  *
- * **Scope.** These guarantees cover the descriptor helpers: once a provider is
- * created, errors it throws later (from `getList`, ...) are its own; adapters
- * should not put option values in their messages.
+ * **Scope.** These guarantees cover the descriptor helpers and the provider
+ * {@link createFromDescriptor} returns: when the options hold secrets, every error
+ * that provider throws later (from `getList`, ...) has the secret values (raw or
+ * URL-encoded) replaced in its message and stack. A secret the adapter transforms
+ * some other way (hashed, base64) before putting it in a message is not caught,
+ * so adapters should still keep option values out of their messages.
  *
  * **Live options.** Options that are not data (a client instance, a `fetch`, a
  * callback) are declared `z.custom()` (or marked `.meta({ serializable: false })`);
@@ -415,17 +418,70 @@ function valuesAtPath(value: unknown, path: SecretPath): unknown[] {
   return frontier;
 }
 
-/** `create` with an error that never carries secret values. */
+/** `create` with an error that never carries secret values, and a provider whose errors never do either. */
 async function createSafely<O, T extends Record<string, any>>(
   descriptor: ProviderDescriptor<O, T>,
   parsed: O,
   hasSecrets: boolean,
 ): Promise<DataProvider<T>> {
+  let provider: DataProvider<T>;
   try {
-    return await descriptor.create(parsed);
+    provider = await descriptor.create(parsed);
   } catch (err) {
     throw new Error(`Provider "${descriptor.name}" could not be created: ${safeErrorText(err, hasSecrets)}`);
   }
+  if (!hasSecrets) return provider;
+  let paths: SecretPath[];
+  try {
+    paths = secretOptionPaths(descriptor, parsed);
+  } catch {
+    paths = secretPaths(descriptor.options);
+  }
+  return scrubProviderErrors(provider, secretValues(parsed, paths));
+}
+
+/** The marker written in place of a secret value in a provider's error. */
+const SCRUBBED = '[redacted]';
+
+/**
+ * `provider`, with every error its methods throw or reject with scrubbed of `secrets`
+ * (each raw and URL-encoded): the message and stack are rewritten in place, so the
+ * error keeps its class for `instanceof` checks.
+ */
+function scrubProviderErrors<P extends object>(provider: P, secrets: readonly string[]): P {
+  const needles = [...new Set(secrets.flatMap((v) => [v, encodeURIComponent(v)]))]
+    .filter((v) => v.length > 0)
+    .sort((a, b) => b.length - a.length);
+  if (needles.length === 0) return provider;
+  const clean = (text: string) => needles.reduce((t, n) => t.split(n).join(SCRUBBED), text);
+  const scrub = (err: unknown): unknown => {
+    if (typeof err === 'string') return clean(err);
+    if (err instanceof Error) {
+      try {
+        err.message = clean(err.message);
+        if (typeof err.stack === 'string') err.stack = clean(err.stack);
+      } catch {
+        return new Error(`${err.name}: ${clean(String(err.message))}`);
+      }
+    }
+    return err;
+  };
+  return new Proxy(provider, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        try {
+          const result = value.apply(target, args);
+          return typeof result?.then === 'function'
+            ? Promise.resolve(result).catch((err: unknown) => Promise.reject(scrub(err)))
+            : result;
+        } catch (err) {
+          throw scrub(err);
+        }
+      };
+    },
+  });
 }
 
 /**

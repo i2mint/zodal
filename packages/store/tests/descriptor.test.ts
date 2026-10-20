@@ -258,3 +258,39 @@ describe('provider descriptors', () => {
     expect(cases.find((c) => c.name.startsWith('upsert'))!.skip).toMatch(/canUpsert: false/);
   });
 });
+
+describe('errors of a created provider (#27)', () => {
+  class AdapterError extends Error {}
+  const leaky = defineProviderDescriptor({
+    ...s3Like,
+    name: 'leaky',
+    create: (o: any) => {
+      const base = createInMemoryProvider<{ id: string }>([]);
+      return {
+        ...base,
+        getList: async () => {
+          throw new AdapterError(`GET https://h/?key=${encodeURIComponent(o.credentials.secretAccessKey)} with ${o.credentials.secretAccessKey}`);
+        },
+        getCapabilities: () => {
+          throw new Error(`no caps for ${o.credentials.accessKeyId}`);
+        },
+      };
+    },
+  });
+  const options = { bucket: 'b', credentials: { accessKeyId: 'AKIA9999', secretAccessKey: 'shh very/secret' } };
+
+  it('scrubs secret values, raw and URL-encoded, from rejected and thrown errors, keeping the class', async () => {
+    const p = await createFromDescriptor(leaky, options);
+    const err = await p.getList({}).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AdapterError);
+    expect((err as Error).message).not.toContain('shh');
+    expect((err as Error).message).toContain('[redacted]');
+    expect(String((err as Error).stack)).not.toContain('shh');
+    expect(() => p.getCapabilities!()).toThrow('no caps for [redacted]');
+  });
+
+  it('leaves a provider created without secrets untouched', async () => {
+    const p = await createFromDescriptor(inMemoryDescriptor, {});
+    await expect(p.getList({})).resolves.toBeDefined();
+  });
+});

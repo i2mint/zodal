@@ -67,3 +67,11 @@ Also since 0.2.1, `create` with an id that already exists rejects (it used to ad
 **Workaround**: To keep "has all of X, Y", declare `.meta({ filterable: 'containsAll' })` on the field (`arrIncludesAll`; client-side only, the store has no AND operator).
 
 **Status**: `contains` is OR within a field, AND across fields, as faceted filters are.
+## Secret handling: what is not covered
+
+**Issue**: `@zodal/core`'s secret detection (`sensitivity.ts`) and `@zodal/store`'s provider descriptors keep option values out of every display, log, share link, code export and error they produce (zodal#24, #27). Three limits remain:
+- **Field names are a heuristic.** `isSecretName` flags `apiKey`, `password`, `…Token` and friends and fails closed on unknown `…Key` names. A miss or a false alarm is fixed by `.meta({ sensitivity: 'secret' | 'public' })` on the field; add the case to `packages/core/tests/sensitivity.test.ts`.
+- **Description text is not scanned.** A secret pasted into `.describe('…')` or `.meta({ description })` ships with `toJSONSchema` and `toPrompt`. Never put a value in a description.
+- **Errors of a created provider** are scrubbed of the secret option values, raw and URL-encoded, when the options hold secrets. A value the adapter transforms another way (hashed, base64, truncated) before putting it in a message is not recognised: adapters keep option values out of their messages.
+
+**Status**: By design; the overrides above are the escape hatch.
