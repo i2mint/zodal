@@ -17,29 +17,39 @@ import type { AffordanceRegistry } from './registry.js';
 // Schema Introspection Helpers
 // ============================================================================
 
-/** Get the underlying type name from a Zod schema, unwrapping optionals/nullables/defaults. */
+/** Zod wrappers that hold a single `innerType` and do not change the value's type. */
+const ZOD_WRAPPER_TYPES = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
+
+/** How many wrapper layers `unwrapZodSchema` peels before giving up (guards a self-referencing `z.lazy`). */
+const MAX_UNWRAP_DEPTH = 16;
+
+/**
+ * Get the underlying type name from a Zod schema, unwrapping every wrapper
+ * `unwrapZodSchema` does (so `z.string().readonly()` is `'string'`, not `'readonly'`).
+ */
 export function getZodBaseType(schema: z.ZodType): string {
-  const def = (schema as any)._zod?.def;
+  const def = (unwrapZodSchema(schema) as any)._zod?.def;
   if (!def) return 'unknown';
-
-  // Unwrap wrapper types
-  if (def.type === 'optional' || def.type === 'nullable' || def.type === 'default') {
-    return getZodBaseType(def.innerType);
-  }
-
   return def.type ?? 'unknown';
 }
 
-/** Get the inner schema, unwrapping optionals/nullables/defaults. */
+/**
+ * Get the inner schema, unwrapping optional, nullable, default, prefault, readonly,
+ * catch and nonoptional wrappers, `z.lazy` (its resolved schema) and pipes (their
+ * input side: a `.transform()` output carries no type, and the input is what a form
+ * or filter edits).
+ */
 export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
-  const def = (schema as any)._zod?.def;
-  if (!def) return schema;
-
-  if (def.type === 'optional' || def.type === 'nullable' || def.type === 'default') {
-    return unwrapZodSchema(def.innerType);
+  let current: any = schema;
+  for (let i = 0; i < MAX_UNWRAP_DEPTH; i++) {
+    const def = current?._zod?.def;
+    if (!def) return current;
+    if (ZOD_WRAPPER_TYPES.has(def.type)) current = def.innerType;
+    else if (def.type === 'pipe') current = def.in;
+    else if (def.type === 'lazy') current = def.getter();
+    else return current;
   }
-
-  return schema;
+  return current;
 }
 
 /** Check if a Zod schema has a specific check/validation. */
@@ -97,7 +107,7 @@ export interface VocabularyEntry {
  * string value) are dropped.
  */
 export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | null {
-  const WRAP = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
+  const WRAP = ZOD_WRAPPER_TYPES;
   const leaf = (s: any, depth: number): VocabularyEntry[] | null => {
     if (!s || depth > 16) return null;
     const def = s._zod?.def;

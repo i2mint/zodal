@@ -41,6 +41,25 @@ describe('getZodBaseType', () => {
     expect(getZodBaseType(z.string().nullable())).toBe('string');
   });
 
+  it('unwraps readonly, catch, prefault and nonoptional wrappers (#35)', () => {
+    expect(getZodBaseType(z.string().readonly())).toBe('string');
+    expect(getZodBaseType(z.string().catch('x'))).toBe('string');
+    expect(getZodBaseType(z.string().prefault('x'))).toBe('string');
+    expect(getZodBaseType(z.string().optional().nonoptional())).toBe('string');
+    expect(getZodBaseType(z.number().optional().readonly().catch(0))).toBe('number');
+  });
+
+  it('resolves z.lazy and reads a pipe by its input side (#35)', () => {
+    expect(getZodBaseType(z.lazy(() => z.string()))).toBe('string');
+    expect(getZodBaseType(z.string().transform((s) => s.length))).toBe('string');
+    expect(getZodBaseType(z.string().email().transform((s) => s.trim()).optional())).toBe('string');
+  });
+
+  it('gives up on a self-referencing z.lazy instead of looping', () => {
+    const loop: z.ZodType = z.lazy(() => loop);
+    expect(() => getZodBaseType(loop)).not.toThrow();
+  });
+
   it('unwraps default types', () => {
     expect(getZodBaseType(z.string().default('hello'))).toBe('string');
   });
