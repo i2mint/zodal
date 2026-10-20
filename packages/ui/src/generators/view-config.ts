@@ -1,5 +1,5 @@
 /**
- * Collection View Generator: the whole collection drawn as a list or a grid (gallery).
+ * Collection View Generator: the whole collection drawn as a list, a grid (gallery) or a kanban board.
  *
  * `toViewConfig(collection, mode)` reads what `defineCollection` already declares (the
  * `labelField`, field affordances, `groupBy`, `selectable`, CRUD flags and operations) and
@@ -18,7 +18,7 @@
  * `groupItems(items, config.group, { collapsedGroups, expandedGroups })` is the matching pure
  * helper that buckets items into the ordered groups a renderer draws.
  *
- * `ViewConfig` is a union discriminated on `kind` (`'list' | 'grid'` today), so a later kind
+ * `ViewConfig` is a union discriminated on `kind` (`'list' | 'grid' | 'kanban'`), so a later kind
  * with its own required config (a kanban's group field, a calendar's date field) is additive.
  */
 
@@ -31,7 +31,7 @@ import type {
   ResolvedFieldAffordance,
   ViewMode,
 } from '@zodal/core';
-import { getVocabularyEntries } from '@zodal/core';
+import { getVocabularyEntries, getZodBaseType, unwrapZodSchema } from '@zodal/core';
 import { toOption, type VocabularyOption } from './form-config.js';
 
 // ============================================================================
@@ -101,6 +101,9 @@ export interface ViewGroupConfig {
   defaultState: 'collapsed' | 'expanded';
   /** The field holds several values per item (array or set). */
   multiValued: boolean;
+  /** The Zod type of one value (an array's element type): how `moveToGroup` writes a group's
+   *  string value back (`'number'`, `'boolean'`, `'date'`, `'bigint'`; anything else as text). */
+  valueType?: string;
   /** How an item with several values is placed (meaningful when `multiValued`). */
   multiValue: Exclude<MultiValueGrouping, 'forbid'>;
   /** The closed vocabulary, in declared order: groups are drawn in this order. Absent: open
@@ -196,7 +199,7 @@ export interface ViewConfigOptions extends Partial<ViewModeLimits> {
   /** Group by this field, or `null` for no grouping. Default: the collection's `groupBy`. */
   groupBy?: string | null;
   /** How to group by a multi-valued field. Default: `'duplicate'`; `'primary'` for a kanban,
-   *  where a card in several columns would move out of all of them at once. */
+   *  where one card should be one card on the board. */
   multiValue?: MultiValueGrouping;
 }
 
@@ -215,7 +218,9 @@ const UNSHOWABLE_TYPES = new Set(['object', 'record', 'map', 'function', 'custom
 const MULTI_VALUED_TYPES = new Set(['array', 'set']);
 
 /**
- * Describe the collection drawn as a list or a grid.
+ * Describe the collection drawn as a list, a grid or a kanban board. A kanban needs a group
+ * field (its columns): without one (no `groupBy` declared or passed) it throws, so check
+ * `isItemViewMode(activeView)` and a group before rendering a collection that offers one.
  *
  * @example
  * ```typescript
@@ -249,7 +254,7 @@ export function toViewConfig<T extends z.ZodObject<any>, M extends ItemViewMode>
   };
   const limits = { ...VIEW_MODE_LIMITS[mode], ...pickDefined(options, ['maxBadges', 'maxSecondary']) };
 
-  const group = resolveGroup(collection, mode === 'kanban' ? { multiValue: 'primary', ...options } : options, known);
+  const group = resolveGroup(collection, mode === 'kanban' ? { ...options, multiValue: options.multiValue ?? 'primary' } : options, known);
   if (mode === 'kanban' && !group) {
     throw new Error(
       `toViewConfig: a kanban needs a group field (its columns); declare affordances.groupBy or pass { groupBy: '<field>' }`,
@@ -331,8 +336,8 @@ export interface GroupItemsOptions {
   expandedGroups?: readonly string[];
   /** Header of the group of items with no value. Default: `'None'`. */
   emptyLabel?: string;
-  /** Draw every value of a closed vocabulary, empty groups included (a kanban's columns).
-   *  Default: `false`, empty groups are omitted. */
+  /** Draw every value of a closed vocabulary, empty groups included, and the no-value group
+   *  (a kanban's columns, each a drop target). Default: `false`, empty groups are omitted. */
   includeEmpty?: boolean;
 }
 
@@ -376,19 +381,19 @@ export function groupItems<T>(
     const id = groupId(group.field, value);
     return { id, kind: 'value', value, label: labels.get(value) ?? value, items: buckets.get(value)!, collapsed: isCollapsed(id) };
   });
-  if (buckets.has(null)) {
+  if (buckets.has(null) || (includeEmpty && group.order)) {
     const id = groupId(group.field, null);
-    out.push({ id, kind: 'none', value: null, label: emptyLabel, items: buckets.get(null)!, collapsed: isCollapsed(id) });
+    out.push({ id, kind: 'none', value: null, label: emptyLabel, items: buckets.get(null) ?? [], collapsed: isCollapsed(id) });
   }
   return out;
 }
 
 /**
  * The update that moves an item from one group to another (a kanban card dragged between
- * columns): `{ [field]: to }`, or for a multi-valued field the item's values with `from`
- * replaced by `to` (deduplicated). `to === null` moves it to the no-value group. Pass the
- * patch to `DataProvider.update(id, patch)`; values are written as strings, so a field
- * whose values are numbers or booleans needs `raw` from `group.order`.
+ * columns), for `DataProvider.update(id, patch)`. A single-valued field is set to `to`; a
+ * multi-valued one gets `from` replaced by `to` (to the no-value group: emptied). The group's
+ * string value is written back as the field's type (`group.order`'s raw value, else by
+ * `group.valueType`). Returns `{}` when there is nothing to change.
  */
 export function moveToGroup(
   item: Record<string, unknown>,
@@ -396,26 +401,47 @@ export function moveToGroup(
   from: string | null,
   to: string | null,
 ): Record<string, unknown> {
+  if (from === to) return {};
   const rawOf = (v: string | null): unknown => {
     if (v === null) return null;
     const option = group.order?.find((o) => o.value === v);
-    return option && option.raw !== undefined ? option.raw : v;
+    if (option) return option.raw !== undefined ? option.raw : v;
+    switch (group.valueType) {
+      case 'number': return Number(v);
+      case 'boolean': return v === 'true';
+      case 'bigint': return BigInt(v);
+      case 'date': return new Date(v);
+      default: return v;
+    }
   };
   if (!group.multiValued) return { [group.field]: rawOf(to) };
   const current = item[group.field];
   const list = current instanceof Set || Array.isArray(current) ? [...current] : [];
-  const kept = list.filter((v) => from === null || String(v) !== from);
-  const next = to === null || kept.some((v) => String(v) === to) ? kept : [rawOf(to), ...kept];
+  let next: unknown[];
+  if (to === null) next = [];
+  else {
+    const kept = list.filter((v) => from === null || groupValueOf(v) !== from);
+    next = kept.some((v) => groupValueOf(v) === to) ? kept : [rawOf(to), ...kept];
+  }
   return { [group.field]: current instanceof Set ? new Set(next) : next };
+}
+
+/** A value as a group key: what `groupItems` buckets by (`null`: no value). */
+function groupValueOf(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  return String(v);
+}
+
+/** The element schema of an array or set field. */
+function elementOf(schema: z.ZodType): z.ZodType {
+  const def = (unwrapZodSchema(schema) as any)._zod?.def;
+  return def?.element ?? def?.valueType ?? schema;
 }
 
 /** The group values an item belongs to (empty: the no-value group). */
 function groupValues(raw: unknown, group: ViewGroupConfig): string[] {
-  const asValue = (v: unknown): string | null => {
-    if (v === null || v === undefined || v === '') return null;
-    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
-    return String(v);
-  };
+  const asValue = groupValueOf;
   if (raw instanceof Set || Array.isArray(raw)) {
     const unique = [...new Set([...raw].map(asValue).filter((v): v is string => v !== null))];
     return group.multiValue === 'primary' ? unique.slice(0, 1) : unique;
@@ -536,7 +562,8 @@ function resolveGroup(
   if (multiValued && policy === 'forbid') {
     throw new Error(`toViewConfig: '${field}' holds several values and multiValue is 'forbid'; pick 'duplicate' or 'primary', or group by another field`);
   }
-  const vocabulary = getVocabularyEntries((collection.schema.shape as Record<string, z.ZodType>)[field]);
+  const fieldSchema = (collection.schema.shape as Record<string, z.ZodType>)[field];
+  const vocabulary = getVocabularyEntries(fieldSchema);
   const group: ViewGroupConfig = {
     field,
     label: fa.title,
@@ -544,6 +571,7 @@ function resolveGroup(
     defaultState: config.defaultState ?? 'expanded',
     multiValued,
     multiValue: policy === 'primary' ? 'primary' : 'duplicate',
+    valueType: getZodBaseType(multiValued ? elementOf(fieldSchema) : fieldSchema),
   };
   if (vocabulary) group.order = vocabulary.map(toOption);
   return group;

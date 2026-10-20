@@ -325,6 +325,7 @@ describe('kanban (#42)', () => {
       ['strings', 1],
       ['winds', 0],
       ['percussion', 1],
+      [null, 0],
     ]);
     expect(groupItems(items, view.group).map((g) => g.value)).toEqual(['strings', 'percussion']);
   });
@@ -344,6 +345,22 @@ describe('kanban (#42)', () => {
     const multi = toViewConfig(instruments(), 'kanban', { groupBy: 'tags' }).group;
     expect(moveToGroup(items[1], multi, 'loud', 'soft')).toEqual({ tags: ['soft', 'electric'] });
     expect(moveToGroup(items[1], multi, 'loud', 'electric')).toEqual({ tags: ['electric'] });
+    expect(moveToGroup(items[1], multi, 'loud', null)).toEqual({ tags: [] });
+    expect(moveToGroup(items[1], multi, 'loud', 'loud')).toEqual({});
+  });
+
+  it('writes an open-vocabulary value back as the field type, and matches dates as groupItems does', () => {
+    const Task = z.object({ id: z.string(), priority: z.number(), due: z.array(z.date()) });
+    const tasks = defineCollection(Task, { affordances: { groupBy: { defaultField: 'priority' } } } as never);
+    expect(moveToGroup({ id: 'a', priority: 1 }, toViewConfig(tasks, 'kanban').group, '1', '2')).toEqual({ priority: 2 });
+    const due = toViewConfig(tasks, 'kanban', { groupBy: 'due' }).group;
+    const d1 = new Date('2026-01-01T00:00:00.000Z');
+    const patch = moveToGroup({ id: 'a', due: [d1] }, due, d1.toISOString(), '2026-02-01T00:00:00.000Z');
+    expect(patch.due).toEqual([new Date('2026-02-01T00:00:00.000Z')]);
+  });
+
+  it('keeps the kanban default when multiValue is passed as undefined', () => {
+    expect(toViewConfig(instruments(), 'kanban', { groupBy: 'tags', multiValue: undefined }).group.multiValue).toBe('primary');
   });
 
   it('keeps the raw value of a non-string vocabulary', () => {
