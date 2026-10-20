@@ -25,7 +25,7 @@ export type { OptionsFormField, OptionsFormConfigOptions } from './generators/op
 export { toFilterConfig } from './generators/filter-config.js';
 export type { FilterFieldConfig } from './generators/filter-config.js';
 
-// Collection view generator (list / grid, grouped and collapsible)
+// Collection view generator (list / grid / kanban, grouped and collapsible) and view ranking
 export {
   toViewConfig,
   groupItems,
@@ -36,6 +36,10 @@ export {
   groupId,
   ITEM_VIEW_MODES,
   VIEW_MODE_LIMITS,
+  rankViews,
+  VIEW_MODES,
+  VIEW_FIT,
+  DEFAULT_VIEW_TESTERS,
 } from './generators/view-config.js';
 export type {
   ViewConfig,
@@ -44,6 +48,11 @@ export type {
   GridViewConfig,
   KanbanViewConfig,
   ViewConfigOptions,
+  ViewGap,
+  ViewAssessment,
+  ViewTester,
+  ViewApplicability,
+  RankViewsOptions,
   ViewFieldConfig,
   ViewFieldRoles,
   ViewGroupConfig,
