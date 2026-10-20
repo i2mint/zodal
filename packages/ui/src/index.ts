@@ -29,6 +29,7 @@ export type { FilterFieldConfig } from './generators/filter-config.js';
 export {
   toViewConfig,
   groupItems,
+  moveToGroup,
   availableViews,
   initialView,
   isItemViewMode,
@@ -41,6 +42,7 @@ export type {
   BaseViewConfig,
   ListViewConfig,
   GridViewConfig,
+  KanbanViewConfig,
   ViewConfigOptions,
   ViewFieldConfig,
   ViewFieldRoles,
