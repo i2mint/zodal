@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import type { CollectionDefinition, FieldAffordance } from '@zodal/core';
+import type { CollectionDefinition, FieldAffordance, NumericBounds } from '@zodal/core';
 import { getNumericBounds, getNumericStep, getVocabularyEntries } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -42,8 +42,12 @@ export interface FormFieldConfig {
   acceptMimeTypes?: string[];
   /** Max file size in bytes. */
   maxSize?: number;
-  /** A numeric field's bounds (from `.min()` / `.max()` and friends), as `FilterFieldConfig.bounds`. */
-  bounds?: { min?: number; max?: number };
+  /**
+   * A numeric field's bounds (from `.min()` / `.max()` and friends). An exclusive bound
+   * (`.positive()`, `.lt()`) is moved in by one `step` when there is one; otherwise it
+   * keeps its `exclusiveMin` / `exclusiveMax` flag for the renderer.
+   */
+  bounds?: NumericBounds;
   /** A numeric field's increment: a declared `step` affordance, else `.multipleOf()`, else `1` for an integer. */
   step?: number;
 }
@@ -57,8 +61,19 @@ export function numericFieldProps(
   step?: number,
 ): Pick<FormFieldConfig, 'bounds' | 'step'> {
   if (!NUMERIC_TYPES.has(zodType)) return {};
+  const declared = step !== undefined && Number.isFinite(step) && step > 0 ? step : undefined;
+  const inferredStep = declared ?? getNumericStep(schema);
   const bounds = getNumericBounds(schema);
-  const inferredStep = step ?? getNumericStep(schema);
+  if (inferredStep !== undefined) {
+    if (bounds.exclusiveMin && bounds.min !== undefined) {
+      bounds.min += inferredStep;
+      delete bounds.exclusiveMin;
+    }
+    if (bounds.exclusiveMax && bounds.max !== undefined) {
+      bounds.max -= inferredStep;
+      delete bounds.exclusiveMax;
+    }
+  }
   return {
     ...(Object.keys(bounds).length ? { bounds } : {}),
     ...(inferredStep !== undefined ? { step: inferredStep } : {}),

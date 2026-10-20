@@ -404,6 +404,19 @@ describe('toFormConfig numeric bounds and step (#43)', () => {
     expect(byName.gain.step).toBe(0.1);
   });
 
+  it('gives an unbounded number no bounds, and never infinite ones', () => {
+    expect(byName.gain.bounds).toBeUndefined();
+    expect(byName.price.bounds).toBeUndefined();
+  });
+
+  it('moves an exclusive bound in by one step, or flags it when there is no step', () => {
+    const fields = Object.fromEntries(
+      toFormConfig(defineCollection(z.object({ n: z.int().positive().lt(10), x: z.number().gt(0) }))).map((f) => [f.name, f]),
+    );
+    expect(fields.n.bounds).toEqual({ min: 1, max: 9 });
+    expect(fields.x.bounds).toEqual({ min: 0, exclusiveMin: true });
+  });
+
   it('leaves non-numeric fields without bounds or step', () => {
     expect(byName.name.bounds).toBeUndefined();
     expect(byName.name.step).toBeUndefined();

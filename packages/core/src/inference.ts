@@ -180,29 +180,33 @@ export function getZodMeta(schema: z.ZodType): Record<string, unknown> | undefin
   }
 }
 
-/** Get the numeric min/max from Zod checks. */
-export function getNumericBounds(schema: z.ZodType): { min?: number; max?: number } {
-  const unwrapped = unwrapZodSchema(schema);
-  const result: { min?: number; max?: number } = {};
+/** A number schema's bounds. An `exclusive*` flag is set when that bound itself is excluded (`.gt()`, `.positive()`). */
+export interface NumericBounds {
+  min?: number;
+  max?: number;
+  exclusiveMin?: boolean;
+  exclusiveMax?: boolean;
+}
 
-  // Zod v4: min/max are instance properties on the schema
-  const asAny = unwrapped as any;
-  if (typeof asAny.minValue === 'number' && asAny.minValue !== -Number.MAX_SAFE_INTEGER) {
-    result.min = asAny.minValue;
-  }
-  if (typeof asAny.maxValue === 'number' && asAny.maxValue !== Number.MAX_SAFE_INTEGER) {
-    result.max = asAny.maxValue;
-  }
+/**
+ * Get the bounds of a number schema (through wrappers). Unbounded sides are absent: an
+ * infinite limit, and the ±`Number.MAX_SAFE_INTEGER` that `z.int()` sets, are not bounds.
+ */
+export function getNumericBounds(schema: z.ZodType): NumericBounds {
+  const unwrapped = unwrapZodSchema(schema) as any;
+  const bag = unwrapped._zod?.bag ?? {};
+  const result: NumericBounds = {};
+  const isBound = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) !== Number.MAX_SAFE_INTEGER;
 
-  // Fallback: check the checks array (Zod v3 style)
-  const def = (unwrapped as any)._zod?.def;
-  if (def?.checks) {
-    for (const check of def.checks) {
-      if (check.kind === 'min' && result.min === undefined) result.min = check.value;
-      if (check.kind === 'max' && result.max === undefined) result.max = check.value;
-    }
+  // Zod v4: the effective min/max are instance properties on the schema
+  if (isBound(unwrapped.minValue)) {
+    result.min = unwrapped.minValue;
+    if (bag.exclusiveMinimum === unwrapped.minValue) result.exclusiveMin = true;
   }
-
+  if (isBound(unwrapped.maxValue)) {
+    result.max = unwrapped.maxValue;
+    if (bag.exclusiveMaximum === unwrapped.maxValue) result.exclusiveMax = true;
+  }
   return result;
 }
 
