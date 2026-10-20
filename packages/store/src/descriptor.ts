@@ -23,10 +23,11 @@
  *
  * **Scope.** These guarantees cover the descriptor helpers and the provider
  * {@link createFromDescriptor} returns: when the options hold secrets, every error
- * that provider throws later (from `getList`, ...) has the secret values (raw or
- * URL-encoded) replaced in its message and stack. A secret the adapter transforms
- * some other way (hashed, base64) before putting it in a message is not caught,
- * so adapters should still keep option values out of their messages.
+ * that provider's methods throw later (from `getList`, ...) has the secret values
+ * (raw, URL-encoded or JSON-escaped) replaced in its message, stack, cause and own
+ * fields. A secret the adapter transforms some other way (hashed, base64), or
+ * throws from something other than a method call (an async iterator it returns),
+ * is not caught, so adapters should still keep option values out of their errors.
  *
  * **Live options.** Options that are not data (a client instance, a `fetch`, a
  * callback) are declared `z.custom()` (or marked `.meta({ serializable: false })`);
@@ -40,6 +41,7 @@ import {
   inspectSecrets,
   redact,
   secretValues,
+  scrubSecrets,
   ZOD_WRAPPER_TYPES,
   peelZodWrapper,
   type SecretPath,
@@ -431,57 +433,130 @@ async function createSafely<O, T extends Record<string, any>>(
     throw new Error(`Provider "${descriptor.name}" could not be created: ${safeErrorText(err, hasSecrets)}`);
   }
   if (!hasSecrets) return provider;
-  let paths: SecretPath[];
+  let needles: string[] | undefined;
   try {
-    paths = secretOptionPaths(descriptor, parsed);
+    needles = secretNeedles(descriptor, parsed);
   } catch {
-    paths = secretPaths(descriptor.options);
+    needles = undefined; // cannot tell which values are secret: withhold every message
   }
-  return scrubProviderErrors(provider, secretValues(parsed, paths));
+  return scrubProviderErrors(provider, needles);
 }
 
-/** The marker written in place of a secret value in a provider's error. */
-const SCRUBBED = '[redacted]';
+/** Shorter values are not looked for in messages: they would shred ordinary text, and are no credential. */
+const MIN_SCRUBBED_LENGTH = 4;
+
+/** The secret option values to look for in a provider's errors: at secret paths, and under secret-looking keys. */
+function secretNeedles(descriptor: ProviderDescriptor, options: unknown): string[] {
+  const found = new Set(secretValues(options, secretOptionPaths(descriptor, options)));
+  const walk = (value: unknown, depth: number, seen: WeakSet<object>): void => {
+    if (value === null || typeof value !== 'object' || depth > 32 || seen.has(value)) return;
+    seen.add(value);
+    const entries: [unknown, unknown][] =
+      value instanceof Map ? [...value.entries()] : Array.isArray(value) ? value.map((v, i) => [i, v]) : Object.entries(value);
+    for (const [k, v] of entries) {
+      if (typeof k === 'string' && isSecretName(k)) for (const x of secretValues({ v }, [['v']])) found.add(x);
+      walk(v, depth + 1, seen);
+    }
+  };
+  walk(options, 0, new WeakSet());
+  return [...found].filter((v) => v.length >= MIN_SCRUBBED_LENGTH);
+}
+
+/** What replaces an error's text when the secret values could not be determined. */
+const WITHHELD = 'message withheld: the provider options contain secrets';
 
 /**
- * `provider`, with every error its methods throw or reject with scrubbed of `secrets`
- * (each raw and URL-encoded): the message and stack are rewritten in place, so the
- * error keeps its class for `instanceof` checks.
+ * A copy of `provider` whose methods never throw or reject with a secret value: every
+ * string in the error (message, stack, `cause`, an `AggregateError`'s `errors`, any own
+ * field such as a request URL or headers) has each of `needles` (raw, URL-encoded or
+ * JSON-escaped) replaced. With no `needles` (they could not be determined), the text
+ * is withheld instead. A wrapper object, not a Proxy, so frozen providers work and
+ * method identity is stable. A method returning the provider returns the wrapper, and
+ * a returned function (an unsubscribe) is wrapped too.
  */
-function scrubProviderErrors<P extends object>(provider: P, secrets: readonly string[]): P {
-  const needles = [...new Set(secrets.flatMap((v) => [v, encodeURIComponent(v)]))]
-    .filter((v) => v.length > 0)
-    .sort((a, b) => b.length - a.length);
-  if (needles.length === 0) return provider;
-  const clean = (text: string) => needles.reduce((t, n) => t.split(n).join(SCRUBBED), text);
-  const scrub = (err: unknown): unknown => {
-    if (typeof err === 'string') return clean(err);
-    if (err instanceof Error) {
-      try {
-        err.message = clean(err.message);
-        if (typeof err.stack === 'string') err.stack = clean(err.stack);
-      } catch {
-        return new Error(`${err.name}: ${clean(String(err.message))}`);
+function scrubProviderErrors<P extends object>(provider: P, needles: readonly string[] | undefined): P {
+  const clean = (text: string): string => {
+    if (!needles) return WITHHELD;
+    try {
+      return scrubSecrets(text, needles);
+    } catch {
+      return WITHHELD; // e.g. a value encodeURIComponent cannot encode
+    }
+  };
+  const scrub = (node: unknown, depth = 0, seen = new WeakSet<object>()): unknown => {
+    if (typeof node === 'string') return clean(node);
+    if (node === null || typeof node !== 'object' || depth > 8 || seen.has(node)) return node;
+    seen.add(node);
+    let target: any = node;
+    if (Object.isFrozen(node) && node instanceof Error) {
+      // Cannot rewrite in place: a copy of the same class.
+      target = Object.create(Object.getPrototypeOf(node));
+      for (const k of ['name', 'message', 'stack', 'cause', ...Object.keys(node)]) {
+        if (k in node) Object.defineProperty(target, k, { value: (node as any)[k], writable: true, configurable: true });
       }
     }
-    return err;
+    const keys = new Set([...Object.keys(target), ...(target instanceof Error ? ['message', 'stack', 'cause', 'errors'] : [])]);
+    for (const k of keys) {
+      if (!(k in target)) continue;
+      try {
+        const value = target[k];
+        const scrubbed = scrub(value, depth + 1, seen);
+        if (scrubbed !== value) target[k] = scrubbed;
+      } catch {
+        // an unwritable field: leave the rest scrubbed
+      }
+    }
+    return target;
   };
-  return new Proxy(provider, {
-    get(target, prop) {
-      const value = Reflect.get(target, prop, target);
-      if (typeof value !== 'function') return value;
-      return (...args: unknown[]) => {
-        try {
-          const result = value.apply(target, args);
-          return typeof result?.then === 'function'
-            ? Promise.resolve(result).catch((err: unknown) => Promise.reject(scrub(err)))
-            : result;
-        } catch (err) {
-          throw scrub(err);
-        }
-      };
-    },
-  });
+
+  const wrapped: any = {};
+  const wrapResult = (result: unknown): unknown => {
+    if (result === provider) return wrapped;
+    if (typeof result === 'function') return wrapFn(result as (...a: unknown[]) => unknown, undefined);
+    if (result !== null && typeof (result as any)?.then === 'function') {
+      return Promise.resolve(result).then(
+        (r) => (r === provider ? wrapped : r),
+        (err: unknown) => Promise.reject(scrub(err)),
+      );
+    }
+    return result;
+  };
+  const wrapFn = (fn: (...a: unknown[]) => unknown, self: unknown) =>
+    function (this: unknown, ...args: unknown[]) {
+      try {
+        return wrapResult(fn.apply(self ?? this, args));
+      } catch (err) {
+        throw scrub(err);
+      }
+    };
+
+  const keys = new Set<string>();
+  for (let o: any = provider; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+    for (const k of Object.getOwnPropertyNames(o)) if (k !== 'constructor') keys.add(k);
+  }
+  for (const key of keys) {
+    let value: unknown;
+    try {
+      value = (provider as any)[key];
+    } catch {
+      value = undefined;
+    }
+    if (typeof value === 'function') {
+      wrapped[key] = wrapFn(value as (...a: unknown[]) => unknown, provider);
+    } else {
+      Object.defineProperty(wrapped, key, {
+        enumerable: true,
+        get() {
+          try {
+            return (provider as any)[key];
+          } catch (err) {
+            throw scrub(err);
+          }
+        },
+      });
+    }
+  }
+  return wrapped as P;
 }
 
 /**

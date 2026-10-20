@@ -261,32 +261,85 @@ describe('provider descriptors', () => {
 
 describe('errors of a created provider (#27)', () => {
   class AdapterError extends Error {}
-  const leaky = defineProviderDescriptor({
-    ...s3Like,
-    name: 'leaky',
-    create: (o: any) => {
-      const base = createInMemoryProvider<{ id: string }>([]);
+  const KEY = 'shh "very"/secret';
+  const leakyWith = (methods: (o: any) => Record<string, unknown>, freeze = false) =>
+    defineProviderDescriptor({
+      ...s3Like,
+      name: 'leaky',
+      create: (o: any) => {
+        const p = { ...createInMemoryProvider<{ id: string }>([]), ...methods(o) };
+        return (freeze ? Object.freeze(p) : p) as any;
+      },
+    });
+  const options = { bucket: 'b', credentials: { accessKeyId: 'AKIA9999', secretAccessKey: KEY } };
+  const caught = (f: () => unknown) => Promise.resolve().then(f).catch((e: unknown) => e);
+  const leaks = (e: unknown) => JSON.stringify(e, (_k, v) => (v instanceof Error ? { ...v, message: v.message, stack: v.stack, cause: (v as any).cause } : v)).includes('shh') || String((e as any)?.message ?? e).includes('shh');
+
+  it('scrubs raw, URL-encoded and JSON-escaped values from rejected and thrown errors, keeping the class', async () => {
+    const p = await createFromDescriptor(leakyWith((o) => ({
+      getList: async () => {
+        throw new AdapterError(`GET /?key=${encodeURIComponent(o.credentials.secretAccessKey)} body ${JSON.stringify({ k: o.credentials.secretAccessKey })}`);
+      },
+      getCapabilities: () => {
+        throw new Error(`no caps for ${o.credentials.accessKeyId}`);
+      },
+    })), options);
+    const err = await caught(() => p.getList({}));
+    expect(err).toBeInstanceOf(AdapterError);
+    expect(leaks(err)).toBe(false);
+    expect(String((err as Error).stack)).not.toContain('shh');
+    expect(() => p.getCapabilities!()).toThrow('no caps for [secret]');
+  });
+
+  it('scrubs causes, aggregated errors, own fields and non-Error rejections', async () => {
+    const p = await createFromDescriptor(leakyWith((o) => {
+      const key = o.credentials.secretAccessKey;
       return {
-        ...base,
-        getList: async () => {
-          throw new AdapterError(`GET https://h/?key=${encodeURIComponent(o.credentials.secretAccessKey)} with ${o.credentials.secretAccessKey}`);
+        getOne: async () => {
+          throw new Error('outer', { cause: new Error(`inner ${key}`) });
         },
-        getCapabilities: () => {
-          throw new Error(`no caps for ${o.credentials.accessKeyId}`);
+        delete: async () => {
+          throw new AggregateError([new Error(`agg ${key}`)], 'many');
+        },
+        update: async () => {
+          throw Object.assign(new Error('http'), { url: `https://h/?k=${key}`, config: { headers: { Authorization: key } } });
+        },
+        deleteMany: async () => {
+          throw { message: `object ${key}` };
         },
       };
-    },
+    }), options);
+    for (const call of [() => p.getOne('x'), () => p.delete('x'), () => p.update('x', {}), () => p.deleteMany(['x'])]) {
+      expect(leaks(await caught(call))).toBe(false);
+    }
   });
-  const options = { bucket: 'b', credentials: { accessKeyId: 'AKIA9999', secretAccessKey: 'shh very/secret' } };
 
-  it('scrubs secret values, raw and URL-encoded, from rejected and thrown errors, keeping the class', async () => {
-    const p = await createFromDescriptor(leaky, options);
-    const err = await p.getList({}).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(AdapterError);
-    expect((err as Error).message).not.toContain('shh');
-    expect((err as Error).message).toContain('[redacted]');
-    expect(String((err as Error).stack)).not.toContain('shh');
-    expect(() => p.getCapabilities!()).toThrow('no caps for [redacted]');
+  it('works for a frozen provider, wraps a returned unsubscribe, and keeps method identity', async () => {
+    const p = await createFromDescriptor(leakyWith((o) => ({
+      subscribe: () => () => {
+        throw new Error(`unsub ${o.credentials.secretAccessKey}`);
+      },
+    }), true), options);
+    expect(p.getList).toBe(p.getList);
+    await expect(p.getList({})).resolves.toBeDefined();
+    const unsubscribe = p.subscribe!(() => {});
+    expect(() => unsubscribe()).toThrow('unsub [secret]');
+  });
+
+  it('scrubs a secret found only by its key name (a loose object)', async () => {
+    const loose = defineProviderDescriptor({
+      ...s3Like,
+      name: 'loose',
+      options: z.looseObject({ host: z.string() }),
+      create: (o: any) => ({
+        ...createInMemoryProvider([]),
+        getList: async () => {
+          throw new Error(`login failed with ${o.password}`);
+        },
+      }) as any,
+    });
+    const p = await createFromDescriptor(loose, { host: 'h', password: 'pw-secret-9' });
+    expect(String((await caught(() => p.getList({})) as Error).message)).not.toContain('pw-secret-9');
   });
 
   it('leaves a provider created without secrets untouched', async () => {
