@@ -127,9 +127,37 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Re-running an older main run (its release cancelled or failed after a newer one shipped)
+      # would publish the older version as `latest` and move npm's default install back to it.
+      # Anything older than what `latest` points at today goes out under `backport` instead.
+      # A package not on the registry yet (first release) has no `latest` and publishes normally.
+      - name: Choose the npm dist-tag
+        id: disttag
+        run: |
+          set -euo pipefail
+          older_than() {  # exit 0 when semver $1 < $2 (a prerelease sorts before its release)
+            node -e 'const p=v=>{const [core,pre]=v.split("+")[0].split(/-(.*)/s);return [...core.split(".").map(Number),pre]};const [a,b]=process.argv.slice(1).map(p);for(let i=0;i<3;i++){if(a[i]!==b[i])process.exit(a[i]<b[i]?0:1)}process.exit(a[3]!==undefined&&b[3]===undefined?0:1)' "$1" "$2"
+          }
+          tag=latest
+          while IFS=$'\t' read -r name version; do
+            # Only a 404 means "not on the registry yet"; any other failure stops the release
+            # rather than guess, since guessing `latest` is the bug this step prevents.
+            if ! current=$(npm view "$name" dist-tags.latest 2>"$RUNNER_TEMP/npm-view.err"); then
+              grep -q E404 "$RUNNER_TEMP/npm-view.err" || { cat "$RUNNER_TEMP/npm-view.err"; exit 1; }
+              current=""
+            fi
+            if [ -n "$current" ] && older_than "$version" "$current"; then
+              echo "::warning::${name}@${version} is older than npm's latest (${current}): publishing under the 'backport' dist-tag"
+              tag=backport
+            fi
+          done < <(pnpm -r ls --depth -1 --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const p of JSON.parse(s))if(!p.private)console.log(p.name+"\t"+p.version)})')
+          echo "dist-tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Publish packages
         env:
           FORCE_PUBLISH: ${{ needs.gate.outputs.force }}
+          DIST_TAG: ${{ steps.disttag.outputs.tag }}
         run: |
           set -euo pipefail
           FORCE=""
@@ -141,7 +169,7 @@ jobs:
           # stayed on the previous version — the failure mode this step now refuses.
           # `pnpm -r publish` already skips a version the registry has, so re-running a
           # publish stays idempotent without hiding errors.
-          pnpm -r publish --access public --provenance $FORCE
+          pnpm -r publish --access public --provenance --tag "$DIST_TAG" $FORCE
 
       # A publish is only real if the registry serves it. Ask the registry, don't infer it
       # from an exit code.
@@ -179,10 +207,27 @@ jobs:
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           git remote set-url origin git@github.com:${{ github.repository }}.git
 
+      # Tag the published version. An existing remote tag is fine (a re-run, or a version that
+      # was already on npm and tagged by the run that published it); any other push failure
+      # (key, permissions, network) fails the run instead of leaving a version with no tag.
       - name: Tag release
         run: |
+          set -euo pipefail
           VERSION=$(node -e "console.log(require('./packages/core/package.json').version)")
+          TAG="v${VERSION}"
+          remote=$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}")
+          if [ -n "$remote" ]; then
+            # An annotated tag lists its commit on the peeled `^{}` line.
+            tagged=$(echo "$remote" | awk '$2 ~ /\^\{\}$/ {print $1}')
+            [ -n "$tagged" ] || tagged=$(echo "$remote" | awk '{print $1; exit}')
+            if [ "$tagged" = "$(git rev-parse HEAD)" ]; then
+              echo "${TAG} already tagged at this commit"
+            else
+              echo "::warning::${TAG} already exists at ${tagged}, not at this commit: kept as is (that run published ${VERSION})"
+            fi
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${VERSION}" -m "Release v${VERSION}" || echo "Tag v${VERSION} already exists"
-          git push origin "v${VERSION}" || echo "Tag already pushed"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
