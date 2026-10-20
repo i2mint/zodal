@@ -62,6 +62,7 @@ export {
   getVocabularyEntries,
   getZodMeta,
   getNumericBounds,
+  getNumericStep,
   humanizeFieldName,
 } from './inference.js';
 

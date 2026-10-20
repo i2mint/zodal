@@ -6,6 +6,7 @@ import {
   unwrapZodSchema,
   getEnumValues,
   humanizeFieldName,
+  getNumericStep,
   getNumericBounds,
   getVocabulary,
 } from '../src/inference.js';
@@ -352,5 +353,14 @@ describe('inferFieldAffordances - edge cases', () => {
     const aff = inferFieldAffordances('count', schema);
     expect(aff.sortable).toBe('both');
     expect(aff.filterable).toBe('range');
+  });
+});
+
+describe('getNumericStep (#43)', () => {
+  it('reads .multipleOf(), else 1 for an integer, else nothing', () => {
+    expect(getNumericStep(z.number().multipleOf(5))).toBe(5);
+    expect(getNumericStep(z.int().optional())).toBe(1);
+    expect(getNumericStep(z.number().int())).toBe(1);
+    expect(getNumericStep(z.number())).toBeUndefined();
   });
 });

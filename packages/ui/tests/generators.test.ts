@@ -379,3 +379,33 @@ describe('toFormConfig — tag fields', () => {
     expect(cols.labels.meta.enumValues).toEqual(['x', 'y']);
   });
 });
+
+describe('toFormConfig numeric bounds and step (#43)', () => {
+  const collection = defineCollection(
+    z.object({
+      volume: z.number().min(0).max(11),
+      count: z.number().int().nonnegative(),
+      price: z.number().multipleOf(0.25).optional(),
+      gain: z.number().meta({ step: 0.1 }),
+      name: z.string().min(2),
+    }),
+  );
+  const byName = Object.fromEntries(toFormConfig(collection).map((f) => [f.name, f]));
+
+  it('projects bounds from the schema', () => {
+    expect(byName.volume.bounds).toEqual({ min: 0, max: 11 });
+    expect(byName.count.bounds?.min).toBe(0);
+  });
+
+  it('infers the step from .int() and .multipleOf(), and lets a declared step win', () => {
+    expect(byName.volume.step).toBeUndefined();
+    expect(byName.count.step).toBe(1);
+    expect(byName.price.step).toBe(0.25);
+    expect(byName.gain.step).toBe(0.1);
+  });
+
+  it('leaves non-numeric fields without bounds or step', () => {
+    expect(byName.name.bounds).toBeUndefined();
+    expect(byName.name.step).toBeUndefined();
+  });
+});

@@ -28,7 +28,7 @@ import {
   unwrapZodSchema,
 } from '@zodal/core';
 import type { SecretPath } from '@zodal/core';
-import { toOption } from './form-config.js';
+import { numericFieldProps, toOption } from './form-config.js';
 import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /** One entry of an options form. */
@@ -178,6 +178,7 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     order: meta.order ?? index,
     zodType,
     ...(options ? { options } : {}),
+    ...(suppliedInCode || secret ? {} : numericFieldProps(zodType, fieldSchema, typeof meta.step === 'number' ? meta.step : undefined)),
     ...(isList && !suppliedInCode && !secret ? { allowCreate: !vocabulary } : {}),
     ...(defaultValue !== undefined ? { defaultValue } : {}),
     ...(secret ? { secret } : {}),

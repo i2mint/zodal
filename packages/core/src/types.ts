@@ -112,6 +112,8 @@ export interface FieldAffordance {
   editPlaceholder?: string;
   /** Help text shown below edit widget. */
   editHelp?: string;
+  /** Increment for a numeric edit widget (a slider's or a number input's step). Inferred from `.multipleOf()`, else `1` for an integer. */
+  step?: number;
 
   // --- Storage role (content-metadata bifurcation) ---
   /**

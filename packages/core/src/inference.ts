@@ -206,6 +206,18 @@ export function getNumericBounds(schema: z.ZodType): { min?: number; max?: numbe
   return result;
 }
 
+/**
+ * The increment a numeric input should step by: the schema's `.multipleOf()`, else `1`
+ * for an integer (`z.int()`, `.int()`), else `undefined` (any number).
+ */
+export function getNumericStep(schema: z.ZodType): number | undefined {
+  const unwrapped = unwrapZodSchema(schema) as any;
+  const bag = unwrapped._zod?.bag;
+  if (typeof bag?.multipleOf === 'number') return bag.multipleOf;
+  if (unwrapped.isInt === true) return 1;
+  return undefined;
+}
+
 // ============================================================================
 // Type-Based Inference
 // ============================================================================
@@ -519,7 +531,7 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
     'immutableAfterCreate', 'visible', 'hidden', 'detailOnly', 'summaryField',
     'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
     'title', 'description', 'displayFormat', 'badge', 'copyable', 'truncate',
-    'tooltip', 'editWidget', 'editPlaceholder', 'editHelp',
+    'tooltip', 'editWidget', 'editPlaceholder', 'editHelp', 'step',
     'storageRole',
   ];
 

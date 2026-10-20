@@ -130,3 +130,13 @@ describe('toOptionsFormConfig (#26)', () => {
     expect(f.c).toMatchObject({ hidden: true, disabled: true, required: false });
   });
 });
+
+describe('toOptionsFormConfig numeric bounds and step (#43)', () => {
+  it('projects bounds and step onto number fields', () => {
+    const fields = byName(
+      toOptionsFormConfig(z.object({ retries: z.number().int().min(0).max(10).default(3), ratio: z.number().meta({ step: 0.05 }) })),
+    );
+    expect(fields.retries).toMatchObject({ bounds: { min: 0, max: 10 }, step: 1 });
+    expect(fields.ratio.step).toBe(0.05);
+  });
+});
