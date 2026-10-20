@@ -73,6 +73,7 @@ type FilterExpression =
 **Key exports**:
 - `toColumnDefs(collection)` — TanStack Table-compatible column definitions
 - `toFormConfig(collection, mode)` — form field configs for create/edit
+- `toOptionsFormConfig(schema, { secretPaths })` — form for a non-record settings object (provider options)
 - `toFilterConfig(collection)` — filter panel configs
 - `createCollectionStore(collection)` — pure-function state management
 - 5 composable slices: `createSortingSlice`, `createFilterSlice`, `createPaginationSlice`, `createSelectionSlice`, `createColumnSlice`

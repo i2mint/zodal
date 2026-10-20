@@ -18,6 +18,8 @@ export type { ColumnConfig } from './generators/column-defs.js';
 // Form configuration generator
 export { toFormConfig } from './generators/form-config.js';
 export type { FormFieldConfig, VocabularyOption } from './generators/form-config.js';
+export { toOptionsFormConfig } from './generators/options-form-config.js';
+export type { OptionsFormField, OptionsFormConfigOptions } from './generators/options-form-config.js';
 
 // Filter configuration generator
 export { toFilterConfig } from './generators/filter-config.js';
