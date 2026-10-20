@@ -55,6 +55,7 @@ export {
   inferFieldAffordancesWithTrace,
   getZodBaseType,
   unwrapZodSchema,
+  isZodReadonly,
   hasZodCheck,
   getEnumValues,
   getVocabulary,
