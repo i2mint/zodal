@@ -7,6 +7,7 @@ import {
   getEnumValues,
   humanizeFieldName,
   getNumericBounds,
+  getVocabulary,
 } from '../src/inference.js';
 
 // ============================================================================
@@ -49,10 +50,31 @@ describe('getZodBaseType', () => {
     expect(getZodBaseType(z.number().optional().readonly().catch(0))).toBe('number');
   });
 
-  it('resolves z.lazy and reads a pipe by its input side (#35)', () => {
+  it('resolves z.lazy and reads a pipe by the type its rows hold (#35)', () => {
     expect(getZodBaseType(z.lazy(() => z.string()))).toBe('string');
-    expect(getZodBaseType(z.string().transform((s) => s.length))).toBe('string');
+    // A codec or preprocess field holds its output type; a .transform() output is untyped,
+    // so the input side stands in.
+    expect(getZodBaseType(z.codec(z.string(), z.date(), { decode: (s) => new Date(s), encode: (d) => d.toISOString() }))).toBe('date');
+    expect(getZodBaseType(z.preprocess((v) => Number(v), z.number()))).toBe('number');
+    expect(getZodBaseType(z.string().transform((s) => s.trim()))).toBe('string');
     expect(getZodBaseType(z.string().email().transform((s) => s.trim()).optional())).toBe('string');
+  });
+
+  it('leaves a z.lazy whose getter throws as it is', () => {
+    const broken = z.lazy((): z.ZodType => { throw new ReferenceError('not yet initialised'); });
+    expect(getZodBaseType(broken)).toBe('lazy');
+  });
+
+  it('sees a vocabulary through z.lazy and pipes, as getZodBaseType does', () => {
+    expect(getVocabulary(z.lazy(() => z.enum(['a', 'b'])))).toEqual(['a', 'b']);
+    expect(getVocabulary(z.enum(['a', 'b']).transform((x) => x))).toEqual(['a', 'b']);
+    expect(getVocabulary(z.array(z.enum(['x', 'y'])).readonly())).toEqual(['x', 'y']);
+  });
+
+  it('makes a .readonly() field non-editable', () => {
+    expect(inferFieldAffordances('name', z.string().readonly()).editable).toBe(false);
+    expect(inferFieldAffordances('name', z.string().optional().readonly()).editable).toBe(false);
+    expect(inferFieldAffordances('name', z.string()).editable).toBe(true);
   });
 
   it('gives up on a self-referencing z.lazy instead of looping', () => {

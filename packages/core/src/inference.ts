@@ -24,6 +24,33 @@ const ZOD_WRAPPER_TYPES = new Set(['optional', 'nullable', 'default', 'prefault'
 const MAX_UNWRAP_DEPTH = 16;
 
 /**
+ * One unwrapping step: the schema a wrapper stands for, or `undefined` when `schema` is
+ * not a wrapper. Peels the {@link ZOD_WRAPPER_TYPES}, a resolved `z.lazy`, and a pipe.
+ *
+ * A pipe resolves to its output side, since a collection's rows hold the parsed output
+ * (`z.infer`): a `z.codec(z.string(), z.date())` field is a date, a
+ * `z.preprocess(fn, z.number())` field a number. A `.transform()` output carries no
+ * type, so there the input side is used.
+ */
+function peelZodWrapper(schema: unknown): z.ZodType | undefined {
+  const zod = (schema as any)?._zod;
+  const def = zod?.def;
+  if (!def) return undefined;
+  if (ZOD_WRAPPER_TYPES.has(def.type)) return def.innerType;
+  if (def.type === 'pipe') return def.out?._zod?.def?.type === 'transform' ? def.in : def.out;
+  if (def.type === 'lazy') {
+    // Zod caches the resolved schema on `_zod.innerType`; a getter that throws (a forward
+    // reference not yet initialised) leaves the lazy as it is.
+    try {
+      return zod.innerType ?? def.getter();
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Get the underlying type name from a Zod schema, unwrapping every wrapper
  * `unwrapZodSchema` does (so `z.string().readonly()` is `'string'`, not `'readonly'`).
  */
@@ -36,20 +63,27 @@ export function getZodBaseType(schema: z.ZodType): string {
 /**
  * Get the inner schema, unwrapping optional, nullable, default, prefault, readonly,
  * catch and nonoptional wrappers, `z.lazy` (its resolved schema) and pipes (their
- * input side: a `.transform()` output carries no type, and the input is what a form
- * or filter edits).
+ * output side, or the input side of a `.transform()`). Gives up after
+ * {@link MAX_UNWRAP_DEPTH} layers, returning the schema it reached.
  */
 export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
-  let current: any = schema;
+  let current: z.ZodType = schema;
   for (let i = 0; i < MAX_UNWRAP_DEPTH; i++) {
-    const def = current?._zod?.def;
-    if (!def) return current;
-    if (ZOD_WRAPPER_TYPES.has(def.type)) current = def.innerType;
-    else if (def.type === 'pipe') current = def.in;
-    else if (def.type === 'lazy') current = def.getter();
-    else return current;
+    const next = peelZodWrapper(current);
+    if (!next) return current;
+    current = next;
   }
   return current;
+}
+
+/** Is any layer of this schema's wrapper chain a `.readonly()`? */
+export function isZodReadonly(schema: z.ZodType): boolean {
+  let current: z.ZodType | undefined = schema;
+  for (let i = 0; current && i < MAX_UNWRAP_DEPTH; i++) {
+    if ((current as any)._zod?.def?.type === 'readonly') return true;
+    current = peelZodWrapper(current);
+  }
+  return false;
 }
 
 /** Check if a Zod schema has a specific check/validation. */
@@ -107,12 +141,12 @@ export interface VocabularyEntry {
  * string value) are dropped.
  */
 export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | null {
-  const WRAP = ZOD_WRAPPER_TYPES;
   const leaf = (s: any, depth: number): VocabularyEntry[] | null => {
-    if (!s || depth > 16) return null;
+    if (!s || depth > MAX_UNWRAP_DEPTH) return null;
     const def = s._zod?.def;
     if (!def) return null;
-    if (WRAP.has(def.type)) return leaf(def.innerType, depth + 1);
+    const inner = peelZodWrapper(s);
+    if (inner) return leaf(inner, depth + 1);
     switch (def.type) {
       case 'enum': {
         const entries: Record<string, unknown> = def.entries ?? {};
@@ -151,8 +185,7 @@ export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | nul
         return null;
     }
   };
-  let unwrapped: any = schema;
-  for (let i = 0; i < 16 && WRAP.has(unwrapped?._zod?.def?.type); i++) unwrapped = unwrapped._zod.def.innerType;
+  const unwrapped: any = unwrapZodSchema(schema);
   const def = unwrapped?._zod?.def;
   const entries = def?.type === 'array' || def?.type === 'set' ? leaf(def.element ?? def.valueType, 0) : leaf(unwrapped, 0);
   if (!entries) return null;
@@ -480,8 +513,9 @@ function refineByFieldName(key: string, defaults: FieldAffordance): FieldAfforda
 export function inferFieldAffordances(key: string, schema: z.ZodType): FieldAffordance {
   const baseType = getZodBaseType(schema);
 
-  // Layer 1: Type-based defaults
+  // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
   let affordances = getTypeDefaults(baseType);
+  if (isZodReadonly(schema)) affordances = { ...affordances, editable: false };
 
   // Layer 2: Validation-based refinements
   affordances = refineByValidations(schema, affordances);
@@ -573,8 +607,9 @@ export function inferFieldAffordancesWithTrace(
 ): { affordances: FieldAffordance; traces: InferenceTrace[] } {
   const baseType = getZodBaseType(schema);
 
-  // Layer 1: Type-based defaults
+  // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
   const afterType = getTypeDefaults(baseType);
+  if (isZodReadonly(schema)) afterType.editable = false;
 
   // Layer 2: Validation-based refinements
   const afterValidation = refineByValidations(schema, { ...afterType });
