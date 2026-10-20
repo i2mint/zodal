@@ -52,13 +52,51 @@ describe('toOptionsFormConfig (#26)', () => {
     expect(inner['retry.backoff']).toMatchObject({ type: 'checkbox', required: false });
   });
 
-  it('matches secret paths inside nested objects, with * as any key', () => {
-    const schema = z.object({ auth: z.object({ apiKey: z.string(), user: z.string() }), extra: z.object({ x: z.string() }) });
-    const f = byName(toOptionsFormConfig(schema, { secretPaths: [['*', 'x']] }));
+  it('masks every field under a secret container, and never lets a catchall * match declared keys', () => {
+    const schema = z.object({ auth: z.object({ user: z.string(), pass: z.string() }), extra: z.object({ x: z.string() }) });
+    const f = byName(toOptionsFormConfig(schema, { secretPaths: [['extra']] }));
+    // core fails closed on `auth` (a container named like a credential): its children inherit.
     const auth = byName(f.auth.fields!);
-    expect(auth['auth.apiKey'].type).toBe('password');
-    expect(auth['auth.user'].type).toBe('text');
-    expect(byName(f.extra.fields!)['extra.x'].type).toBe('password');
+    expect(auth['auth.user']).toMatchObject({ type: 'password', secret: true });
+    expect(auth['auth.pass']).toMatchObject({ type: 'password', secret: true });
+    expect(byName(f.extra.fields!)['extra.x']).toMatchObject({ type: 'password', secret: true });
+    const withCatchall = byName(toOptionsFormConfig(z.object({ a: z.string() }).catchall(z.string().meta({ sensitivity: 'secret' }))));
+    expect(withCatchall.a.type).toBe('text');
+  });
+
+  it.each([
+    ['union', z.union([z.object({ password: z.string() }), z.string()])],
+    ['tuple', z.tuple([z.string(), z.string().meta({ sensitivity: 'secret' })])],
+    ['record', z.record(z.string(), z.object({ apiKey: z.string() }))],
+    ['array of objects', z.array(z.object({ token: z.string() }))],
+    ['intersection', z.intersection(z.object({ a: z.string() }), z.object({ clientSecret: z.string() }))],
+  ])('a %s holding a secret is a secret, supplied in code, never a JSON box', (_kind, conn) => {
+    const f = byName(toOptionsFormConfig(z.object({ conn })));
+    expect(f.conn).toMatchObject({ type: 'code', secret: true, suppliedInCode: true, disabled: true });
+  });
+
+  it('a secret ignores editWidget and drops its default', () => {
+    const schema = z.object({
+      apiKey: z.string().default('sk-123').meta({ editWidget: 'textarea' }),
+      dsn: z.string().meta({ sensitivity: 'secret', editWidget: 'textarea' }),
+    });
+    const f = byName(toOptionsFormConfig(schema));
+    expect(f.apiKey).toMatchObject({ type: 'password', secret: true });
+    expect(f.apiKey).not.toHaveProperty('defaultValue');
+    expect(f.dsn.type).toBe('password');
+  });
+
+  it('takes caller live paths, a wrapped object schema, and rejects a non-object', () => {
+    const schema = z.object({ fetchImpl: z.any(), timeout: z.number() }).optional();
+    const f = byName(toOptionsFormConfig(schema, { livePaths: [['fetchImpl']] }));
+    expect(f.fetchImpl).toMatchObject({ type: 'code', suppliedInCode: true, required: false });
+    expect(f.timeout.type).toBe('number');
+    expect(() => toOptionsFormConfig(z.string())).toThrow(/needs a Zod object schema/);
+  });
+
+  it('merges metadata from a middle wrapper', () => {
+    const f = byName(toOptionsFormConfig(z.object({ x: z.string().optional().meta({ hidden: true }).default('x') })));
+    expect(f.x).toMatchObject({ hidden: true, defaultValue: 'x', required: false });
   });
 
   it('marks values a form cannot produce as supplied in code, instead of dropping them', () => {
