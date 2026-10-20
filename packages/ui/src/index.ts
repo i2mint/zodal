@@ -73,10 +73,12 @@ export type {
 } from './state/store.js';
 
 // Persisted view state (view mode, collapsed groups, sort, search, filters)
-export { ViewStateSchema, createViewStateStore, defaultViewState } from './state/view-state.js';
+export { ViewStateSchema, SavedViewSchema, VIEW_FIELDS, createViewStateStore, defaultViewState } from './state/view-state.js';
 export type {
   ViewState,
   ViewStateFields,
+  ViewFields,
+  SavedView,
   ViewStateProvider,
   ViewStateStore,
   ViewStateStoreOptions,

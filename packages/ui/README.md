@@ -43,7 +43,7 @@ const prompt = toPrompt(collection);
 - **Options forms** -- `toOptionsFormConfig(schema, { secretPaths })`: a form for a settings-like object that is not a collection record (provider options, connection settings): no record name heuristics, secrets as password fields, nested objects as fieldsets, functions and `z.custom` values marked "supplied in code"
 - **State** -- `createCollectionStore()` (pure functions) + 5 composable slices
 - **Zustand adapter** -- `createZustandStoreSlice()` for Zustand `create()` integration
-- **Persisted view state** -- `createViewStateStore()`: the view mode, collapsed groups, sort, search and filters a person chose, written through a `DataProvider` and read back on the next visit (a choice made before the stored record arrives wins)
+- **Persisted view state** -- `createViewStateStore()`: the view mode, collapsed groups, sort, search and filters a person chose, written through a `DataProvider` and read back on the next visit (a choice made before the stored record arrives wins). **Saved views** (`affordances.savedViews`): `saveView(name)`, `applySavedView(id)`, `leaveSavedView()`, `renameSavedView()`, `deleteSavedView()`; each saved view keeps its own view mode, filter, sort, group (`groupBy`) and collapsed groups, and while one is active every change is written into it; with none active the working state is shared by every view mode. A choice made before the stored record arrives leaves the stored active saved view rather than overwrite it
 - **Renderer registry** -- ranked testers with priority bands and `explain()` debugging
 - **AI tools** -- `toPrompt()` for LLM consumption, `toCode()` for TypeScript codegen
 

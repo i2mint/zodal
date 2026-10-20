@@ -28,7 +28,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('defaultViewState', () => {
   it('opens on the declared default view, groups expanded unless declared collapsed', () => {
-    expect(defaultViewState(grouped(), { key: 'k', groups: ['a', 'b'] })).toEqual({ id: 'k', viewMode: 'list', collapsedGroups: [], sorting: [], globalFilter: '', columnFilters: [] });
+    expect(defaultViewState(grouped(), { key: 'k', groups: ['a', 'b'] })).toEqual({ id: 'k', viewMode: 'list', collapsedGroups: [], sorting: [], globalFilter: '', columnFilters: [], savedViews: [] });
     expect(defaultViewState(grouped('collapsed'), { key: 'k', groups: ['a', 'b'] }).collapsedGroups).toEqual(['a', 'b']);
   });
 });
