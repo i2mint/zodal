@@ -39,10 +39,10 @@ import { toOption, type VocabularyOption } from './form-config.js';
 // ============================================================================
 
 /** The collection layouts `toViewConfig` describes. `'table'` is `toColumnDefs`. */
-export type ItemViewMode = Extract<ViewMode, 'list' | 'grid'>;
+export type ItemViewMode = Extract<ViewMode, 'list' | 'grid' | 'kanban'>;
 
 /** The item-view modes, in declaration order. */
-export const ITEM_VIEW_MODES: readonly ItemViewMode[] = ['list', 'grid'];
+export const ITEM_VIEW_MODES: readonly ItemViewMode[] = ['list', 'grid', 'kanban'];
 
 /** Is this view one `toViewConfig` describes? Narrows `CollectionState.activeView`. */
 export function isItemViewMode(view: unknown): view is ItemViewMode {
@@ -154,8 +154,21 @@ export interface GridViewConfig extends BaseViewConfig {
   kind: 'grid';
 }
 
+/**
+ * The collection as a board: one column per value of the group field, which a kanban
+ * requires. With a closed vocabulary every value is a column, empty ones included
+ * (`groupItems(items, view.group, { includeEmpty: true })`); dragging a card to another
+ * column is an update of the group field (`moveToGroup`).
+ */
+export interface KanbanViewConfig extends BaseViewConfig {
+  kind: 'kanban';
+  group: ViewGroupConfig;
+  /** Can a card be moved between columns? False when the group field is not editable. */
+  movable: boolean;
+}
+
 /** A collection view, discriminated on `kind`. */
-export type ViewConfig = ListViewConfig | GridViewConfig;
+export type ViewConfig = ListViewConfig | GridViewConfig | KanbanViewConfig;
 
 /** Per-mode caps on how many fields an item shows. */
 export interface ViewModeLimits {
@@ -169,6 +182,7 @@ export interface ViewModeLimits {
 export const VIEW_MODE_LIMITS: Readonly<Record<ItemViewMode, ViewModeLimits>> = {
   list: { maxBadges: 3, maxSecondary: 3 },
   grid: { maxBadges: 3, maxSecondary: 2 },
+  kanban: { maxBadges: 2, maxSecondary: 1 },
 };
 
 export interface ViewConfigOptions extends Partial<ViewModeLimits> {
@@ -181,7 +195,8 @@ export interface ViewConfigOptions extends Partial<ViewModeLimits> {
   };
   /** Group by this field, or `null` for no grouping. Default: the collection's `groupBy`. */
   groupBy?: string | null;
-  /** How to group by a multi-valued field. Default: `'duplicate'`. */
+  /** How to group by a multi-valued field. Default: `'duplicate'`; `'primary'` for a kanban,
+   *  where a card in several columns would move out of all of them at once. */
   multiValue?: MultiValueGrouping;
 }
 
@@ -234,7 +249,12 @@ export function toViewConfig<T extends z.ZodObject<any>, M extends ItemViewMode>
   };
   const limits = { ...VIEW_MODE_LIMITS[mode], ...pickDefined(options, ['maxBadges', 'maxSecondary']) };
 
-  const group = resolveGroup(collection, options, known);
+  const group = resolveGroup(collection, mode === 'kanban' ? { multiValue: 'primary', ...options } : options, known);
+  if (mode === 'kanban' && !group) {
+    throw new Error(
+      `toViewConfig: a kanban needs a group field (its columns); declare affordances.groupBy or pass { groupBy: '<field>' }`,
+    );
+  }
   const roles = resolveRoles(collection, options.fields ?? {}, { known, limits, groupField: group?.field });
 
   const fc = (k: string) => fieldConfig(k, fa[k], shape[k]);
@@ -251,6 +271,7 @@ export function toViewConfig<T extends z.ZodObject<any>, M extends ItemViewMode>
     selection: resolveSelection(collection.affordances.selectable),
     operations: resolveOperations(collection),
   };
+  if (mode === 'kanban') (config as KanbanViewConfig).movable = fa[group!.field].editable !== false && Boolean(collection.affordances.update);
   return config as Extract<ViewConfig, { kind: M }>;
 }
 
@@ -310,6 +331,9 @@ export interface GroupItemsOptions {
   expandedGroups?: readonly string[];
   /** Header of the group of items with no value. Default: `'None'`. */
   emptyLabel?: string;
+  /** Draw every value of a closed vocabulary, empty groups included (a kanban's columns).
+   *  Default: `false`, empty groups are omitted. */
+  includeEmpty?: boolean;
 }
 
 /**
@@ -321,7 +345,7 @@ export interface GroupItemsOptions {
 export function groupItems<T>(
   items: readonly T[],
   group: ViewGroupConfig | null,
-  { collapsedGroups = [], expandedGroups = [], emptyLabel = 'None' }: GroupItemsOptions = {},
+  { collapsedGroups = [], expandedGroups = [], emptyLabel = 'None', includeEmpty = false }: GroupItemsOptions = {},
 ): ItemGroup<T>[] {
   if (!group) return [{ id: '', kind: 'all', value: null, label: '', items: [...items], collapsed: false }];
   const isCollapsed = (id: string): boolean =>
@@ -340,6 +364,7 @@ export function groupItems<T>(
     if (values.length === 0) add(null, item);
     for (const v of values) add(v, item);
   }
+  if (includeEmpty) for (const o of group.order ?? []) if (!buckets.has(o.value)) buckets.set(o.value, []);
   const values = [...buckets.keys()].filter((v): v is string => v !== null);
   if (group.order) {
     // Values outside the vocabulary (stale data) rank after it, keeping first-seen order (stable sort).
@@ -356,6 +381,32 @@ export function groupItems<T>(
     out.push({ id, kind: 'none', value: null, label: emptyLabel, items: buckets.get(null)!, collapsed: isCollapsed(id) });
   }
   return out;
+}
+
+/**
+ * The update that moves an item from one group to another (a kanban card dragged between
+ * columns): `{ [field]: to }`, or for a multi-valued field the item's values with `from`
+ * replaced by `to` (deduplicated). `to === null` moves it to the no-value group. Pass the
+ * patch to `DataProvider.update(id, patch)`; values are written as strings, so a field
+ * whose values are numbers or booleans needs `raw` from `group.order`.
+ */
+export function moveToGroup(
+  item: Record<string, unknown>,
+  group: ViewGroupConfig,
+  from: string | null,
+  to: string | null,
+): Record<string, unknown> {
+  const rawOf = (v: string | null): unknown => {
+    if (v === null) return null;
+    const option = group.order?.find((o) => o.value === v);
+    return option && option.raw !== undefined ? option.raw : v;
+  };
+  if (!group.multiValued) return { [group.field]: rawOf(to) };
+  const current = item[group.field];
+  const list = current instanceof Set || Array.isArray(current) ? [...current] : [];
+  const kept = list.filter((v) => from === null || String(v) !== from);
+  const next = to === null || kept.some((v) => String(v) === to) ? kept : [rawOf(to), ...kept];
+  return { [group.field]: current instanceof Set ? new Set(next) : next };
 }
 
 /** The group values an item belongs to (empty: the no-value group). */

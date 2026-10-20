@@ -4,6 +4,7 @@ import { defineCollection } from '@zodal/core';
 import {
   toViewConfig,
   groupItems,
+  moveToGroup,
   availableViews,
   initialView,
   groupId,
@@ -119,7 +120,8 @@ describe('toViewConfig: fields by role', () => {
   it('refuses a mode it does not describe, pointing at toColumnDefs for a table', () => {
     expect(() => toViewConfig(instruments(), 'table' as never)).toThrow(/toColumnDefs/);
     expect(isItemViewMode('grid')).toBe(true);
-    expect(isItemViewMode('kanban')).toBe(false);
+    expect(isItemViewMode('kanban')).toBe(true);
+    expect(isItemViewMode('calendar')).toBe(false);
   });
 
   it('returns plain, serializable data', () => {
@@ -300,5 +302,53 @@ describe('the active view (one field, shared state)', () => {
   it('the persisted viewMode opens on the same view as activeView', () => {
     const c = instruments({ defaultView: 'table' });
     expect(defaultViewState(c).viewMode).toBe(createCollectionStore(c).initialState.activeView);
+  });
+});
+
+describe('kanban (#42)', () => {
+  const items = [
+    { id: '1', name: 'Violin', class: 'strings', tags: ['soft'] },
+    { id: '2', name: 'Drum', class: 'percussion', tags: ['loud', 'electric'] },
+  ];
+
+  it('requires a group field: its columns', () => {
+    expect(() => toViewConfig(instruments({ groupBy: undefined }), 'kanban')).toThrow(/needs a group field/);
+    expect(() => toViewConfig(instruments(), 'kanban', { groupBy: null })).toThrow(/needs a group field/);
+    const view = toViewConfig(instruments({ update: true }), 'kanban');
+    expect(view).toMatchObject({ kind: 'kanban', movable: true, group: { field: 'class' } });
+    expect(toViewConfig(instruments({ update: false }), 'kanban').movable).toBe(false);
+  });
+
+  it('draws every value of a closed vocabulary as a column, empty ones included, only on request', () => {
+    const view = toViewConfig(instruments(), 'kanban');
+    expect(groupItems(items, view.group, { includeEmpty: true }).map((g) => [g.value, g.items.length])).toEqual([
+      ['strings', 1],
+      ['winds', 0],
+      ['percussion', 1],
+    ]);
+    expect(groupItems(items, view.group).map((g) => g.value)).toEqual(['strings', 'percussion']);
+  });
+
+  it('places a multi-valued card in its first column by default', () => {
+    const view = toViewConfig(instruments(), 'kanban', { groupBy: 'tags' });
+    expect(view.group.multiValue).toBe('primary');
+    const columns = groupItems(items, view.group, { includeEmpty: true });
+    expect(columns.find((c) => c.value === 'loud')!.items).toHaveLength(1);
+    expect(columns.find((c) => c.value === 'electric')!.items).toHaveLength(0);
+  });
+
+  it('moveToGroup turns a drop into an update of the group field', () => {
+    const single = toViewConfig(instruments(), 'kanban').group;
+    expect(moveToGroup(items[0], single, 'strings', 'winds')).toEqual({ class: 'winds' });
+    expect(moveToGroup(items[0], single, 'strings', null)).toEqual({ class: null });
+    const multi = toViewConfig(instruments(), 'kanban', { groupBy: 'tags' }).group;
+    expect(moveToGroup(items[1], multi, 'loud', 'soft')).toEqual({ tags: ['soft', 'electric'] });
+    expect(moveToGroup(items[1], multi, 'loud', 'electric')).toEqual({ tags: ['electric'] });
+  });
+
+  it('keeps the raw value of a non-string vocabulary', () => {
+    const Level = z.object({ id: z.string(), name: z.string(), level: z.union([z.literal(1), z.literal(2)]) });
+    const view = toViewConfig(defineCollection(Level, { affordances: { groupBy: { defaultField: 'level' } } } as never), 'kanban');
+    expect(moveToGroup({ id: 'a', level: 1 }, view.group, '1', '2')).toEqual({ level: 2 });
   });
 });
