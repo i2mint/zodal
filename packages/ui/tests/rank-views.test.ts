@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { rankViews, toViewConfig, isItemViewMode, DEFAULT_VIEW_TESTERS, VIEW_FIT } from '../src/index.js';
+import { rankViews, toViewConfig, isItemViewMode, VIEW_FIT } from '../src/index.js';
 
 const Task = z.object({
   id: z.string(),
@@ -45,7 +45,7 @@ describe('rankViews', () => {
     const tasks = defineCollection(Task, { affordances: { groupBy: { defaultField: 'owner' } } } as never);
     const kanban = row(rankViews(tasks), 'kanban');
     expect(kanban).toMatchObject({ applicable: true, score: VIEW_FIT.good });
-    expect(kanban.gaps.map((g) => g.code)).toEqual(['closedVocabulary']);
+    expect(kanban.gaps.map((g) => g.code)).toContain('closedVocabulary');
   });
 
   it('prefers a grid when there is a picture field', () => {
@@ -66,9 +66,40 @@ describe('rankViews', () => {
   it('takes testers by injection: override one, add or drop views', () => {
     const notes = defineCollection(Note);
     const ranked = rankViews(notes, {
-      testers: { ...DEFAULT_VIEW_TESTERS, table: () => ({ score: 10, reasons: ['house rule'], gaps: [] }), kanban: undefined },
+      testers: { table: () => ({ score: 10, reasons: ['house rule'], gaps: [] }), kanban: undefined },
     });
     expect(views(ranked)).toEqual(['table', 'list', 'grid']);
     for (const r of ranked) if (isItemViewMode(r.view)) expect(() => toViewConfig(notes, r.view, r.options)).not.toThrow();
+  });
+
+  it('turns a bad groupBy declaration into a blocking gap instead of throwing', () => {
+    const tasks = defineCollection(Task, { affordances: { groupBy: { defaultField: 'stauts' } } } as never);
+    const kanban = row(rankViews(tasks), 'kanban');
+    expect(kanban.applicable).toBe(false);
+    expect(kanban.gaps[0]).toMatchObject({ code: 'groupField', blocking: true });
+    expect(kanban.gaps[0].reason).toContain('stauts');
+  });
+
+  it('degrades a declared group field that is not groupable', () => {
+    const tasks = defineCollection(Task, { affordances: { groupBy: { defaultField: 'title' } } } as never);
+    const kanban = row(rankViews(tasks), 'kanban');
+    expect(kanban.applicable).toBe(true);
+    expect(kanban.gaps.map((g) => g.code)).toContain('groupable');
+  });
+
+  it('offers a yes / no board over a groupable boolean, degraded', () => {
+    const todos = defineCollection(z.object({ id: z.string(), title: z.string(), done: z.boolean() }));
+    const kanban = row(rankViews(todos), 'kanban');
+    expect(kanban).toMatchObject({ applicable: true, score: VIEW_FIT.fallback, options: { groupBy: 'done' } });
+    expect(kanban.gaps.map((g) => g.code)).toEqual(['closedVocabulary']);
+  });
+
+  it('marks as declared what availableViews offers: the default table when nothing else is', () => {
+    expect(rankViews(defineCollection(Note)).filter((r) => r.declared).map((r) => r.view)).toEqual(['table']);
+  });
+
+  it('merges partial testers over the defaults', () => {
+    const ranked = rankViews(defineCollection(Note), { testers: { table: () => ({ score: 10, reasons: [], gaps: [] }) } });
+    expect(views(ranked)).toEqual(['table', 'list', 'grid', 'kanban']);
   });
 });

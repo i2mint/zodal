@@ -25,7 +25,7 @@ export type { OptionsFormField, OptionsFormConfigOptions } from './generators/op
 export { toFilterConfig } from './generators/filter-config.js';
 export type { FilterFieldConfig } from './generators/filter-config.js';
 
-// Collection view generator (list / grid, grouped and collapsible)
+// Collection view generator (list / grid / kanban, grouped and collapsible) and view ranking
 export {
   toViewConfig,
   groupItems,

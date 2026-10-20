@@ -330,7 +330,8 @@ export interface ViewAssessment {
   options?: ViewConfigOptions;
 }
 
-/** Judges one view against a collection. Must be pure. */
+/** Judges one view against a collection. Must be pure, and report a bad declaration as a blocking
+ *  gap rather than throw: `rankViews` does not catch, so a throw would sink the whole ranking. */
 export type ViewTester = (collection: CollectionDefinition<any>) => ViewAssessment;
 
 /** One row of `rankViews`. */
@@ -338,7 +339,8 @@ export interface ViewApplicability extends ViewAssessment {
   view: ViewMode;
   /** No blocking gap. */
   applicable: boolean;
-  /** The collection declares this view (`availableViews`). */
+  /** The collection offers this view (`availableViews`: its declared `views`, else its
+   *  `defaultView`, which `defineCollection` defaults to `'table'`). */
   declared: boolean;
 }
 
@@ -375,20 +377,28 @@ const gridTester: ViewTester = (collection) => {
 
 const kanbanTester: ViewTester = (collection) => {
   const shape = collection.schema.shape as Record<string, z.ZodType>;
+  const fa = collection.fieldAffordances;
   const closed = (field: string) => getVocabularyEntries(shape[field]) !== null;
-  const declared = collection.affordances.groupBy
-    ? (toViewConfig(collection, 'list').group?.field ?? null)
-    : null;
-  if (declared !== null) {
-    return closed(declared)
-      ? { score: VIEW_FIT.strong, reasons: [`columns are the values of '${declared}'`], gaps: [] }
-      : {
-          score: VIEW_FIT.good,
-          reasons: [`columns are the values of '${declared}'`],
-          gaps: [{ code: 'closedVocabulary', reason: `'${declared}' has an open vocabulary: columns are the values present, and an empty column cannot be shown`, blocking: false }],
-        };
+  const openGap = (field: string): ViewGap => ({
+    code: 'closedVocabulary',
+    reason: `'${field}' has no closed vocabulary: columns are the values present, and an empty column cannot be shown`,
+    blocking: false,
+  });
+  if (collection.affordances.groupBy) {
+    let field: string | null;
+    try {
+      field = toViewConfig(collection, 'list').group?.field ?? null;
+    } catch (error) {
+      return { score: VIEW_FIT.none, reasons: [], gaps: [{ code: 'groupField', reason: (error as Error).message, blocking: true }] };
+    }
+    if (field !== null) {
+      const gaps = closed(field) ? [] : [openGap(field)];
+      if (!fa[field].groupable) gaps.push({ code: 'groupable', reason: `'${field}' is not marked groupable`, blocking: false });
+      return { score: gaps.length ? VIEW_FIT.good : VIEW_FIT.strong, reasons: [`columns are the values of '${field}'`], gaps };
+    }
   }
-  const candidate = collection.getGroupableFields().map((f) => f.key).find(closed);
+  const groupable = collection.getGroupableFields().map((f) => f.key);
+  const candidate = groupable.find(closed);
   if (candidate) {
     return {
       score: VIEW_FIT.good,
@@ -397,14 +407,24 @@ const kanbanTester: ViewTester = (collection) => {
       options: { groupBy: candidate },
     };
   }
+  // A boolean makes two obvious columns, but has no vocabulary to draw an empty one from.
+  const flag = groupable.find((k) => fa[k].zodType === 'boolean');
+  if (flag) {
+    return {
+      score: VIEW_FIT.fallback,
+      reasons: [`'${flag}' makes a yes / no board (groupBy is not declared)`],
+      gaps: [openGap(flag)],
+      options: { groupBy: flag },
+    };
+  }
   return {
     score: VIEW_FIT.none,
     reasons: [],
-    gaps: [{ code: 'groupField', reason: 'no groupable field with a closed vocabulary to make columns of; declare affordances.groupBy', blocking: true }],
+    gaps: [{ code: 'groupField', reason: 'no groupable enum or boolean field to make columns of; declare affordances.groupBy', blocking: true }],
   };
 };
 
-/** The built-in testers, one per view mode. Spread and override to change one or add a view. */
+/** The built-in testers, one per view mode. `rankViews` merges its `testers` over these. */
 export const DEFAULT_VIEW_TESTERS: Readonly<Record<ViewMode, ViewTester>> = {
   table: tableTester,
   list: listTester,
@@ -413,13 +433,15 @@ export const DEFAULT_VIEW_TESTERS: Readonly<Record<ViewMode, ViewTester>> = {
 };
 
 export interface RankViewsOptions {
-  /** One tester per view to rank. Default: `DEFAULT_VIEW_TESTERS`. */
-  testers?: Partial<Record<ViewMode, ViewTester>>;
+  /** Testers merged over `DEFAULT_VIEW_TESTERS`: a key replaces that view's tester, `undefined`
+   *  drops the view from the ranking. */
+  testers?: Partial<Record<ViewMode, ViewTester | undefined>>;
 }
 
 /**
- * Which views this collection's schema can offer, best first, each with the reasons it fits and
- * the gaps that degrade or block it. Unlike `availableViews` (the declared views), this reads the
+ * Which views this collection's schema can offer, ranked by fit, each with the reasons it fits and
+ * the gaps that degrade or block it. The order is a fit heuristic, not a recommendation: a table
+ * always fits as a fallback, so it ranks below any view the schema gives a reason for. Unlike `availableViews` (the declared views), this reads the
  * schema: a kanban needs a groupable field with a closed vocabulary, a grid prefers a picture
  * field. Ranked applicable first, then by score, then declared views first, then `VIEW_MODES`
  * order.
@@ -428,13 +450,13 @@ export interface RankViewsOptions {
  * ```typescript
  * rankViews(tasks).filter((v) => v.applicable).map((v) => v.view); // ['kanban', 'list', 'table', 'grid']
  * rankViews(notes).find((v) => v.view === 'kanban')?.gaps[0].reason;
- * // "no groupable field with a closed vocabulary to make columns of; declare affordances.groupBy"
+ * // "no groupable enum or boolean field to make columns of; declare affordances.groupBy"
  * const best = rankViews(tasks)[0];
  * if (isItemViewMode(best.view)) toViewConfig(tasks, best.view, best.options);
  * ```
  */
 export function rankViews(collection: CollectionDefinition<any>, options: RankViewsOptions = {}): ViewApplicability[] {
-  const testers = options.testers ?? DEFAULT_VIEW_TESTERS;
+  const testers = { ...DEFAULT_VIEW_TESTERS, ...options.testers };
   const declared = availableViews(collection);
   const order = (view: ViewMode) => {
     const i = VIEW_MODES.indexOf(view);
