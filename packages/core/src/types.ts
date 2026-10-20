@@ -27,7 +27,8 @@ export type FilterType =
   | 'select'       // Single-select from enumerated values (OData SingleValue with enum)
   | 'multiSelect'  // Multi-select from enumerated values (OData MultiValue)
   | 'range'        // Numeric/date range slider or min/max (OData SingleRange)
-  | 'contains'     // Array containment — "tags contain X"
+  | 'contains'     // Array containment, OR within the field: "tags contain any of X, Y" (arrayContainsAny)
+  | 'containsAll'  // Array containment, AND: "tags contain all of X, Y" (client-side; no store operator)
   | 'boolean'      // True/false toggle
   | 'fuzzy';       // Fuzzy text matching
 

@@ -50,7 +50,7 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
     let options: VocabularyOption[] | undefined;
     const vocabulary = getVocabularyEntries(fieldSchema);
     const isCollection = affordance.zodType === 'array' || affordance.zodType === 'set';
-    if (vocabulary && (filterType === 'select' || filterType === 'multiSelect' || (filterType === 'contains' && isCollection))) {
+    if (vocabulary && (filterType === 'select' || filterType === 'multiSelect' || ((filterType === 'contains' || filterType === 'containsAll') && isCollection))) {
       options = vocabulary.map(toOption);
     }
 

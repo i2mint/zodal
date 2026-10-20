@@ -422,3 +422,21 @@ describe('toFormConfig numeric bounds and step (#43)', () => {
     expect(byName.name.step).toBeUndefined();
   });
 });
+
+describe('contains filters on array fields (#31)', () => {
+  const collection = defineCollection(
+    z.object({
+      tags: z.array(z.string()),
+      labels: z.array(z.string()).meta({ filterable: 'containsAll' }),
+    }),
+  );
+  const byId = Object.fromEntries(toColumnDefs(collection).map((c: any) => [c.id ?? c.accessorKey, c]));
+
+  it("maps 'contains' to OR within the field, like a chip filter's arrayContainsAny", () => {
+    expect(byId.tags.filterFn).toBe('arrIncludesSome');
+  });
+
+  it("maps 'containsAll' to AND", () => {
+    expect(byId.labels.filterFn).toBe('arrIncludesAll');
+  });
+});

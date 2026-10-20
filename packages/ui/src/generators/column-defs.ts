@@ -87,7 +87,9 @@ function inferFilterFnName(filterType: FilterType | boolean, zodType: string): s
     case 'select': return 'arrIncludes';
     case 'multiSelect': return 'arrIncludesSome';
     case 'range': return 'inNumberRange';
-    case 'contains': return 'arrIncludesAll';
+    // OR within a field, as a chip filter's `arrayContainsAny` (zodal#31); AND is explicit.
+    case 'contains': return 'arrIncludesSome';
+    case 'containsAll': return 'arrIncludesAll';
     case 'boolean': return 'equals';
     case 'fuzzy': return 'includesString';
     default: return 'includesString';

@@ -319,6 +319,8 @@ for (const col of columns) {
 
 **Tag-like fields.** An array (or set) field becomes a form field of `type: 'tags'`. When its values are closed (an enum, literals, a numeric enum: `getVocabulary` in `@zodal/core`), the allowed values are in `options` and `allowCreate` is `false`; otherwise `allowCreate` is `true`. Filters (`contains`) and column metadata (`meta.enumValues`) carry the same vocabulary. Render these as chips (add/remove by keyboard, create a new value only when `allowCreate`), and a chip cell with overflow, never `value.join(', ')`. Field components take `FieldRenderProps` (`{ field, config, context?, affordance? }` from `@zodal/ui`, where `field` is the value binding `{ value, onChange }`), and suggestions come from `context.suggest?.(query, field, { signal, limit })` (a `SuggestionSource` the app injects: values already used, a zodal-groups vocabulary, a server endpoint), so a renderer never imports a store. Abort the previous request when the user keeps typing.
 
+**One meaning for a multi-value `contains` filter: OR within the field.** A `contains` filter on an array field matches an item carrying *any* selected value (`arrayContainsAny`; TanStack `arrIncludesSome` in `toColumnDefs`), the faceted-filter convention of OR within a facet and AND across facets. AND is explicit: `filterable: 'containsAll'` (`arrIncludesAll`; client-side only, there is no store operator for it). Build tag widgets on `@zodal/ui`'s tag logic (`resolveDraft`, `matchOptions`, `splitTags`, `toContainsFilter` / `fromContainsFilter`, `createSuggestionController`) rather than a copy, so every renderer reads and writes the same filter value.
+
 **Operations are declarative; execution is a command.** Render `OperationDefinition`s (label, icon, confirm, shortcut) as buttons or menu items, and on activation dispatch the command whose id is `operationCommandId(namespace, op)`. The app builds those commands with `toCommandRecord(op, execute, { namespace })` from `@zodal/core` (acture's `CommandRecord` shape; `execute` returns `ok(value)` or `fail(code, message)`). A confirmation (`op.confirm`) is the renderer's to show before dispatching: commands carry no confirm, so gate destructive ones with `when` for other surfaces.
 
 ## Generator Output Types Reference
@@ -380,7 +382,7 @@ interface FormFieldConfig {
 interface FilterFieldConfig {
   name: string;
   label: string;
-  filterType: FilterType;  // 'exact' | 'search' | 'select' | 'multiSelect' | 'range' | 'contains' | 'boolean' | 'fuzzy'
+  filterType: FilterType;  // 'exact' | 'search' | 'select' | 'multiSelect' | 'range' | 'contains' | 'containsAll' | 'boolean' | 'fuzzy'
   options?: { label: string; value: string }[];
   bounds?: { min?: number; max?: number };
   zodType: string;
