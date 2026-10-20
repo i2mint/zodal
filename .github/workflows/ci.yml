@@ -127,9 +127,78 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Re-running an older main run (its release cancelled or failed after a newer one shipped)
+      # would publish the older version as `latest` and move npm's default install back to it.
+      # Anything older than what `latest` points at today goes out under `backport`, and a
+      # prerelease under `next`. A package not on the registry yet (first release) has no
+      # `latest`. Every step here fails closed: an unknown answer stops the release.
+      - name: Choose the npm dist-tag
+        id: disttag
+        run: |
+          set -euo pipefail
+          # Prints the dist-tag for version $1 given npm's current latest $2 (may be empty).
+          # Semver precedence, prereleases included; a malformed version throws (non-zero exit).
+          dist_tag_for() {
+            node -e '
+              const [version, latest] = process.argv.slice(1);
+              const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+              const parse = (v) => {
+                const m = SEMVER.exec(v);
+                if (!m) throw new Error(`not a semver version: "${v}"`);
+                return { core: m.slice(1, 4).map(Number), pre: m[4] ? m[4].split(".") : [] };
+              };
+              const compareIds = (a, b) => {
+                const na = /^\d+$/.test(a), nb = /^\d+$/.test(b);
+                if (na && nb) return Number(a) - Number(b);
+                if (na !== nb) return na ? -1 : 1;
+                return a < b ? -1 : a > b ? 1 : 0;
+              };
+              const compare = (x, y) => {
+                for (let i = 0; i < 3; i++) if (x.core[i] !== y.core[i]) return x.core[i] - y.core[i];
+                if (!x.pre.length || !y.pre.length) return y.pre.length - x.pre.length;
+                for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
+                  if (i >= x.pre.length) return -1;
+                  if (i >= y.pre.length) return 1;
+                  const c = compareIds(x.pre[i], y.pre[i]);
+                  if (c) return c;
+                }
+                return 0;
+              };
+              const v = parse(version);
+              if (latest && compare(v, parse(latest)) < 0) console.log("backport");
+              else console.log(v.pre.length ? "next" : "latest");
+            ' "$1" "$2"
+          }
+          # An assignment, not process substitution, so a failing pnpm or node stops the step.
+          pkgs=$(pnpm -r ls --depth -1 --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const p of JSON.parse(s))if(!p.private)console.log(p.name+"\t"+p.version)})')
+          [ -n "$pkgs" ] || { echo "::error::no publishable workspace packages found"; exit 1; }
+          tags=""
+          while IFS=$'\t' read -r name version; do
+            # Only a 404 means "not on the registry yet"; any other failure stops the release
+            # rather than guess, since guessing `latest` is the bug this step prevents.
+            if ! current=$(npm view "$name" dist-tags.latest 2>"$RUNNER_TEMP/npm-view.err"); then
+              grep -q E404 "$RUNNER_TEMP/npm-view.err" || { cat "$RUNNER_TEMP/npm-view.err"; exit 1; }
+              current=""
+            fi
+            tag=$(dist_tag_for "$version" "$current")
+            echo "${name}@${version} (npm latest: ${current:-none}) -> ${tag}"
+            [ "$tag" != backport ] || echo "::warning::${name}@${version} is older than npm's latest (${current}): publishing under the 'backport' dist-tag"
+            tags+="${tag}"$'\n'
+          done <<<"$pkgs"
+          # `pnpm -r publish` takes one --tag for every package, which is right only while the
+          # packages release in lockstep; if they disagree, stop rather than mis-tag some.
+          distinct=$(printf '%s' "$tags" | sort -u)
+          if [ "$(printf '%s\n' "$distinct" | wc -l)" -ne 1 ]; then
+            echo "::error::packages need different dist-tags (${distinct//$'\n'/, }); publish them separately"
+            exit 1
+          fi
+          echo "dist-tag: $distinct"
+          echo "tag=$distinct" >> "$GITHUB_OUTPUT"
+
       - name: Publish packages
         env:
           FORCE_PUBLISH: ${{ needs.gate.outputs.force }}
+          DIST_TAG: ${{ steps.disttag.outputs.tag }}
         run: |
           set -euo pipefail
           FORCE=""
@@ -141,7 +210,7 @@ jobs:
           # stayed on the previous version — the failure mode this step now refuses.
           # `pnpm -r publish` already skips a version the registry has, so re-running a
           # publish stays idempotent without hiding errors.
-          pnpm -r publish --access public --provenance $FORCE
+          pnpm -r publish --access public --provenance --tag "$DIST_TAG" $FORCE
 
       # A publish is only real if the registry serves it. Ask the registry, don't infer it
       # from an exit code.
@@ -179,10 +248,27 @@ jobs:
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           git remote set-url origin git@github.com:${{ github.repository }}.git
 
+      # Tag the published version. An existing remote tag is fine (a re-run, or a version that
+      # was already on npm and tagged by the run that published it); any other push failure
+      # (key, permissions, network) fails the run instead of leaving a version with no tag.
       - name: Tag release
         run: |
+          set -euo pipefail
           VERSION=$(node -e "console.log(require('./packages/core/package.json').version)")
+          TAG="v${VERSION}"
+          remote=$(git ls-remote --tags origin "refs/tags/${TAG}" "refs/tags/${TAG}^{}")
+          if [ -n "$remote" ]; then
+            # An annotated tag lists its commit on the peeled `^{}` line.
+            tagged=$(echo "$remote" | awk '$2 ~ /\^\{\}$/ {print $1}')
+            [ -n "$tagged" ] || tagged=$(echo "$remote" | awk '{print $1; exit}')
+            if [ "$tagged" = "$(git rev-parse HEAD)" ]; then
+              echo "${TAG} already tagged at this commit"
+            else
+              echo "::warning::${TAG} already exists at ${tagged}, not at this commit: kept as is (that run published ${VERSION})"
+            fi
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v${VERSION}" -m "Release v${VERSION}" || echo "Tag v${VERSION} already exists"
-          git push origin "v${VERSION}" || echo "Tag already pushed"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
