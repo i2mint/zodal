@@ -19,6 +19,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Subpath before its package: an alias also matches as a prefix.
+      '@zodal/store/descriptor': path.resolve(root, 'packages/store/src/descriptor.ts'),
       '@zodal/core': path.resolve(root, 'packages/core/src/index.ts'),
       '@zodal/store': path.resolve(root, 'packages/store/src/index.ts'),
       '@zodal/ui': path.resolve(root, 'packages/ui/src/index.ts'),

@@ -38,6 +38,7 @@ const prompt = toPrompt(collection);
 ## What's Inside
 
 - **Generators** -- `toColumnDefs()`, `toFormConfig()`, `toFilterConfig()` (headless, framework-agnostic)
+- **Options forms** -- `toOptionsFormConfig(schema, { secretPaths })`: a form for a settings-like object that is not a collection record (provider options, connection settings): no record name heuristics, secrets as password fields, nested objects as fieldsets, functions and `z.custom` values marked "supplied in code"
 - **State** -- `createCollectionStore()` (pure functions) + 5 composable slices
 - **Zustand adapter** -- `createZustandStoreSlice()` for Zustand `create()` integration
 - **Persisted view state** -- `createViewStateStore()`: the view mode, collapsed groups, sort, search and filters a person chose, written through a `DataProvider` and read back on the next visit (a choice made before the stored record arrives wins)
