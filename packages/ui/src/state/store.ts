@@ -11,7 +11,9 @@ import type {
   SortingState,
   ColumnFilter,
   PaginationState,
+  ViewMode,
 } from '@zodal/core';
+import { availableViews, initialView } from '../generators/view-config.js';
 
 // ============================================================================
 // State Types
@@ -38,6 +40,13 @@ export interface CollectionState<T> {
   columnOrder: string[];
   grouping: string[];
 
+  /**
+   * The view the collection is drawn through (`'table'`, `'list'`, `'grid'`...): one field, so
+   * selection, sort and filters are shared by every view (zodal-graphs' view-switch model).
+   * Persisted as `ViewState.viewMode`.
+   */
+  activeView: ViewMode;
+
   /** Per-item, per-field content loading status. For bifurcated providers. */
   contentLoading: Record<string, Record<string, boolean>>;
 }
@@ -56,6 +65,8 @@ export interface CollectionActions<T> {
   setColumnVisibility(state: CollectionState<T>, visibility: Record<string, boolean>): CollectionState<T>;
   setColumnOrder(state: CollectionState<T>, order: string[]): CollectionState<T>;
   setGrouping(state: CollectionState<T>, grouping: string[]): CollectionState<T>;
+  /** Switch the view; a view the collection does not offer leaves the state unchanged. */
+  setActiveView(state: CollectionState<T>, view: ViewMode): CollectionState<T>;
   setLoading(state: CollectionState<T>, loading: boolean): CollectionState<T>;
   setError(state: CollectionState<T>, error: string | null): CollectionState<T>;
   clearSelection(state: CollectionState<T>): CollectionState<T>;
@@ -124,8 +135,10 @@ export function createCollectionStore<T>(
     columnVisibility: buildInitialVisibility(collection),
     columnOrder: buildInitialOrder(collection),
     grouping: [],
+    activeView: initialView(collection),
     contentLoading: {},
   };
+  const offeredViews = availableViews(collection);
 
   // Pure action functions (state, args) → newState
   const actions: CollectionActions<T> = {
@@ -155,6 +168,9 @@ export function createCollectionStore<T>(
     },
     setGrouping(state, grouping) {
       return { ...state, grouping };
+    },
+    setActiveView(state, view) {
+      return offeredViews.includes(view) ? { ...state, activeView: view } : state;
     },
     setLoading(state, loading) {
       return { ...state, loading };

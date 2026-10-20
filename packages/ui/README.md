@@ -38,12 +38,31 @@ const prompt = toPrompt(collection);
 ## What's Inside
 
 - **Generators** -- `toColumnDefs()`, `toFormConfig()`, `toFilterConfig()` (headless, framework-agnostic)
+- **Collection views** -- `toViewConfig(collection, 'list' | 'grid')`: the collection as a list or a grid (gallery): the fields each item shows by role (label, image, badges, secondary text), the group field with its collapse policy (`groupBy.collapsible`, `defaultState`) and the policy for a multi-valued group field, and the item / selection / collection operations; `groupItems()` buckets items into the ordered groups to draw. The view showing is `CollectionState.activeView`, one field, so selection, sort and filters survive a list/grid switch
 - **Options forms** -- `toOptionsFormConfig(schema, { secretPaths })`: a form for a settings-like object that is not a collection record (provider options, connection settings): no record name heuristics, secrets as password fields, nested objects as fieldsets, functions and `z.custom` values marked "supplied in code"
 - **State** -- `createCollectionStore()` (pure functions) + 5 composable slices
 - **Zustand adapter** -- `createZustandStoreSlice()` for Zustand `create()` integration
 - **Persisted view state** -- `createViewStateStore()`: the view mode, collapsed groups, sort, search and filters a person chose, written through a `DataProvider` and read back on the next visit (a choice made before the stored record arrives wins)
 - **Renderer registry** -- ranked testers with priority bands and `explain()` debugging
 - **AI tools** -- `toPrompt()` for LLM consumption, `toCode()` for TypeScript codegen
+
+## A collection as a list or a grid
+
+```typescript
+import { toViewConfig, groupItems } from '@zodal/ui';
+
+const view = toViewConfig(instruments, 'grid');   // view.kind === 'grid'; or 'list'; a table is toColumnDefs()
+view.fields.label?.name;                          // 'name' (the collection's labelField)
+view.fields.image?.name;                          // 'thumbnail' (displayFormat 'image', or the name)
+view.group;                                       // { field: 'class', collapsible: true, defaultState: 'expanded', ... }
+const { collapsedGroups, expandedGroups } = viewState.get();
+for (const group of groupItems(items, view.group, { collapsedGroups, expandedGroups })) {
+  // group.kind 'all' (ungrouped view): no header. Else draw group.label, then group.items
+  // unless group.collapsed; a header click is viewState.toggleGroup(group.id).
+}
+```
+
+`ViewConfig` is a union discriminated on `kind`; `isItemViewMode(state.activeView)` narrows the active view before calling `toViewConfig`. Group ids are `groupId(field, value)` (`'class:strings'`), so collapse state does not leak when the group field changes. Inferred roles can be replaced (`toViewConfig(c, 'list', { fields: { image: null, badges: ['status'] }, groupBy: 'owner' })`). Grouping by an array field needs a policy: `multiValue: 'duplicate'` (default: the item shows in each of its groups), `'primary'` (its first value only) or `'forbid'` (throws). Renderers: `@zodal/ui-vanilla`, `@zodal/ui-shadcn`.
 
 ## Remembering a person's view
 

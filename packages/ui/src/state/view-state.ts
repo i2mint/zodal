@@ -18,6 +18,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, GroupByConfig } from '@zodal/core';
+import { availableViews, initialView } from '../generators/view-config.js';
 
 /** The persisted record. Every field but `id` has a default, so a partial record parses. */
 export const ViewStateSchema = z.object({
@@ -27,6 +28,10 @@ export const ViewStateSchema = z.object({
   viewMode: z.string().optional(),
   /** Ids of the groups the person collapsed. */
   collapsedGroups: z.array(z.string()).default([]),
+  /** Ids of the groups the person expanded where the collection opens groups collapsed
+   *  (`groupBy.defaultState: 'collapsed'`): a group in neither list follows the default, so a
+   *  group that first appears later still opens collapsed. Absent: none. */
+  expandedGroups: z.array(z.string()).optional(),
   /** TanStack Table-compatible sorting. */
   sorting: z.array(z.object({ id: z.string(), desc: z.boolean() })).default([]),
   /** The search text. */
@@ -73,14 +78,16 @@ export interface ViewStateStore {
   hydrate(options?: HydrateOptions): Promise<ViewState>;
   /** Change some fields, and write the record through (once hydrated). */
   set(patch: Partial<ViewStateFields>): void;
-  /** Collapse an expanded group, or expand a collapsed one. */
+  /** Collapse an expanded group, or expand a collapsed one (a group in neither list follows
+   *  the collection's `groupBy.defaultState`). */
   toggleGroup(groupId: string): void;
   /** Called after every change, hydration included. Returns the unsubscribe. */
   subscribe(listener: (state: ViewState) => void): () => void;
 }
 
 /**
- * The view state a first visit opens on: the collection's `defaultView`, its groups collapsed
+ * The view state a first visit opens on: the collection's `defaultView` (or its first view when
+ * it does not offer that one, the same rule as `CollectionState.activeView`), its groups collapsed
  * only when `groupBy.defaultState` is `'collapsed'`, no sort beyond the declared default, no
  * search, no filters.
  */
@@ -94,7 +101,7 @@ export function defaultViewState(
   const defaultSort = (a as { defaultSort?: { field: string; direction?: 'asc' | 'desc' } }).defaultSort;
   return ViewStateSchema.parse({
     id: key,
-    ...(a.defaultView ? { viewMode: a.defaultView } : {}),
+    viewMode: initialView(collection),
     collapsedGroups: collapsed ? [...groups] : [],
     sorting: defaultSort ? [{ id: defaultSort.field, desc: defaultSort.direction === 'desc' }] : [],
   });
@@ -124,6 +131,8 @@ export function createViewStateStore(
   /** A change made before hydration is written once the stored record has been read. */
   let writeAfterHydrate = false;
   const listeners = new Set<(s: ViewState) => void>();
+  const declaredGroupBy = collection.affordances.groupBy as boolean | GroupByConfig | undefined;
+  const collapsedByDefault = typeof declaredGroupBy === 'object' && declaredGroupBy.defaultState === 'collapsed';
 
   const emit = () => {
     for (const l of listeners) l(state);
@@ -150,9 +159,9 @@ export function createViewStateStore(
     write();
   };
   /** A stored view the collection no longer offers opens on its default instead. */
-  const views = collection.affordances.views as readonly string[] | undefined;
+  const views: readonly string[] = availableViews(collection);
   const offered = (s: ViewState): ViewState =>
-    s.viewMode !== undefined && views && !views.includes(s.viewMode) ? { ...s, viewMode: defaultViewState(collection, { key }).viewMode } : s;
+    s.viewMode !== undefined && !views.includes(s.viewMode) ? { ...s, viewMode: initialView(collection) } : s;
 
   return {
     get: () => state,
@@ -174,8 +183,20 @@ export function createViewStateStore(
     },
     set,
     toggleGroup(groupId) {
-      const cur = state.collapsedGroups;
-      set({ collapsedGroups: cur.includes(groupId) ? cur.filter((g) => g !== groupId) : [...cur, groupId] });
+      const collapsed = state.collapsedGroups;
+      const expanded = state.expandedGroups ?? [];
+      const isCollapsed = collapsed.includes(groupId) || (collapsedByDefault && !expanded.includes(groupId));
+      if (isCollapsed) {
+        set({
+          collapsedGroups: collapsed.filter((g) => g !== groupId),
+          ...(collapsedByDefault ? { expandedGroups: [...expanded.filter((g) => g !== groupId), groupId] } : {}),
+        });
+      } else {
+        set({
+          collapsedGroups: [...collapsed, groupId],
+          ...(state.expandedGroups ? { expandedGroups: expanded.filter((g) => g !== groupId) } : {}),
+        });
+      }
     },
     subscribe(listener) {
       listeners.add(listener);

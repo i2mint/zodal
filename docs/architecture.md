@@ -75,6 +75,7 @@ type FilterExpression =
 - `toFormConfig(collection, mode)` — form field configs for create/edit
 - `toOptionsFormConfig(schema, { secretPaths })` — form for a non-record settings object (provider options)
 - `toFilterConfig(collection)` — filter panel configs
+- `toViewConfig(collection, 'list' | 'grid', options?)` — a collection view: fields by role (label, image, badges, secondary), the group field with its collapse and multi-value policy, operations by scope; `ViewConfig` is discriminated on `kind`; `groupItems(items, config.group, { collapsedGroups, expandedGroups })` buckets items for it. Which view shows is `CollectionState.activeView` (one field, selection/filters shared across views; `availableViews`, `initialView`, `setActiveView`)
 - `createCollectionStore(collection)` — pure-function state management
 - 5 composable slices: `createSortingSlice`, `createFilterSlice`, `createPaginationSlice`, `createSelectionSlice`, `createColumnSlice`
 - `createZustandStoreSlice(collection, provider?)` — Zustand `create()` compatible

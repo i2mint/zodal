@@ -30,6 +30,8 @@ export interface BoundCollectionActions<T> {
   setColumnVisibility(visibility: Record<string, boolean>): void;
   setColumnOrder(order: string[]): void;
   setGrouping(grouping: string[]): void;
+  /** Switch the view (ignored when the collection does not offer it). */
+  setActiveView(view: CollectionState<T>['activeView']): void;
   setLoading(loading: boolean): void;
   setError(error: string | null): void;
   clearSelection(): void;
@@ -88,6 +90,9 @@ export function createZustandStoreSlice<T>(
     },
     setGrouping(grouping: string[]) {
       set((s: CollectionState<T>) => store.actions.setGrouping(s, grouping));
+    },
+    setActiveView(view: CollectionState<T>['activeView']) {
+      set((s: CollectionState<T>) => store.actions.setActiveView(s, view));
     },
     setLoading(loading: boolean) {
       set((s: CollectionState<T>) => store.actions.setLoading(s, loading));

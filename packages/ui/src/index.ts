@@ -25,6 +25,34 @@ export type { OptionsFormField, OptionsFormConfigOptions } from './generators/op
 export { toFilterConfig } from './generators/filter-config.js';
 export type { FilterFieldConfig } from './generators/filter-config.js';
 
+// Collection view generator (list / grid, grouped and collapsible)
+export {
+  toViewConfig,
+  groupItems,
+  availableViews,
+  initialView,
+  isItemViewMode,
+  groupId,
+  ITEM_VIEW_MODES,
+  VIEW_MODE_LIMITS,
+} from './generators/view-config.js';
+export type {
+  ViewConfig,
+  BaseViewConfig,
+  ListViewConfig,
+  GridViewConfig,
+  ViewConfigOptions,
+  ViewFieldConfig,
+  ViewFieldRoles,
+  ViewGroupConfig,
+  ViewOperationConfig,
+  ViewModeLimits,
+  ItemViewMode,
+  MultiValueGrouping,
+  ItemGroup,
+  GroupItemsOptions,
+} from './generators/view-config.js';
+
 // State management
 export { createCollectionStore } from './state/store.js';
 export type {
