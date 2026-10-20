@@ -51,16 +51,18 @@ const prompt = toPrompt(collection);
 ```typescript
 import { toViewConfig, groupItems } from '@zodal/ui';
 
-const view = toViewConfig(instruments, 'grid');   // or 'list'; a table is toColumnDefs()
+const view = toViewConfig(instruments, 'grid');   // view.kind === 'grid'; or 'list'; a table is toColumnDefs()
 view.fields.label?.name;                          // 'name' (the collection's labelField)
 view.fields.image?.name;                          // 'thumbnail' (displayFormat 'image', or the name)
 view.group;                                       // { field: 'class', collapsible: true, defaultState: 'expanded', ... }
-for (const group of groupItems(items, view.group, { collapsedGroups: viewState.get().collapsedGroups })) {
-  // draw group.label, then group.items unless group.collapsed
+const { collapsedGroups, expandedGroups } = viewState.get();
+for (const group of groupItems(items, view.group, { collapsedGroups, expandedGroups })) {
+  // group.kind 'all' (ungrouped view): no header. Else draw group.label, then group.items
+  // unless group.collapsed; a header click is viewState.toggleGroup(group.id).
 }
 ```
 
-Inferred roles can be replaced (`toViewConfig(c, 'list', { fields: { image: null, badges: ['status'] }, groupBy: 'owner' })`). Grouping by an array field needs a policy: `multiValue: 'duplicate'` (default: the item shows in each of its groups), `'primary'` (its first value only) or `'forbid'` (throws). Renderers: `@zodal/ui-vanilla`, `@zodal/ui-shadcn`.
+`ViewConfig` is a union discriminated on `kind`; `isItemViewMode(state.activeView)` narrows the active view before calling `toViewConfig`. Group ids are `groupId(field, value)` (`'class:strings'`), so collapse state does not leak when the group field changes. Inferred roles can be replaced (`toViewConfig(c, 'list', { fields: { image: null, badges: ['status'] }, groupBy: 'owner' })`). Grouping by an array field needs a policy: `multiValue: 'duplicate'` (default: the item shows in each of its groups), `'primary'` (its first value only) or `'forbid'` (throws). Renderers: `@zodal/ui-vanilla`, `@zodal/ui-shadcn`.
 
 ## Remembering a person's view
 

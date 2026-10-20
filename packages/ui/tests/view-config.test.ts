@@ -6,12 +6,13 @@ import {
   groupItems,
   availableViews,
   initialView,
-  UNGROUPED_ID,
+  groupId,
+  isItemViewMode,
   VIEW_MODE_LIMITS,
   type ViewGroupConfig,
 } from '../src/generators/view-config.js';
 import { createCollectionStore } from '../src/state/store.js';
-import { defaultViewState } from '../src/state/view-state.js';
+import { createViewStateStore, defaultViewState, type ViewState } from '../src/state/view-state.js';
 
 const Instrument = z.object({
   id: z.string(),
@@ -42,7 +43,7 @@ const names = (fields: { name: string }[]) => fields.map((f) => f.name);
 describe('toViewConfig: fields by role', () => {
   it('infers label, image, badges and secondary text from the schema', () => {
     const view = toViewConfig(instruments(), 'list');
-    expect(view.mode).toBe('list');
+    expect(view.kind).toBe('list');
     expect(view.idField).toBe('id');
     expect(view.fields.label).toMatchObject({ name: 'name', label: expect.any(String), zodType: 'string' });
     expect(view.fields.image?.name).toBe('thumbnail');
@@ -73,11 +74,32 @@ describe('toViewConfig: fields by role', () => {
     expect(toViewConfig(c, 'grid').fields.image?.name).toBe('art');
   });
 
-  it('leaves hidden fields out of every role', () => {
-    const c = instruments({}, { fields: { thumbnail: { hidden: true }, maker: { hidden: true } } });
+  it('leaves hidden, detail-only and unreadable fields out of every role', () => {
+    const c = instruments({}, { fields: { thumbnail: { detailOnly: true }, maker: { hidden: true }, year: { readable: false } } });
     const view = toViewConfig(c, 'list');
     expect(view.fields.image).toBeNull();
-    expect(names(view.fields.secondary)).not.toContain('maker');
+    expect(names(view.fields.secondary)).toEqual(['description']);
+  });
+
+  it('does not take an icon name for a picture, nor show a second picture as text', () => {
+    const c = defineCollection(z.object({ id: z.string(), name: z.string(), icon: z.string(), photo: z.string(), cover: z.string() }));
+    const view = toViewConfig(c, 'grid');
+    expect(view.fields.image?.name).toBe('photo');
+    expect(names(view.fields.secondary)).toEqual(['icon']);
+  });
+
+  it('badge-like fields past the cap fall back to secondary text', () => {
+    const view = toViewConfig(instruments(), 'list', { maxBadges: 1, maxSecondary: 10 });
+    expect(names(view.fields.badges)).toEqual(['tags']);
+    expect(names(view.fields.secondary)).toContain('midi');
+  });
+
+  it('carries the vocabulary labels, so a numeric enum badge can show its name', () => {
+    enum Level { Low, High }
+    const c = defineCollection(z.object({ id: z.string(), name: z.string(), level: z.nativeEnum(Level) }));
+    expect(toViewConfig(c, 'list').fields.badges[0].options).toEqual([
+      { value: '0', label: 'Low', raw: 0 }, { value: '1', label: 'High', raw: 1 },
+    ]);
   });
 
   it('takes explicit roles over inference, and names the fields when one is unknown', () => {
@@ -88,11 +110,16 @@ describe('toViewConfig: fields by role', () => {
     expect(view.fields.image).toBeNull();
     expect(names(view.fields.badges)).toEqual(['class']);
     expect(names(view.fields.secondary)).toEqual(['year']);
+    // Inferred roles do not repeat the explicit ones.
+    const partial = toViewConfig(instruments(), 'list', { groupBy: null, fields: { secondary: ['midi'] } });
+    expect(names(partial.fields.badges)).not.toContain('midi');
     expect(() => toViewConfig(instruments(), 'list', { fields: { image: 'cover' } })).toThrow(/'cover'.*fields: id, name/);
   });
 
   it('refuses a mode it does not describe, pointing at toColumnDefs for a table', () => {
     expect(() => toViewConfig(instruments(), 'table' as never)).toThrow(/toColumnDefs/);
+    expect(isItemViewMode('grid')).toBe(true);
+    expect(isItemViewMode('kanban')).toBe(false);
   });
 
   it('returns plain, serializable data', () => {
@@ -146,7 +173,16 @@ describe('toViewConfig: operations and selection', () => {
     expect(operations.collection.map((o) => o.name)).toEqual(['create', 'import']);
   });
 
-  it('drops what the collection does not allow; a declared operation replaces a built-in of the same name', () => {
+  it('a declared operation replaces a built-in of the same name in its place; bulkDelete needs delete', () => {
+    const c = instruments({ bulkDelete: true, delete: false }, {
+      operations: [{ name: 'tune', label: 'Tune', scope: 'item' }, { name: 'edit', label: 'Modify', scope: 'item' }],
+    });
+    const { operations } = toViewConfig(c, 'list');
+    expect(operations.item.map((o) => [o.name, o.label])).toEqual([['edit', 'Modify'], ['tune', 'Tune']]);
+    expect(operations.selection).toEqual([]);
+  });
+
+  it('drops what the collection does not allow', () => {
     const c = instruments({ update: false, create: false, selectable: false }, {
       operations: [{ name: 'delete', label: 'Remove', scope: 'item', confirm: true }],
     });
@@ -169,34 +205,76 @@ describe('groupItems', () => {
     { id: 'c', class: null },
     { id: 'd', class: 'strings' },
     { id: 'e', class: 'theremin' },
+    { id: 'f', class: 'harp' },
   ];
+  const none = groupId('class', null);
 
-  it('follows the vocabulary order, omits empty groups, puts unknown values after and no value last', () => {
+  it('follows the vocabulary order, omits empty groups, puts unknown values after (first seen) and no value last', () => {
     const groups = groupItems(items, group);
-    expect(groups.map((g) => g.id)).toEqual(['strings', 'percussion', 'theremin', UNGROUPED_ID]);
-    expect(groups[0]).toEqual({ id: 'strings', label: 'Strings', items: [items[1], items[3]], collapsed: false });
-    expect(groups[3].label).toBe('None');
-    expect(groupItems(items, group, { emptyLabel: 'Unclassified' })[3].label).toBe('Unclassified');
+    expect(groups.map((g) => g.value)).toEqual(['strings', 'percussion', 'theremin', 'harp', null]);
+    expect(groups[0]).toEqual({ id: 'class:strings', kind: 'value', value: 'strings', label: 'Strings', items: [items[1], items[3]], collapsed: false });
+    expect(groups[4]).toMatchObject({ id: none, kind: 'none', label: 'None' });
+    expect(groupItems(items, group, { emptyLabel: 'Unclassified' })[4].label).toBe('Unclassified');
   });
 
-  it('collapses the groups a person collapsed, or all of them by default when declared collapsed', () => {
-    expect(groupItems(items, group, { collapsedGroups: ['strings'] }).map((g) => g.collapsed)).toEqual([true, false, false, false]);
-    expect(groupItems(items, { ...group, defaultState: 'collapsed' }).every((g) => g.collapsed)).toBe(true);
-    expect(groupItems(items, { ...group, collapsible: false }, { collapsedGroups: ['strings'] })[0].collapsed).toBe(false);
+  it('ids carry the field, so collapsing a value under one field does not collapse it under another', () => {
+    expect(groupId('class', 'strings')).not.toBe(groupId('owner', 'strings'));
+    expect(groupItems(items, group, { collapsedGroups: ['owner:strings'] })[0].collapsed).toBe(false);
+  });
+
+  it('collapses what was collapsed, expands what was expanded, the rest follows defaultState', () => {
+    expect(groupItems(items, group, { collapsedGroups: ['class:strings'] }).map((g) => g.collapsed)).toEqual([true, false, false, false, false]);
+    const closed = { ...group, defaultState: 'collapsed' as const };
+    expect(groupItems(items, closed, { collapsedGroups: [] }).every((g) => g.collapsed)).toBe(true);
+    expect(groupItems(items, closed, { expandedGroups: ['class:winds', 'class:strings'] }).map((g) => g.collapsed)).toEqual([false, true, true, true, true]);
+    expect(groupItems(items, { ...group, collapsible: false }, { collapsedGroups: ['class:strings'] })[0].collapsed).toBe(false);
   });
 
   it('places a multi-valued item in each group, or only its first one', () => {
     const tags: ViewGroupConfig = { ...group, field: 'tags', multiValued: true, order: undefined };
-    const tagged = [{ id: 'x', tags: ['loud', 'electric'] }, { id: 'y', tags: [] }, { id: 'z', tags: ['electric'] }];
-    expect(groupItems(tagged, tags).map((g) => [g.id, g.items.map((i) => i.id)])).toEqual([
-      ['loud', ['x']], ['electric', ['x', 'z']], [UNGROUPED_ID, ['y']],
+    const tagged = [{ id: 'x', tags: ['loud', 'electric', 'loud'] }, { id: 'y', tags: [] }, { id: 'z', tags: ['electric'] }];
+    expect(groupItems(tagged, tags).map((g) => [g.value, g.items.map((i) => i.id)])).toEqual([
+      ['loud', ['x']], ['electric', ['x', 'z']], [null, ['y']],
     ]);
-    expect(groupItems(tagged, { ...tags, multiValue: 'primary' }).map((g) => g.id)).toEqual(['loud', 'electric', UNGROUPED_ID]);
-    expect(groupItems(tagged, { ...tags, multiValue: 'primary' })[1].items.map((i) => i.id)).toEqual(['z']);
+    const primary = groupItems(tagged, { ...tags, multiValue: 'primary' });
+    expect(primary.map((g) => [g.value, g.items.map((i) => i.id)])).toEqual([['loud', ['x']], ['electric', ['z']], [null, ['y']]]);
   });
 
-  it('with no group, one group holds everything', () => {
-    expect(groupItems(items, null)).toEqual([{ id: UNGROUPED_ID, label: '', items, collapsed: false }]);
+  it('groups by a numeric enum through its vocabulary labels, and by dates as ISO strings', () => {
+    enum Level { Low, High }
+    const c = defineCollection(z.object({ id: z.string(), name: z.string(), level: z.nativeEnum(Level) }), {
+      affordances: { groupBy: { defaultField: 'level' } },
+    });
+    const g = toViewConfig(c, 'list').group!;
+    expect(groupItems([{ level: 1 }, { level: 0 }], g).map((x) => x.label)).toEqual(['Low', 'High']);
+    const when = { ...group, field: 'at', order: undefined };
+    expect(groupItems([{ at: new Date('2024-01-02T00:00:00Z') }], when)[0].value).toBe('2024-01-02T00:00:00.000Z');
+  });
+
+  it('with no group, one header-less group holds everything', () => {
+    expect(groupItems(items, null)).toEqual([{ id: '', kind: 'all', value: null, label: '', items, collapsed: false }]);
+  });
+});
+
+describe('view state and groups opening collapsed', () => {
+  it('a defaultState: collapsed collection opens collapsed, remembers an expanded group, and a new group still opens collapsed', async () => {
+    const c = instruments({ groupBy: { defaultField: 'class', collapsible: true, defaultState: 'collapsed' } });
+    const rows = new Map<string, unknown>();
+    const provider = {
+      getOne: async (id: string) => { if (!rows.has(id)) throw new Error('missing'); return rows.get(id); },
+      create: async (item: ViewState) => void rows.set(item.id, item),
+      update: async (id: string, patch: Partial<ViewState>) => void rows.set(id, { ...(rows.get(id) as object), ...patch }),
+    };
+    const view = createViewStateStore(c, provider, { key: 'k' });
+    await view.hydrate();
+    const config = toViewConfig(c, 'list');
+    const draw = (data: { class: string }[]) =>
+      groupItems(data, config.group, { collapsedGroups: view.get().collapsedGroups, expandedGroups: view.get().expandedGroups });
+    expect(draw([{ class: 'strings' }, { class: 'winds' }]).map((g) => g.collapsed)).toEqual([true, true]);
+    view.toggleGroup('class:strings');
+    expect(draw([{ class: 'strings' }, { class: 'winds' }, { class: 'percussion' }]).map((g) => g.collapsed)).toEqual([false, true, true]);
+    view.toggleGroup('class:strings');
+    expect(draw([{ class: 'strings' }]).map((g) => g.collapsed)).toEqual([true]);
   });
 });
 

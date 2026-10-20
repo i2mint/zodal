@@ -31,12 +31,16 @@ export {
   groupItems,
   availableViews,
   initialView,
+  isItemViewMode,
+  groupId,
   ITEM_VIEW_MODES,
   VIEW_MODE_LIMITS,
-  UNGROUPED_ID,
 } from './generators/view-config.js';
 export type {
   ViewConfig,
+  BaseViewConfig,
+  ListViewConfig,
+  GridViewConfig,
   ViewConfigOptions,
   ViewFieldConfig,
   ViewFieldRoles,

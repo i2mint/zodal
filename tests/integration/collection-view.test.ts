@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
 import { createInMemoryProvider } from '@zodal/store';
-import { createCollectionStore, createViewStateStore, groupItems, toViewConfig, type ViewState } from '@zodal/ui';
+import { createCollectionStore, createViewStateStore, groupItems, isItemViewMode, toViewConfig, type ViewState } from '@zodal/ui';
 
 const InstrumentSchema = z.object({
   id: z.string(),
@@ -45,17 +45,19 @@ describe('A collection as a list or a grid, grouped and collapsible', () => {
     const views = createInMemoryProvider<ViewState>([]);
     const viewState = createViewStateStore(instruments, views, { key: 'instruments' });
     await viewState.hydrate();
-    viewState.toggleGroup('winds');
+    viewState.toggleGroup('class:winds');
 
-    const list = toViewConfig(instruments, viewState.get().viewMode as 'list');
-    expect(list.mode).toBe('list');
+    const mode = viewState.get().viewMode;
+    if (!isItemViewMode(mode)) throw new Error(`not an item view: ${mode}`);
+    const list = toViewConfig(instruments, mode);
+    expect(list.kind).toBe('list');
     expect(list.fields.label?.name).toBe('name');
     expect(list.fields.image?.name).toBe('image');
     expect(list.fields.badges.map((f) => f.name)).toEqual(['electric']);
     expect(list.operations.item.map((o) => o.name)).toEqual(['edit', 'delete', 'play']);
 
     const groups = groupItems(items, list.group, { collapsedGroups: viewState.get().collapsedGroups });
-    expect(groups.map((g) => [g.id, g.collapsed, g.items.map((i) => i.name)])).toEqual([
+    expect(groups.map((g) => [g.value, g.collapsed, g.items.map((i) => i.name)])).toEqual([
       ['strings', false, ['Theremin', 'Violin']],
       ['winds', true, ['Flute']],
       ['percussion', false, ['Snare']],
@@ -63,7 +65,7 @@ describe('A collection as a list or a grid, grouped and collapsible', () => {
 
     // The collapse is written through: a second visit opens with the same group collapsed.
     const again = createViewStateStore(instruments, views, { key: 'instruments' });
-    expect((await again.hydrate()).collapsedGroups).toEqual(['winds']);
+    expect((await again.hydrate()).collapsedGroups).toEqual(['class:winds']);
   });
 
   it('switches list -> grid through one activeView field, keeping selection and search', () => {
@@ -77,8 +79,9 @@ describe('A collection as a list or a grid, grouped and collapsible', () => {
     expect(store.selectors.getSelectedItems(state).map((i) => i.name)).toEqual(['Theremin']);
     expect(state.globalFilter).toBe('mo');
 
-    const grid = toViewConfig(instruments, state.activeView as 'grid');
-    expect(grid.mode).toBe('grid');
+    if (!isItemViewMode(state.activeView)) throw new Error('not an item view');
+    const grid = toViewConfig(instruments, state.activeView);
+    expect(grid.kind).toBe('grid');
     expect(grid.group?.field).toBe('class');
     // A view the collection does not declare is refused.
     expect(store.actions.setActiveView(state, 'table')).toBe(state);

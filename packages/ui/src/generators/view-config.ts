@@ -15,8 +15,11 @@
  * `activeView` field of `CollectionState` (see `availableViews` / `setActiveView`), so
  * selection, sort and filters are shared by every view of the same collection.
  *
- * `groupItems(items, config.group)` is the matching pure helper that buckets items into the
- * ordered groups a renderer draws.
+ * `groupItems(items, config.group, { collapsedGroups, expandedGroups })` is the matching pure
+ * helper that buckets items into the ordered groups a renderer draws.
+ *
+ * `ViewConfig` is a union discriminated on `kind` (`'list' | 'grid'` today), so a later kind
+ * with its own required config (a kanban's group field, a calendar's date field) is additive.
  */
 
 import { z } from 'zod';
@@ -41,6 +44,11 @@ export type ItemViewMode = Extract<ViewMode, 'list' | 'grid'>;
 /** The item-view modes, in declaration order. */
 export const ITEM_VIEW_MODES: readonly ItemViewMode[] = ['list', 'grid'];
 
+/** Is this view one `toViewConfig` describes? Narrows `CollectionState.activeView`. */
+export function isItemViewMode(view: unknown): view is ItemViewMode {
+  return (ITEM_VIEW_MODES as readonly unknown[]).includes(view);
+}
+
 /** One field as an item view shows it. */
 export interface ViewFieldConfig {
   /** Field key (the item property to read). */
@@ -57,6 +65,8 @@ export interface ViewFieldConfig {
   truncate?: number;
   /** The value may be a `ContentRef` (a content-role field). */
   isContentRef?: boolean;
+  /** The closed vocabulary (value to label), when there is one: a badge shows the label. */
+  options?: VocabularyOption[];
 }
 
 /** The fields an item shows, by role. */
@@ -116,10 +126,8 @@ export interface ViewOperationConfig {
   builtin: boolean;
 }
 
-/** A collection drawn as a list or a grid: plain data, serializable. */
-export interface ViewConfig {
-  /** The layout. */
-  mode: ItemViewMode;
+/** What every collection view shares: plain data, serializable. */
+export interface BaseViewConfig {
   /** The field that identifies an item (keys, selection). */
   idField: string;
   /** The fields each item shows, by role. */
@@ -135,6 +143,19 @@ export interface ViewConfig {
     collection: ViewOperationConfig[];
   };
 }
+
+/** The collection as a list of rows. */
+export interface ListViewConfig extends BaseViewConfig {
+  kind: 'list';
+}
+
+/** The collection as a grid of cards (a gallery). */
+export interface GridViewConfig extends BaseViewConfig {
+  kind: 'grid';
+}
+
+/** A collection view, discriminated on `kind`. */
+export type ViewConfig = ListViewConfig | GridViewConfig;
 
 /** Per-mode caps on how many fields an item shows. */
 export interface ViewModeLimits {
@@ -168,8 +189,9 @@ export interface ViewConfigOptions extends Partial<ViewModeLimits> {
 // toViewConfig
 // ============================================================================
 
-/** Field names that read as a picture. Mirrors `@zodal/core`'s image name heuristic, plus `cover`. */
-const IMAGE_NAME = /^(image|photo|avatar|thumbnail|picture|icon|logo|cover)(_?url)?$/i;
+/** Field names that read as a picture: `@zodal/core`'s image name heuristic, plus `cover`, minus
+ *  `icon` (often an icon *name*, not a URL). Declare `displayFormat: 'image'` for anything else. */
+const IMAGE_NAME = /^(image|photo|avatar|thumbnail|picture|logo|cover)(_?url)?$/i;
 /** Zod types that read as a category, drawn as a badge. */
 const BADGE_TYPES = new Set(['enum', 'boolean', 'literal']);
 /** Zod types an item view cannot show as text. */
@@ -190,15 +212,15 @@ const MULTI_VALUED_TYPES = new Set(['array', 'set']);
  * ```
  *
  * @param collection - the collection definition
- * @param mode - `'list'` or `'grid'` (for `'table'` use `toColumnDefs`)
+ * @param mode - `'list'` or `'grid'` (for `'table'` use `toColumnDefs`); becomes `config.kind`
  * @param options - explicit roles, grouping and caps, overriding what is inferred
  */
-export function toViewConfig<T extends z.ZodObject<any>>(
+export function toViewConfig<T extends z.ZodObject<any>, M extends ItemViewMode>(
   collection: CollectionDefinition<T>,
-  mode: ItemViewMode,
+  mode: M,
   options: ViewConfigOptions = {},
-): ViewConfig {
-  if (!ITEM_VIEW_MODES.includes(mode)) {
+): Extract<ViewConfig, { kind: M }> {
+  if (!isItemViewMode(mode)) {
     const hint = mode === ('table' as string) ? ' (a table is `toColumnDefs(collection)`)' : '';
     throw new Error(`toViewConfig: mode must be one of ${ITEM_VIEW_MODES.join(', ')}, got '${String(mode)}'${hint}`);
   }
@@ -215,19 +237,21 @@ export function toViewConfig<T extends z.ZodObject<any>>(
   const group = resolveGroup(collection, options, known);
   const roles = resolveRoles(collection, options.fields ?? {}, { known, limits, groupField: group?.field });
 
-  return {
-    mode,
+  const fc = (k: string) => fieldConfig(k, fa[k], shape[k]);
+  const config: BaseViewConfig & { kind: ItemViewMode } = {
+    kind: mode,
     idField: collection.idField,
     fields: {
-      label: roles.label === null ? null : fieldConfig(roles.label, fa[roles.label]),
-      image: roles.image === null ? null : fieldConfig(roles.image, fa[roles.image]),
-      badges: roles.badges.map((k) => fieldConfig(k, fa[k])),
-      secondary: roles.secondary.map((k) => fieldConfig(k, fa[k])),
+      label: roles.label === null ? null : fc(roles.label),
+      image: roles.image === null ? null : fc(roles.image),
+      badges: roles.badges.map(fc),
+      secondary: roles.secondary.map(fc),
     },
     group,
     selection: resolveSelection(collection.affordances.selectable),
     operations: resolveOperations(collection),
   };
+  return config as Extract<ViewConfig, { kind: M }>;
 }
 
 /**
@@ -251,80 +275,102 @@ export function initialView(collection: CollectionDefinition<any>): ViewMode {
 // groupItems
 // ============================================================================
 
-/** The id of the group that holds items with no value for the group field. */
-export const UNGROUPED_ID = '__ungrouped__';
+/**
+ * A group's id: the group field and the value, so a collapsed `class:strings` stays apart from
+ * an `owner:strings` when the group field changes. `value === null`: the items with no value.
+ */
+export function groupId(field: string, value: string | null): string {
+  return value === null ? `${field}:` : `${field}:${value}`;
+}
 
 /** One group of items, as a renderer draws it. */
 export interface ItemGroup<T> {
-  /** Stable id (the value as a string, or `UNGROUPED_ID`): what `ViewState.collapsedGroups` holds. */
+  /** Stable id (`groupId(field, value)`; `''` for the single group of an ungrouped view): what
+   *  `ViewState.collapsedGroups` / `expandedGroups` hold. */
   id: string;
+  /** `'value'`: items sharing a value; `'none'`: items with no value; `'all'`: an ungrouped
+   *  view's single group (draw no header). */
+  kind: 'value' | 'none' | 'all';
+  /** The group's value as a string (null for `'none'` and `'all'`). */
+  value: string | null;
   /** Header text. */
   label: string;
-  /** The items in the group, in input order. */
+  /** The items in the group, in input order. With `multiValue: 'duplicate'` an item can be in
+   *  several groups: key rendered items by group id and item id together. */
   items: T[];
   /** Is the group collapsed now? */
   collapsed: boolean;
 }
 
 export interface GroupItemsOptions {
-  /** Ids of the groups a person collapsed (`ViewState.collapsedGroups`). Default: none
-   *  collapsed, or all when the config's `defaultState` is `'collapsed'`. */
+  /** Ids of the groups a person collapsed (`ViewState.collapsedGroups`): always collapsed. */
   collapsedGroups?: readonly string[];
+  /** Ids of the groups a person expanded (`ViewState.expandedGroups`): expanded unless also in
+   *  `collapsedGroups`. Any other group follows the config's `defaultState`. */
+  expandedGroups?: readonly string[];
   /** Header of the group of items with no value. Default: `'None'`. */
   emptyLabel?: string;
 }
 
 /**
- * Bucket items into the ordered groups a view draws. With no group config, one group holds
- * every item. Groups follow the closed vocabulary's order when there is one (empty groups
- * omitted), else first-seen order; the group of items with no value comes last.
+ * Bucket items into the ordered groups a view draws. With no group config, one group
+ * (`kind: 'all'`) holds every item. Groups follow the closed vocabulary's order when there is
+ * one (empty groups omitted, values outside it after), else first-seen order; the group of
+ * items with no value comes last.
  */
 export function groupItems<T>(
   items: readonly T[],
   group: ViewGroupConfig | null,
-  { collapsedGroups, emptyLabel = 'None' }: GroupItemsOptions = {},
+  { collapsedGroups = [], expandedGroups = [], emptyLabel = 'None' }: GroupItemsOptions = {},
 ): ItemGroup<T>[] {
-  if (!group) return [{ id: UNGROUPED_ID, label: '', items: [...items], collapsed: false }];
+  if (!group) return [{ id: '', kind: 'all', value: null, label: '', items: [...items], collapsed: false }];
   const isCollapsed = (id: string): boolean =>
-    group.collapsible && (collapsedGroups ? collapsedGroups.includes(id) : group.defaultState === 'collapsed');
+    group.collapsible &&
+    (collapsedGroups.includes(id) || (!expandedGroups.includes(id) && group.defaultState === 'collapsed'));
   const labels = new Map((group.order ?? []).map((o) => [o.value, o.label]));
-  const buckets = new Map<string, T[]>();
-  const add = (id: string, item: T) => {
-    const bucket = buckets.get(id);
+  const buckets = new Map<string | null, T[]>();
+  const add = (value: string | null, item: T) => {
+    const bucket = buckets.get(value);
     if (bucket) bucket.push(item);
-    else buckets.set(id, [item]);
+    else buckets.set(value, [item]);
   };
   for (const item of items) {
     const raw = (item as Record<string, unknown>)?.[group.field];
     const values = groupValues(raw, group);
-    if (values.length === 0) add(UNGROUPED_ID, item);
+    if (values.length === 0) add(null, item);
     for (const v of values) add(v, item);
   }
-  const ids = [...buckets.keys()].filter((id) => id !== UNGROUPED_ID);
+  const values = [...buckets.keys()].filter((v): v is string => v !== null);
   if (group.order) {
+    // Values outside the vocabulary (stale data) rank after it, keeping first-seen order (stable sort).
     const rank = new Map(group.order.map((o, i) => [o.value, i]));
-    // Values outside the vocabulary (stale data) keep first-seen order, after the declared ones.
-    ids.sort((a, b) => (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity));
+    const outside = group.order.length;
+    values.sort((a, b) => (rank.get(a) ?? outside) - (rank.get(b) ?? outside));
   }
-  if (buckets.has(UNGROUPED_ID)) ids.push(UNGROUPED_ID);
-  return ids.map((id) => ({
-    id,
-    label: id === UNGROUPED_ID ? emptyLabel : (labels.get(id) ?? id),
-    items: buckets.get(id)!,
-    collapsed: isCollapsed(id),
-  }));
+  const out: ItemGroup<T>[] = values.map((value) => {
+    const id = groupId(group.field, value);
+    return { id, kind: 'value', value, label: labels.get(value) ?? value, items: buckets.get(value)!, collapsed: isCollapsed(id) };
+  });
+  if (buckets.has(null)) {
+    const id = groupId(group.field, null);
+    out.push({ id, kind: 'none', value: null, label: emptyLabel, items: buckets.get(null)!, collapsed: isCollapsed(id) });
+  }
+  return out;
 }
 
-/** The group ids an item belongs to (empty: the ungrouped bucket). */
+/** The group values an item belongs to (empty: the no-value group). */
 function groupValues(raw: unknown, group: ViewGroupConfig): string[] {
-  const asId = (v: unknown): string | null => (v === null || v === undefined || v === '' ? null : String(v));
+  const asValue = (v: unknown): string | null => {
+    if (v === null || v === undefined || v === '') return null;
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+    return String(v);
+  };
   if (raw instanceof Set || Array.isArray(raw)) {
-    const ids = [...raw].map(asId).filter((v): v is string => v !== null);
-    const unique = [...new Set(ids)];
+    const unique = [...new Set([...raw].map(asValue).filter((v): v is string => v !== null))];
     return group.multiValue === 'primary' ? unique.slice(0, 1) : unique;
   }
-  const id = asId(raw);
-  return id === null ? [] : [id];
+  const value = asValue(raw);
+  return value === null ? [] : [value];
 }
 
 // ============================================================================
@@ -339,8 +385,10 @@ function pickDefined<O extends object, K extends keyof O>(o: O, keys: K[]): Part
   return out;
 }
 
-function fieldConfig(name: string, fa: ResolvedFieldAffordance): ViewFieldConfig {
+function fieldConfig(name: string, fa: ResolvedFieldAffordance, schema: z.ZodType | undefined): ViewFieldConfig {
   const out: ViewFieldConfig = { name, label: fa.title, zodType: fa.zodType };
+  const vocabulary = schema ? getVocabularyEntries(schema) : null;
+  if (vocabulary) out.options = vocabulary.map(toOption);
   if (fa.displayFormat !== undefined) out.displayFormat = fa.displayFormat;
   if (fa.badge !== undefined) out.badge = fa.badge;
   if (fa.truncate !== undefined) out.truncate = fa.truncate;
@@ -348,8 +396,9 @@ function fieldConfig(name: string, fa: ResolvedFieldAffordance): ViewFieldConfig
   return out;
 }
 
-/** A field that can be shown at all (not hidden, not unreadable). */
-const showable = (fa: ResolvedFieldAffordance): boolean => !fa.hidden && fa.readable !== false;
+/** A field an item view may show: the rule of `getVisibleFields()`, and readable. */
+const showable = (fa: ResolvedFieldAffordance): boolean =>
+  fa.visible !== false && !fa.hidden && !fa.detailOnly && fa.readable !== false;
 
 function isImageField(key: string, fa: ResolvedFieldAffordance): boolean {
   if (fa.displayFormat === 'image' || fa.editWidget === 'image') return true;
@@ -379,22 +428,30 @@ function resolveRoles(
   const image =
     explicit.image !== undefined
       ? explicit.image === null ? null : known(explicit.image, 'image')
-      : (Object.keys(shape).find((k) => k !== label && showable(fa[k]) && isImageField(k, fa[k])) ?? null);
+      : (collection.getVisibleFields().find((k) => k !== label && showable(fa[k]) && isImageField(k, fa[k])) ?? null);
 
-  // Badges and secondary text come from the visible fields, minus those shown in another role
-  // and minus the group field (its value is the group's header).
-  const taken = new Set([label, image, groupField, collection.idField].filter((k): k is string => !!k));
-  const rest = collection.getVisibleFields().filter((k) => !taken.has(k) && fa[k].storageRole !== 'content');
+  // Explicit badges and secondary fields are taken as given; inferred ones come from the
+  // visible fields, minus those shown in another role (explicit ones included), the group field
+  // (its value is the group's header), the id, content fields and other picture fields.
+  const taken = new Set(
+    [label, image, groupField, collection.idField, ...(explicit.badges ?? []), ...(explicit.secondary ?? [])]
+      .filter((k): k is string => !!k),
+  );
+  const rest = collection
+    .getVisibleFields()
+    .filter((k) => !taken.has(k) && showable(fa[k]) && fa[k].storageRole !== 'content' && !isImageField(k, fa[k]));
 
+  const badgeLike = rest.filter((k) => isBadgeField(k, fa[k], shape));
   const badges = explicit.badges
     ? explicit.badges.map((k) => known(k, 'badge'))
-    : rest.filter((k) => isBadgeField(k, fa[k], shape)).slice(0, limits.maxBadges);
+    : badgeLike.slice(0, limits.maxBadges);
 
   let secondary: string[];
   if (explicit.secondary) {
     secondary = explicit.secondary.map((k) => known(k, 'secondary'));
   } else {
-    const candidates = rest.filter((k) => !badges.includes(k) && !isBadgeField(k, fa[k], shape) && !UNSHOWABLE_TYPES.has(fa[k].zodType));
+    // Badge-like fields past the badge cap fall back to secondary text rather than vanish.
+    const candidates = rest.filter((k) => !badges.includes(k) && !UNSHOWABLE_TYPES.has(fa[k].zodType));
     // Fields declared `summaryField` come first; the rest follow in field order.
     const summary = candidates.filter((k) => fa[k].summaryField);
     const others = candidates.filter((k) => !fa[k].summaryField);
@@ -466,11 +523,23 @@ function resolveOperations(collection: CollectionDefinition<any>): ViewConfig['o
     ...declared('item'),
   ];
   const selection = a.selectable
-    ? [...(a.bulkDelete ? [builtin('bulkDelete', 'Delete selected', { variant: 'destructive', confirm: true })] : []), ...declared('selection')]
+    ? [...(a.bulkDelete && a.delete ? [builtin('bulkDelete', 'Delete selected', { variant: 'destructive', confirm: true })] : []), ...declared('selection')]
     : [];
   const collectionOps = [...(a.create ? [builtin('create', 'New')] : []), ...declared('collection')];
-  // A declared operation with a built-in's name replaces the built-in.
-  const dedupe = (ops: ViewOperationConfig[]) =>
-    ops.filter((op, i) => !op.builtin || !ops.some((o, j) => j !== i && !o.builtin && o.name === op.name));
+  // A declared operation with a built-in's name replaces the built-in, in the built-in's place.
+  const dedupe = (ops: ViewOperationConfig[]) => {
+    const declaredByName = new Map(ops.filter((o) => !o.builtin).map((o) => [o.name, o]));
+    const replaced = new Set<string>();
+    const out: ViewOperationConfig[] = [];
+    for (const op of ops) {
+      if (op.builtin && declaredByName.has(op.name)) {
+        out.push(declaredByName.get(op.name)!);
+        replaced.add(op.name);
+      } else if (op.builtin || !replaced.has(op.name)) {
+        out.push(op);
+      }
+    }
+    return out;
+  };
   return { item: dedupe(item), selection: dedupe(selection), collection: dedupe(collectionOps) };
 }
