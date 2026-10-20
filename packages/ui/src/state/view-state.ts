@@ -18,6 +18,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, GroupByConfig } from '@zodal/core';
+import { availableViews, initialView } from '../generators/view-config.js';
 
 /** The persisted record. Every field but `id` has a default, so a partial record parses. */
 export const ViewStateSchema = z.object({
@@ -80,7 +81,8 @@ export interface ViewStateStore {
 }
 
 /**
- * The view state a first visit opens on: the collection's `defaultView`, its groups collapsed
+ * The view state a first visit opens on: the collection's `defaultView` (or its first view when
+ * it does not offer that one, the same rule as `CollectionState.activeView`), its groups collapsed
  * only when `groupBy.defaultState` is `'collapsed'`, no sort beyond the declared default, no
  * search, no filters.
  */
@@ -94,7 +96,7 @@ export function defaultViewState(
   const defaultSort = (a as { defaultSort?: { field: string; direction?: 'asc' | 'desc' } }).defaultSort;
   return ViewStateSchema.parse({
     id: key,
-    ...(a.defaultView ? { viewMode: a.defaultView } : {}),
+    viewMode: initialView(collection),
     collapsedGroups: collapsed ? [...groups] : [],
     sorting: defaultSort ? [{ id: defaultSort.field, desc: defaultSort.direction === 'desc' }] : [],
   });
@@ -150,9 +152,9 @@ export function createViewStateStore(
     write();
   };
   /** A stored view the collection no longer offers opens on its default instead. */
-  const views = collection.affordances.views as readonly string[] | undefined;
+  const views: readonly string[] = availableViews(collection);
   const offered = (s: ViewState): ViewState =>
-    s.viewMode !== undefined && views && !views.includes(s.viewMode) ? { ...s, viewMode: defaultViewState(collection, { key }).viewMode } : s;
+    s.viewMode !== undefined && !views.includes(s.viewMode) ? { ...s, viewMode: initialView(collection) } : s;
 
   return {
     get: () => state,

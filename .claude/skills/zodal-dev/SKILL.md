@@ -51,6 +51,7 @@ All generators follow: `(collection: CollectionDefinition<T>) => Config[]`
 - Pure functions, no side effects
 - Return plain serializable objects
 - TanStack Table compatible where applicable
+- A generator describing one *view* of the whole collection returns one object, not an array: `toViewConfig(collection, mode, options?)` (fields by role, group, operations). The view showing is state (`CollectionState.activeView`), never part of a generator's output
 
 ## DataProvider Pattern
 
