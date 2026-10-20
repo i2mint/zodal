@@ -111,7 +111,7 @@ export interface ViewStateStore {
    *  record gives the collection's defaults. */
   hydrate(options?: HydrateOptions): Promise<ViewState>;
   /** Change some fields, and write the record through (once hydrated). */
-  set(patch: Partial<ViewStateFields>): void;
+  set(patch: Partial<ViewFields>): void;
   /** Collapse an expanded group, or expand a collapsed one (a group in neither list follows
    *  the collection's `groupBy.defaultState`). */
   toggleGroup(groupId: string): void;
@@ -119,6 +119,8 @@ export interface ViewStateStore {
   subscribe(listener: (state: ViewState) => void): () => void;
   /** Save the current view fields under `name` and make it the active saved view. Needs the
    *  stored record read first (`hydrate()`), so a save never replaces saved views not yet read.
+   *  A read that fails reads as a first visit, as for the rest of the view state; a stored saved
+   *  view that does not parse is dropped on its own, not with the others.
    *  `id` defaults to one made from the name, unique in the list. */
   saveView(name: string, options?: { id?: string }): SavedView;
   /** Restore a saved view's fields and make it active. Throws for an unknown id. */
@@ -205,18 +207,18 @@ export function createViewStateStore(
     mode !== undefined && !views.includes(mode) ? initialView(collection) : mode;
   const offered = <S extends { viewMode?: string }>(s: S): S => ({ ...s, viewMode: offeredMode(s.viewMode) });
 
-  const set = (patch: Partial<ViewStateFields>): void => {
+  const commit = (patch: Partial<ViewStateFields>): void => {
     for (const f of Object.keys(patch) as FieldName[]) touched.add(f);
-    let next = { ...state, ...patch, id: key };
-    // A change to a view field while a saved view is active is that saved view's change too.
-    const active = next.activeSavedView;
-    if (active !== undefined && patch.savedViews === undefined && VIEW_FIELDS.some((f) => f in patch)) {
-      const fields = pickViewFields(next);
-      next = { ...next, savedViews: next.savedViews.map((v) => (v.id === active ? { ...v, ...fields } : v)) };
-    }
-    state = ViewStateSchema.parse(next);
+    state = ViewStateSchema.parse({ ...state, ...patch, id: key });
     emit();
     write();
+  };
+  const set = (patch: Partial<ViewFields>): void => {
+    // A change while a saved view is active is that saved view's change too: the changed fields
+    // only (a cleared one included), so a mode substituted on apply is not written back.
+    const active = state.activeSavedView;
+    if (active === undefined) return commit(patch);
+    commit({ ...patch, savedViews: state.savedViews.map((v) => (v.id === active ? { ...v, ...patch } : v)) });
   };
   const savedView = (id: string): SavedView => {
     const view = state.savedViews.find((v) => v.id === id);
@@ -226,7 +228,7 @@ export function createViewStateStore(
     return view;
   };
   const uniqueId = (name: string): string => {
-    const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'view';
+    const base = name.trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'view';
     const taken = new Set(state.savedViews.map((v) => v.id));
     let id = base;
     for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
@@ -239,11 +241,17 @@ export function createViewStateStore(
     hydrate({ groups = [] } = {}) {
       hydrating ??= provider
         .getOne(key)
-        .then((raw) => offered(ViewStateSchema.parse({ ...(migrate(raw) as object), id: key })))
+        .then((raw) => offered(parseStored(migrate(raw), key)))
         .catch(() => defaultViewState(collection, { key, groups }))
         .then((stored) => {
           const kept = Object.fromEntries([...touched].map((f) => [f, state[f]]));
           state = { ...stored, ...kept, id: key };
+          // A choice made before the read wins, so the stored active saved view no longer shows
+          // as it was saved: leave it rather than write that choice into it. Also drop a dangling id.
+          const active = state.activeSavedView;
+          if (active !== undefined && (VIEW_FIELDS.some((f) => touched.has(f)) || !state.savedViews.some((v) => v.id === active))) {
+            state = { ...state, activeSavedView: undefined };
+          }
           isHydrated = true;
           emit();
           if (writeAfterHydrate) write();
@@ -277,32 +285,43 @@ export function createViewStateStore(
     saveView(name, { id } = {}) {
       if (!isHydrated) throw new Error('saveView: call hydrate() first, so the stored saved views are read before the list is written');
       const viewId = id ?? uniqueId(name);
+      if (!viewId.trim()) throw new Error('saveView: the id must not be empty');
       if (state.savedViews.some((v) => v.id === viewId)) throw new Error(`saveView: a saved view '${viewId}' already exists`);
       const view = SavedViewSchema.parse({ ...pickViewFields(state), id: viewId, name });
-      set({ savedViews: [...state.savedViews, view], activeSavedView: viewId });
+      commit({ savedViews: [...state.savedViews, view], activeSavedView: viewId });
       return view;
     },
     applySavedView(id) {
       const { id: _id, name: _name, ...fields } = offered(savedView(id));
-      // Every view field, so a field the saved view leaves unset goes back to unset.
-      const reset = Object.fromEntries(VIEW_FIELDS.map((f) => [f, undefined]));
-      set({ ...reset, ...fields, activeSavedView: id, savedViews: state.savedViews });
+      // Every view field: one the saved view leaves unset goes back to the collection's default.
+      const defaults = pickViewFields(defaultViewState(collection, { key }));
+      const reset = Object.fromEntries(VIEW_FIELDS.map((f) => [f, defaults[f]]));
+      commit({ ...reset, ...pickViewFields(fields), activeSavedView: id });
     },
     leaveSavedView() {
-      if (state.activeSavedView !== undefined) set({ activeSavedView: undefined });
+      if (state.activeSavedView !== undefined) commit({ activeSavedView: undefined });
     },
     renameSavedView(id, name) {
       savedView(id);
-      set({ savedViews: state.savedViews.map((v) => (v.id === id ? { ...v, name } : v)) });
+      commit({ savedViews: state.savedViews.map((v) => (v.id === id ? { ...v, name } : v)) });
     },
     deleteSavedView(id) {
       if (!state.savedViews.some((v) => v.id === id)) return;
-      set({
+      commit({
         savedViews: state.savedViews.filter((v) => v.id !== id),
         ...(state.activeSavedView === id ? { activeSavedView: undefined } : {}),
       });
     },
   };
+}
+
+/** Parse a stored record, dropping only the saved views that do not parse (not the whole record). */
+function parseStored(raw: unknown, key: string): ViewState {
+  const record = { ...(raw as object), id: key } as { savedViews?: unknown };
+  const savedViews = Array.isArray(record.savedViews)
+    ? record.savedViews.filter((v) => SavedViewSchema.safeParse(v).success)
+    : record.savedViews;
+  return ViewStateSchema.parse({ ...record, savedViews });
 }
 
 /** The view fields of a state or a saved view: what a saved view snapshots. */

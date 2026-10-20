@@ -100,4 +100,73 @@ describe('saved views', () => {
     expect(view.get().savedViews.map((v) => v.id)).toEqual(['q3-review']);
     view.deleteSavedView('unknown');
   });
+
+  it('a cleared field is cleared in the active saved view too', async () => {
+    const view = createViewStateStore(tasks, memory());
+    await view.hydrate();
+    view.set({ groupBy: 'owner' });
+    view.saveView('V');
+    view.set({ groupBy: undefined });
+    view.leaveSavedView();
+    view.set({ groupBy: 'title' });
+    view.applySavedView('v');
+    expect(view.get().groupBy).toBeUndefined();
+  });
+
+  it('a mode substituted on apply is not written back into the saved view', async () => {
+    const provider = memory();
+    provider.rows.set('view-state', { id: 'view-state', savedViews: [{ id: 'old', name: 'Old', viewMode: 'grid' }] });
+    const view = createViewStateStore(tasks, provider);
+    await view.hydrate();
+    view.applySavedView('old');
+    view.set({ globalFilter: 'x' });
+    expect(view.get().savedViews[0]).toMatchObject({ viewMode: 'grid', globalFilter: 'x' });
+  });
+
+  it('a choice made before the read leaves the stored active saved view instead of overwriting it', async () => {
+    const provider = memory();
+    provider.rows.set('view-state', {
+      id: 'view-state',
+      activeSavedView: 'board',
+      viewMode: 'kanban',
+      savedViews: [{ id: 'board', name: 'Board', viewMode: 'kanban' }],
+    });
+    const view = createViewStateStore(tasks, provider);
+    view.set({ viewMode: 'list' });
+    await view.hydrate();
+    expect(view.get()).toMatchObject({ viewMode: 'list', activeSavedView: undefined });
+    view.set({ globalFilter: 'x' });
+    expect(view.get().savedViews[0]).toMatchObject({ viewMode: 'kanban', globalFilter: '' });
+  });
+
+  it('drops only a stored saved view that does not parse, and a dangling active id', async () => {
+    const provider = memory();
+    provider.rows.set('view-state', {
+      id: 'view-state',
+      globalFilter: 'kept',
+      activeSavedView: 'gone',
+      savedViews: [{ id: 'ok', name: 'Ok' }, { id: 'broken' }],
+    });
+    const view = createViewStateStore(tasks, provider);
+    await view.hydrate();
+    expect(view.get()).toMatchObject({ globalFilter: 'kept', activeSavedView: undefined });
+    expect(view.get().savedViews.map((v) => v.id)).toEqual(['ok']);
+  });
+
+  it('a saved view with no mode opens on the default mode and the declared default sort', async () => {
+    const sorted = defineCollection(Task, { affordances: { views: ['table', 'list'], savedViews: true, defaultSort: { field: 'title' } } } as never);
+    const provider = memory();
+    provider.rows.set('view-state', { id: 'view-state', viewMode: 'list', savedViews: [{ id: 'bare', name: 'Bare', globalFilter: 'q' }] });
+    const view = createViewStateStore(sorted, provider);
+    await view.hydrate();
+    view.applySavedView('bare');
+    expect(view.get()).toMatchObject({ viewMode: 'table', globalFilter: 'q' });
+  });
+
+  it('ids from non-ASCII names, and no empty id', async () => {
+    const view = createViewStateStore(tasks, memory());
+    await view.hydrate();
+    expect(view.saveView('Café 日本').id).toBe('café-日本');
+    expect(() => view.saveView('x', { id: ' ' })).toThrow(/empty/);
+  });
 });
