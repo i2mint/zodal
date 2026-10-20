@@ -4,7 +4,14 @@
  * Which view they picked (list, grid...), which groups they collapsed, how they sorted, what
  * they searched and filtered: the *working* view state, one record per collection and key,
  * written through on every change so the next visit opens where they left off (last write
- * wins). Not named snapshots: those are saved views, a different thing (`savedViews`).
+ * wins).
+ *
+ * Saved views (`affordances.savedViews`) are named records of those same fields, kept in the
+ * record's `savedViews` list: each one has its own view mode, filter, sort and group, as every
+ * surveyed product stores a view (`{type, filter, sort, group, config}`). `applySavedView(id)`
+ * restores one and makes it active; while one is active, every change is written into it too, so
+ * switching between saved views brings each one back as it was left. With none active (the
+ * default), one working state is shared by every view mode, as before.
  *
  * Headless and framework-agnostic: a small store with `get` / `set` / `subscribe`, persisted
  * through anything shaped like a `DataProvider` (only `getOne`, `create`, `update` and an
@@ -20,10 +27,8 @@ import { z } from 'zod';
 import type { CollectionDefinition, GroupByConfig } from '@zodal/core';
 import { availableViews, initialView } from '../generators/view-config.js';
 
-/** The persisted record. Every field but `id` has a default, so a partial record parses. */
-export const ViewStateSchema = z.object({
-  /** The record's id: the store's `key`. */
-  id: z.string(),
+/** The fields of a view: what the working state holds, and what a saved view keeps. */
+const viewFields = {
   /** The view the person last chose (one of the collection's `views`); absent: the default. */
   viewMode: z.string().optional(),
   /** Ids of the groups the person collapsed. */
@@ -38,11 +43,40 @@ export const ViewStateSchema = z.object({
   globalFilter: z.string().default(''),
   /** TanStack Table-compatible column filters (facet selections). */
   columnFilters: z.array(z.object({ id: z.string(), value: z.unknown() })).default([]),
+  /** The group field (`toViewConfig(..., { groupBy })`): `null` for none; absent: the
+   *  collection's `groupBy`. */
+  groupBy: z.string().nullable().optional(),
+};
+
+/** The view fields, in the order a saved view snapshots them. */
+export const VIEW_FIELDS = Object.keys(viewFields) as (keyof typeof viewFields)[];
+
+/** A saved view: a name and its own view mode, filter, sort and group. */
+export const SavedViewSchema = z.object({
+  /** Stable id (what `applySavedView` takes). */
+  id: z.string(),
+  /** The name a person gave it. */
+  name: z.string(),
+  ...viewFields,
+});
+export type SavedView = z.infer<typeof SavedViewSchema>;
+
+/** The persisted record. Every field but `id` has a default, so a partial record parses. */
+export const ViewStateSchema = z.object({
+  /** The record's id: the store's `key`. */
+  id: z.string(),
+  ...viewFields,
+  /** The saved views, in the order they were saved. */
+  savedViews: z.array(SavedViewSchema).default([]),
+  /** The saved view being shown: changes are written into it too. Absent: none. */
+  activeSavedView: z.string().optional(),
 });
 export type ViewState = z.infer<typeof ViewStateSchema>;
 
 /** The fields a person changes (everything but the id). */
 export type ViewStateFields = Omit<ViewState, 'id'>;
+/** The fields a saved view keeps. */
+export type ViewFields = Pick<ViewState, (typeof VIEW_FIELDS)[number]>;
 type FieldName = keyof ViewStateFields;
 
 /** The slice of a `DataProvider` the view state is stored through. */
@@ -83,6 +117,19 @@ export interface ViewStateStore {
   toggleGroup(groupId: string): void;
   /** Called after every change, hydration included. Returns the unsubscribe. */
   subscribe(listener: (state: ViewState) => void): () => void;
+  /** Save the current view fields under `name` and make it the active saved view. Needs the
+   *  stored record read first (`hydrate()`), so a save never replaces saved views not yet read.
+   *  `id` defaults to one made from the name, unique in the list. */
+  saveView(name: string, options?: { id?: string }): SavedView;
+  /** Restore a saved view's fields and make it active. Throws for an unknown id. */
+  applySavedView(id: string): void;
+  /** Stop showing a saved view: the fields stay as they are, and later changes are not written
+   *  into it. */
+  leaveSavedView(): void;
+  /** Rename a saved view. Throws for an unknown id. */
+  renameSavedView(id: string, name: string): void;
+  /** Delete a saved view (and leave it, if it was active). Unknown ids are ignored. */
+  deleteSavedView(id: string): void;
 }
 
 /**
@@ -152,16 +199,39 @@ export function createViewStateStore(
     done.catch(onError);
   };
 
+  /** A stored view the collection no longer offers opens on its default instead. */
+  const views: readonly string[] = availableViews(collection);
+  const offeredMode = (mode: string | undefined) =>
+    mode !== undefined && !views.includes(mode) ? initialView(collection) : mode;
+  const offered = <S extends { viewMode?: string }>(s: S): S => ({ ...s, viewMode: offeredMode(s.viewMode) });
+
   const set = (patch: Partial<ViewStateFields>): void => {
     for (const f of Object.keys(patch) as FieldName[]) touched.add(f);
-    state = ViewStateSchema.parse({ ...state, ...patch, id: key });
+    let next = { ...state, ...patch, id: key };
+    // A change to a view field while a saved view is active is that saved view's change too.
+    const active = next.activeSavedView;
+    if (active !== undefined && patch.savedViews === undefined && VIEW_FIELDS.some((f) => f in patch)) {
+      const fields = pickViewFields(next);
+      next = { ...next, savedViews: next.savedViews.map((v) => (v.id === active ? { ...v, ...fields } : v)) };
+    }
+    state = ViewStateSchema.parse(next);
     emit();
     write();
   };
-  /** A stored view the collection no longer offers opens on its default instead. */
-  const views: readonly string[] = availableViews(collection);
-  const offered = (s: ViewState): ViewState =>
-    s.viewMode !== undefined && !views.includes(s.viewMode) ? { ...s, viewMode: initialView(collection) } : s;
+  const savedView = (id: string): SavedView => {
+    const view = state.savedViews.find((v) => v.id === id);
+    if (!view) {
+      throw new Error(`no saved view '${id}' (saved views: ${state.savedViews.map((v) => v.id).join(', ') || 'none'})`);
+    }
+    return view;
+  };
+  const uniqueId = (name: string): string => {
+    const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'view';
+    const taken = new Set(state.savedViews.map((v) => v.id));
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+    return id;
+  };
 
   return {
     get: () => state,
@@ -204,5 +274,38 @@ export function createViewStateStore(
         listeners.delete(listener);
       };
     },
+    saveView(name, { id } = {}) {
+      if (!isHydrated) throw new Error('saveView: call hydrate() first, so the stored saved views are read before the list is written');
+      const viewId = id ?? uniqueId(name);
+      if (state.savedViews.some((v) => v.id === viewId)) throw new Error(`saveView: a saved view '${viewId}' already exists`);
+      const view = SavedViewSchema.parse({ ...pickViewFields(state), id: viewId, name });
+      set({ savedViews: [...state.savedViews, view], activeSavedView: viewId });
+      return view;
+    },
+    applySavedView(id) {
+      const { id: _id, name: _name, ...fields } = offered(savedView(id));
+      // Every view field, so a field the saved view leaves unset goes back to unset.
+      const reset = Object.fromEntries(VIEW_FIELDS.map((f) => [f, undefined]));
+      set({ ...reset, ...fields, activeSavedView: id, savedViews: state.savedViews });
+    },
+    leaveSavedView() {
+      if (state.activeSavedView !== undefined) set({ activeSavedView: undefined });
+    },
+    renameSavedView(id, name) {
+      savedView(id);
+      set({ savedViews: state.savedViews.map((v) => (v.id === id ? { ...v, name } : v)) });
+    },
+    deleteSavedView(id) {
+      if (!state.savedViews.some((v) => v.id === id)) return;
+      set({
+        savedViews: state.savedViews.filter((v) => v.id !== id),
+        ...(state.activeSavedView === id ? { activeSavedView: undefined } : {}),
+      });
+    },
   };
+}
+
+/** The view fields of a state or a saved view: what a saved view snapshots. */
+function pickViewFields(s: ViewFields): ViewFields {
+  return Object.fromEntries(VIEW_FIELDS.filter((f) => s[f] !== undefined).map((f) => [f, s[f]])) as ViewFields;
 }
