@@ -37,6 +37,8 @@ import {
   inspectSecrets,
   redact,
   secretValues,
+  ZOD_WRAPPER_TYPES,
+  peelZodWrapper,
   type SecretPath,
 } from '@zodal/core';
 import type { DataProvider } from './data-provider.js';
@@ -185,9 +187,8 @@ export function liveOptionPaths(descriptor: ProviderDescriptor): SecretPath[] {
       out.set(JSON.stringify(path), path);
       return;
     }
+    if (ZOD_WRAPPER_TYPES.has(def.type)) return walk(def.innerType, path, depth + 1);
     switch (def.type) {
-      case 'optional': case 'nullable': case 'default': case 'prefault': case 'readonly': case 'catch': case 'nonoptional':
-        return walk(def.innerType, path, depth + 1);
       case 'pipe':
         walk(def.in, path, depth + 1);
         return walk(def.out, path, depth + 1);
@@ -309,12 +310,10 @@ function safePath(schema: unknown, path: readonly PropertyKey[]): string[] {
     const next: any[] = [];
     let declared = false;
     for (let n of nodes) {
-      for (let i = 0; i < 32 && n?._zod?.def; i++) {
-        const t = n._zod.def.type;
-        if (['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional'].includes(t)) n = n._zod.def.innerType;
-        else if (t === 'pipe') n = n._zod.def.in;
-        else if (t === 'lazy') n = n._zod.def.getter();
-        else break;
+      for (let i = 0; i < 32; i++) {
+        const inner = peelZodWrapper(n, { pipe: 'input', lazy: 'strict' });
+        if (!inner) break;
+        n = inner;
       }
       const def = n?._zod?.def;
       if (!def) continue;
@@ -332,7 +331,7 @@ function safePath(schema: unknown, path: readonly PropertyKey[]): string[] {
     }
     const indexed = nodes.some((n: any) => {
       let s = n;
-      for (let i = 0; i < 32 && s?._zod?.def && ['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional'].includes(s._zod.def.type); i++) s = s._zod.def.innerType;
+      for (let i = 0; i < 32 && ZOD_WRAPPER_TYPES.has(s?._zod?.def?.type); i++) s = s._zod.def.innerType;
       const ty = s?._zod?.def?.type;
       return ty === 'array' || ty === 'tuple' || ty === 'set';
     });
