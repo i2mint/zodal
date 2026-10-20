@@ -120,6 +120,35 @@ export type {
   FilterFieldProps,
 } from './registry/tester.js';
 
+// Tag widget logic (framework-free; renderers draw their tag input, chip filter and chip cell over it)
+export {
+  DEFAULT_TAG_MESSAGES,
+  DEFAULT_TAG_SETTINGS,
+  resolveTagSettings,
+  tagKey,
+  toValueList,
+  optionRaw,
+  findOption,
+  labelOf,
+  matchOptions,
+  resolveDraft,
+  resolveChoice,
+  splitTags,
+  suggestionToOption,
+  toContainsFilter,
+  fromContainsFilter,
+  createSuggestionController,
+} from './tag-logic.js';
+export type {
+  TagMessages,
+  TagSettings,
+  TagValue,
+  TagOption,
+  DraftResolution,
+  SuggestionState,
+  SuggestionController,
+} from './tag-logic.js';
+
 // AI prompt generator
 export { toPrompt } from './prompt.js';
 
