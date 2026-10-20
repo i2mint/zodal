@@ -208,6 +208,9 @@ export function suggestionToOption(s: Suggestion, options: readonly TagOption[] 
  * that faceted filters use, it equals `arrayContains` for a single value, and
  * one operator keeps the value's shape stable (an array) as chips are added and
  * removed, so state, URLs and backends never see it flip between a scalar and a list.
+ *
+ * A TanStack column filter (`arrIncludesSome`, what `toColumnDefs` sets for `contains`)
+ * wants the bare array: pass `condition.value` to `setFilterValue`, not the condition.
  */
 export function toContainsFilter(field: string, values: readonly unknown[]): FilterCondition | undefined {
   if (values.length === 0) return undefined;

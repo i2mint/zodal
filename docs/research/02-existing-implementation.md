@@ -35,7 +35,7 @@ Defines the full vocabulary for declaring what operations a collection supports.
 
 **Supporting scalar types**:
 - `SortDirection`: `'asc' | 'desc' | 'both' | 'none'`
-- `FilterType`: `'exact' | 'search' | 'select' | 'multiSelect' | 'range' | 'contains' | 'boolean' | 'fuzzy'`
+- `FilterType`: `'exact' | 'search' | 'select' | 'multiSelect' | 'range' | 'contains' | 'containsAll' | 'boolean' | 'fuzzy'`
 - `AggregationFn`: `'sum' | 'avg' | 'min' | 'max' | 'count' | 'median' | 'uniqueCount'`
 
 **Collection-Level Affordances** (`CollectionAffordances` interface):

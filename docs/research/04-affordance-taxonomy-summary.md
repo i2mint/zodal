@@ -32,7 +32,7 @@ queries to support).
 | Affordance | Definition | Typed in predecessor? |
 |------------|------------|-----------------------|
 | `sortable` | Field can be used to order items. Options: directions, nulls placement, custom sort fn, server delegation. | Yes -- `boolean \| SortDirection` |
-| `filterable` | Field can narrow the collection. Filter types: exact, search, select, multiSelect, range, contains, boolean, fuzzy, faceted. | Yes -- `boolean \| FilterType` (8 types) |
+| `filterable` | Field can narrow the collection. Filter types: exact, search, select, multiSelect, range, contains (any of), containsAll, boolean, fuzzy, faceted. | Yes -- `boolean \| FilterType` (9 types) |
 | `searchable` | Field is included in full-text search. Options: search weight, analyzer. | Yes -- `boolean` |
 | `groupable` | Items can be grouped by this field's values. Options: custom group fn, group labels. | Yes -- `boolean` |
 | `aggregatable` | Field supports aggregate computations (sum, avg, min, max, count, median, etc.). | Yes -- `boolean \| AggregationFn[]` |
