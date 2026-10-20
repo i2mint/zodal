@@ -20,6 +20,7 @@
  */
 
 import { z } from 'zod';
+import { ZOD_WRAPPER_TYPES, peelZodWrapper } from './zod-unwrap.js';
 
 /** A path into a value; `'*'` matches any array index or record key. */
 export type SecretPath = readonly (string | number)[];
@@ -104,7 +105,6 @@ export function isSecretName(key: string): boolean {
   return SECRET_ENDING.test(k);
 }
 
-const WRAPPERS = new Set(['optional', 'nullable', 'default', 'prefault', 'readonly', 'catch', 'nonoptional']);
 /** Deepest schema nesting walked; deeper is an error, never a silent "no secrets". */
 const MAX_DEPTH = 32;
 
@@ -141,10 +141,7 @@ export function isMarkedSecret(schema: unknown): boolean {
     if (markedHere(s)) return true;
     const def = s?._zod?.def;
     if (!def) return false;
-    if (WRAPPERS.has(def.type)) s = def.innerType;
-    else if (def.type === 'pipe') s = def.in;
-    else if (def.type === 'lazy') s = def.getter?.();
-    else return false;
+    s = peelZodWrapper(s, { pipe: 'input', lazy: 'strict' });
   }
   return false;
 }
@@ -163,9 +160,7 @@ function publishedValues(schema: unknown): unknown[] {
       found.push(typeof def.defaultValue === 'function' ? safeCall(def.defaultValue) : def.defaultValue);
     }
     if (def.type === 'catch') found.push(typeof def.catchValue === 'function' ? safeCall(def.catchValue) : def.catchValue);
-    if (WRAPPERS.has(def.type)) s = def.innerType;
-    else if (def.type === 'pipe') s = def.in;
-    else break;
+    s = peelZodWrapper(s, { pipe: 'input', lazy: 'keep' });
   }
   return found;
 }
@@ -185,9 +180,7 @@ export function isMarkedPublic(schema: unknown): boolean {
     if (metaOf(s)?.sensitivity === 'public') return true;
     const def = s?._zod?.def;
     if (!def) return false;
-    if (WRAPPERS.has(def.type)) s = def.innerType;
-    else if (def.type === 'pipe') s = def.in;
-    else return false;
+    s = peelZodWrapper(s, { pipe: 'input', lazy: 'keep' });
   }
   return false;
 }
@@ -251,10 +244,8 @@ export function inspectSecrets(schema: unknown): SecretInspection {
       if (inner.length) containers.push({ path: [...path], values: inner.map((v) => ({ __whole: v })), whole: true } as any);
       return;
     }
+    if (ZOD_WRAPPER_TYPES.has(def.type)) return walk(def.innerType, path, depth + 1, false);
     switch (def.type) {
-      case 'optional': case 'nullable': case 'default': case 'prefault':
-      case 'readonly': case 'catch': case 'nonoptional':
-        return walk(def.innerType, path, depth + 1, false);
       case 'pipe':
         walk(def.in, path, depth + 1, false);
         return walk(def.out, path, depth + 1, false);
@@ -358,12 +349,10 @@ function subtreePublished(s: any, depth: number, seen: Set<unknown>, constants =
 /** Does this schema (through wrappers) hold named members: an object, or a union/intersection of objects? */
 function isContainer(schema: unknown, depth = 0): boolean {
   let s: any = schema;
-  for (let i = 0; s?._zod?.def && i < MAX_DEPTH; i++) {
-    const t = s._zod.def.type;
-    if (WRAPPERS.has(t)) s = s._zod.def.innerType;
-    else if (t === 'pipe') s = s._zod.def.in;
-    else if (t === 'lazy') s = s._zod.def.getter();
-    else break;
+  for (let i = 0; i < MAX_DEPTH; i++) {
+    const inner = peelZodWrapper(s, { pipe: 'input', lazy: 'strict' });
+    if (!inner) break;
+    s = inner;
   }
   const def = s?._zod?.def;
   if (!def || depth > 8) return false;
