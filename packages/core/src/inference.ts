@@ -11,7 +11,7 @@
 
 import { z } from 'zod';
 import { peelZodWrapper } from './zod-unwrap.js';
-import type { FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
+import type { ChoiceArity, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
 import type { AffordanceRegistry } from './registry.js';
 
 // ============================================================================
@@ -187,12 +187,9 @@ export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | nul
 }
 
 /**
- * How many of a closed vocabulary a field takes: `'single'` (an enum, a literal, a
- * union of literals), `'multi'` (an array or set of those), or `null` when the field
- * is not a closed choice. The one place "is this a closed choice" is decided.
+ * How many of a closed vocabulary a field takes (see {@link ChoiceArity}), or `null` when the
+ * field is not a closed choice. The one place "is this a closed choice" is decided.
  */
-export type ChoiceArity = 'single' | 'multi';
-
 export function getChoiceArity(schema: z.ZodType): ChoiceArity | null {
   if (!getVocabularyEntries(schema)) return null;
   const type = (unwrapZodSchema(schema) as any)?._zod?.def?.type;

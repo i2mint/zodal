@@ -13,7 +13,6 @@
  * - Operation: a concrete action invokable on items/selection/collection
  */
 
-import type { ChoiceArity } from './inference.js';
 
 // ============================================================================
 // Field-Level Affordances
@@ -328,6 +327,13 @@ export interface CollectionConfig<TShape extends Record<string, unknown> = Recor
 // Resolved Types (after inference + merge)
 // ============================================================================
 
+/**
+ * How many of a closed vocabulary a field takes: `'single'` (an enum, a literal, a
+ * union of literals), `'multi'` (an array or set of those), or `null` when the field
+ * is not a closed choice.
+ */
+export type ChoiceArity = 'single' | 'multi';
+
 export interface ResolvedFieldAffordance extends FieldAffordance {
   // The boolean affordances are required after resolution (defaults applied).
   sortable: NonNullable<FieldAffordance['sortable']>;
@@ -340,7 +346,7 @@ export interface ResolvedFieldAffordance extends FieldAffordance {
   title: string;
   zodType: string;
   zodDef: unknown;
-  /** Closed-choice arity of the field (`'single'`, `'multi'`), or `null` when it is not a closed choice. Testers read this instead of guessing from `zodType`. */
+  /** Closed-choice arity of the field (`'single'`, `'multi'`), or `null` when it is not a closed choice. Testers read this instead of guessing from `zodType`. Test `=== 'single'` / `=== 'multi'`, not `!== null`: a hand-built affordance (a test stub) may omit it. */
   choice: ChoiceArity | null;
   /** Storage role — always resolved (defaults to 'metadata'). */
   storageRole: FieldStorageRole;

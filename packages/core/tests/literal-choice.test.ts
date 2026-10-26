@@ -37,4 +37,8 @@ describe('resolved affordance carries the choice arity (#64)', () => {
     const f = c.fieldAffordances;
     expect([f.status.choice, f.size.choice, f.tags.choice, f.free.choice, f.maybe.choice]).toEqual(['single', 'single', 'multi', null, 'single']);
   });
+  it('is structural: an explicit override cannot change it', () => {
+    const o = defineCollection(z.object({ free: z.string() }), { fields: { free: { title: 'X', choice: 'single' } as any } });
+    expect(o.fieldAffordances.free.choice).toBeNull();
+  });
 });
