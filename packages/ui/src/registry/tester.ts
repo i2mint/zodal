@@ -5,7 +5,7 @@
  * and named priority bands.
  */
 
-import type { ResolvedFieldAffordance } from '@zodal/core';
+import type { ChoiceArity, ResolvedFieldAffordance } from '@zodal/core';
 
 // ============================================================================
 // Priority Bands
@@ -162,6 +162,14 @@ export function metaMatches(
   predicate: (field: ResolvedFieldAffordance) => boolean,
 ): RendererTester {
   return (field) => predicate(field) ? PRIORITY.APP : -1;
+}
+
+/**
+ * Match closed-choice fields (an enum, a literal, a union of literals; see `ResolvedFieldAffordance.choice`).
+ * Pass an arity to match only `'single'` or only `'multi'`. Returns DEFAULT priority on match.
+ */
+export function closedChoice(arity?: ChoiceArity): RendererTester {
+  return (field) => (arity ? field.choice === arity : field.choice === 'single' || field.choice === 'multi') ? PRIORITY.DEFAULT : -1;
 }
 
 /** Match fields with a specific editWidget value. Returns OVERRIDE priority on match. */
