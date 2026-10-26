@@ -13,6 +13,8 @@
  * - Operation: a concrete action invokable on items/selection/collection
  */
 
+import type { ChoiceArity } from './inference.js';
+
 // ============================================================================
 // Field-Level Affordances
 // ============================================================================
@@ -338,6 +340,8 @@ export interface ResolvedFieldAffordance extends FieldAffordance {
   title: string;
   zodType: string;
   zodDef: unknown;
+  /** Closed-choice arity of the field (`'single'`, `'multi'`), or `null` when it is not a closed choice. Testers read this instead of guessing from `zodType`. */
+  choice: ChoiceArity | null;
   /** Storage role — always resolved (defaults to 'metadata'). */
   storageRole: FieldStorageRole;
   // Allow extra keys without losing type safety on the named fields above.
