@@ -20,6 +20,7 @@ import {
   inferFieldAffordances,
   inferFieldAffordancesWithTrace,
   getZodBaseType,
+  getChoiceArity,
   humanizeFieldName,
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
@@ -306,6 +307,7 @@ function resolveAllFieldAffordances(
       ...merged,
       title: merged.title ?? humanizeFieldName(key),
       zodType: getZodBaseType(fieldSchema),
+      choice: getChoiceArity(fieldSchema),
       zodDef: (fieldSchema as { _zod?: { def?: unknown } })._zod?.def,
       storageRole: merged.storageRole ?? 'metadata',
     } as ResolvedFieldAffordance;
