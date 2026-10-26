@@ -300,6 +300,15 @@ const UNKNOWN_FIELD_DEFAULTS: FieldAffordance = {
   visible: true,
 };
 
+/**
+ * The type whose defaults a field gets: a literal or a union of literals
+ * (`z.literal([2, 4])`) is a closed choice, so it behaves like an enum.
+ */
+function defaultsType(schema: z.ZodType, baseType: string): string {
+  const isChoice = baseType === 'literal' || baseType === 'union';
+  return isChoice && getVocabularyEntries(schema) ? 'enum' : baseType;
+}
+
 /** Map Zod base type to default affordances. */
 function getTypeDefaults(zodType: string): FieldAffordance {
   switch (zodType) {
@@ -501,7 +510,7 @@ export function inferFieldAffordances(key: string, schema: z.ZodType): FieldAffo
   const baseType = getZodBaseType(schema);
 
   // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
-  let affordances = getTypeDefaults(baseType);
+  let affordances = getTypeDefaults(defaultsType(schema, baseType));
   if (isZodReadonly(schema)) affordances = { ...affordances, editable: false };
 
   // Layer 2: Validation-based refinements
@@ -595,7 +604,8 @@ export function inferFieldAffordancesWithTrace(
   const baseType = getZodBaseType(schema);
 
   // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
-  const afterType = getTypeDefaults(baseType);
+  const typeForDefaults = defaultsType(schema, baseType);
+  const afterType = getTypeDefaults(typeForDefaults);
   if (isZodReadonly(schema)) afterType.editable = false;
 
   // Layer 2: Validation-based refinements
@@ -640,7 +650,7 @@ export function inferFieldAffordancesWithTrace(
       layers.push({
         layer: 'type',
         value: typeVal,
-        reason: `${baseType} type defaults`,
+        reason: typeForDefaults === baseType ? `${baseType} type defaults` : `${baseType} is a closed choice: ${typeForDefaults} defaults`,
       });
     }
 
