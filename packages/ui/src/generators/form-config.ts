@@ -120,12 +120,15 @@ function inferFormWidgetType(zodType: string, fa: FieldAffordance, choice: Choic
 /**
  * One selectable value. `value` is a string for widgets to key on; `raw` is the
  * value as the schema accepts it (a number for a numeric enum): write `raw` back.
- * Absent for strings and bigints (the string `value` is then the portable form; a bigint choice must be coerced with `BigInt(value)` by the caller).
+ * Absent for strings and bigints (the string `value` is then the portable form). `kind: 'bigint'`
+ * marks a bigint choice so a widget can coerce with `BigInt(value)` (see `selectedValue`, which does).
  */
 export interface VocabularyOption {
   label: string;
   value: string;
   raw?: string | number | boolean;
+  /** Set when the choice is a bigint (not JSON-safe, so it has no `raw`): coerce `value` with `BigInt`. */
+  kind?: 'bigint';
 }
 
 /**
@@ -136,9 +139,8 @@ export interface VocabularyOption {
 export function toOption(e: VocabularyEntry): VocabularyOption {
   const label = e.label.charAt(0).toUpperCase() + e.label.slice(1);
   // A bigint is not JSON-safe: its string `value` is the portable form.
-  return typeof e.raw === 'string' || typeof e.raw === 'bigint'
-    ? { label, value: e.value }
-    : { label, value: e.value, raw: e.raw };
+  if (typeof e.raw === 'bigint') return { label, value: e.value, kind: 'bigint' };
+  return typeof e.raw === 'string' ? { label, value: e.value } : { label, value: e.value, raw: e.raw };
 }
 
 /**

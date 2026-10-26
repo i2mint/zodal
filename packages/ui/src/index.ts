@@ -18,6 +18,7 @@ export type { ColumnConfig } from './generators/column-defs.js';
 // Form configuration generator
 export { toFormConfig } from './generators/form-config.js';
 export type { FormFieldConfig, VocabularyOption } from './generators/form-config.js';
+export { formFieldAffordance, selectedValue } from './generators/form-bridge.js';
 export { toOptionsFormConfig } from './generators/options-form-config.js';
 export type { OptionsFormField, OptionsFormConfigOptions } from './generators/options-form-config.js';
 
@@ -117,6 +118,7 @@ export {
   fieldNameMatches,
   metaMatches,
   editWidgetIs,
+  closedChoice,
   storageRoleIs,
   and,
   or,
