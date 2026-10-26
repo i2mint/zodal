@@ -31,7 +31,7 @@ import type {
   ResolvedFieldAffordance,
   ViewMode,
 } from '@zodal/core';
-import { getVocabularyEntries, getZodBaseType, unwrapZodSchema } from '@zodal/core';
+import { getChoiceArity, getVocabularyEntries, getZodBaseType, unwrapZodSchema } from '@zodal/core';
 import { toOption, type VocabularyOption } from './form-config.js';
 
 // ============================================================================
@@ -211,7 +211,7 @@ export interface ViewConfigOptions extends Partial<ViewModeLimits> {
  *  `icon` (often an icon *name*, not a URL). Declare `displayFormat: 'image'` for anything else. */
 const IMAGE_NAME = /^(image|photo|avatar|thumbnail|picture|logo|cover)(_?url)?$/i;
 /** Zod types that read as a category, drawn as a badge. */
-const BADGE_TYPES = new Set(['enum', 'boolean', 'literal']);
+const BADGE_TYPES = new Set(['boolean']);
 /** Zod types an item view cannot show as text. */
 const UNSHOWABLE_TYPES = new Set(['object', 'record', 'map', 'function', 'custom', 'unknown', 'any']);
 /** Zod types that hold several values. */
@@ -670,8 +670,8 @@ function isImageField(key: string, fa: ResolvedFieldAffordance): boolean {
 function isBadgeField(key: string, fa: ResolvedFieldAffordance, shape: Record<string, z.ZodType>): boolean {
   if (fa.badge) return true;
   if (BADGE_TYPES.has(fa.zodType)) return true;
-  // Tags: a collection field with a closed vocabulary.
-  return MULTI_VALUED_TYPES.has(fa.zodType) && getVocabularyEntries(shape[key]) !== null;
+  // Any closed choice (enum, literal, union of literals) or tags with allowed values.
+  return getChoiceArity(shape[key]) !== null;
 }
 
 function resolveRoles(

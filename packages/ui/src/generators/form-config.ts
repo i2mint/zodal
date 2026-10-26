@@ -7,7 +7,8 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance, NumericBounds } from '@zodal/core';
-import { getNumericBounds, getNumericStep, getVocabularyEntries } from '@zodal/core';
+import { getChoiceArity, getNumericBounds, getNumericStep, getVocabularyEntries } from '@zodal/core';
+import type { ChoiceArity, VocabularyEntry } from '@zodal/core';
 
 export interface FormFieldConfig {
   /** Field key. */
@@ -80,39 +81,51 @@ export function numericFieldProps(
   };
 }
 
-/** Infer the form widget type from Zod type + affordances. */
-function inferFormWidgetType(zodType: string, fa: FieldAffordance, closedChoice = false): string {
-  // Explicit override takes precedence
-  if (fa.editWidget) return fa.editWidget;
+/** Zod types a form has no dedicated widget for: edited as JSON text. */
+const JSON_TYPES = new Set([
+  'object', 'record', 'map', 'tuple', 'union', 'intersection', 'any', 'unknown', 'discriminatedUnion',
+]);
 
-  // Content fields default to file upload
-  if (fa.storageRole === 'content') return 'file';
-
-  // A literal or union of literals is a closed choice, whatever its value type.
-  if (closedChoice && zodType !== 'array' && zodType !== 'set') return 'select';
-
+/**
+ * The widget type for a field: a closed choice is a `'select'` (one value) or
+ * `'tags'` (several), whatever its Zod type; otherwise the Zod type decides.
+ * The one rule behind both `toFormConfig` and `toOptionsFormConfig`.
+ */
+export function widgetTypeFor(zodType: string, choice: ChoiceArity | null): string {
+  if (choice) return choice === 'multi' ? 'tags' : 'select';
   switch (zodType) {
     case 'string': return 'text';
     case 'number':
     case 'int':
     case 'float': return 'number';
     case 'boolean': return 'checkbox';
-    case 'enum': return 'select';
     case 'date': return 'date';
-    case 'array': return 'tags';
-    case 'object': return 'json';
-    default: return 'text';
+    case 'array':
+    case 'set': return 'tags';
+    default: return JSON_TYPES.has(zodType) ? 'json' : 'text';
   }
+}
+
+/** Infer the form widget type from Zod type + affordances. */
+function inferFormWidgetType(zodType: string, fa: FieldAffordance, choice: ChoiceArity | null): string {
+  // Explicit override takes precedence
+  if (fa.editWidget) return fa.editWidget;
+
+  // Content fields default to file upload
+  if (fa.storageRole === 'content') return 'file';
+
+  return widgetTypeFor(zodType, choice);
 }
 
 /**
  * One selectable value. `value` is a string for widgets to key on; `raw` is the
  * value as the schema accepts it (a number for a numeric enum): write `raw` back.
+ * Absent for strings and bigints (the string `value` is then the portable form; a bigint choice must be coerced with `BigInt(value)` by the caller).
  */
 export interface VocabularyOption {
   label: string;
   value: string;
-  raw?: string | number | boolean | bigint;
+  raw?: string | number | boolean;
 }
 
 /**
@@ -120,9 +133,12 @@ export interface VocabularyOption {
  * only when it differs from the string `value` (numbers, booleans), so string
  * vocabularies keep the plain `{ label, value }` shape.
  */
-export function toOption(e: { value: string; raw: VocabularyOption['raw']; label: string }): VocabularyOption {
+export function toOption(e: VocabularyEntry): VocabularyOption {
   const label = e.label.charAt(0).toUpperCase() + e.label.slice(1);
-  return typeof e.raw === 'string' ? { label, value: e.value } : { label, value: e.value, raw: e.raw };
+  // A bigint is not JSON-safe: its string `value` is the portable form.
+  return typeof e.raw === 'string' || typeof e.raw === 'bigint'
+    ? { label, value: e.value }
+    : { label, value: e.value, raw: e.raw };
 }
 
 /**
@@ -163,7 +179,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
     fields.push({
       name: key,
       label: fa.title,
-      type: inferFormWidgetType(zodType, fa, !!vocabulary),
+      type: inferFormWidgetType(zodType, fa, getChoiceArity(fieldSchema)),
       required: isRequired,
       disabled: fa.editable === false,
       hidden: fa.hidden ?? false,

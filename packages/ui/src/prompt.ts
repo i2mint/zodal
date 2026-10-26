@@ -7,7 +7,9 @@
  * are available, and what constraints exist.
  */
 
+import type { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance } from '@zodal/core';
+import { getChoiceArity } from '@zodal/core';
 
 /**
  * Generate an AI-consumable prompt describing a collection's affordances.
@@ -91,10 +93,8 @@ export function toPrompt(collection: CollectionDefinition<any>): string {
       const filterType = typeof affordance.filterable === 'string' ? affordance.filterable : 'text';
       let detail = `- \`${key}\` (${filterType})`;
       if (filterType === 'select' || filterType === 'multiSelect') {
-        const fa = collection.fieldAffordances[key];
-        if (fa.zodType === 'enum') {
-          detail += ` — enum field`;
-        }
+        const choice = getChoiceArity((collection.schema.shape as Record<string, z.ZodType>)[key]);
+        if (choice === 'single') detail += ` — enum field`;
       }
       if (filterType === 'range') {
         detail += ` — numeric/date range`;
