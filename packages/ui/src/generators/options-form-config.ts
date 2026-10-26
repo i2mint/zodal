@@ -21,6 +21,7 @@
 
 import { z } from 'zod';
 import {
+  getChoiceArity,
   getVocabularyEntries,
   getZodMeta,
   humanizeFieldName,
@@ -28,7 +29,7 @@ import {
   unwrapZodSchema,
 } from '@zodal/core';
 import type { SecretPath } from '@zodal/core';
-import { numericFieldProps, toOption } from './form-config.js';
+import { numericFieldProps, toOption, widgetTypeFor } from './form-config.js';
 import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /** One entry of an options form. */
@@ -66,9 +67,6 @@ export interface OptionsFormConfigOptions {
 
 /** Base types a form cannot produce: the value must come from code. */
 const CODE_ONLY_TYPES = new Set(['custom', 'function', 'promise', 'symbol', 'never', 'void', 'transform']);
-
-/** Base types with no dedicated widget but a JSON-editable value. */
-const JSON_TYPES = new Set(['record', 'map', 'tuple', 'union', 'intersection', 'any', 'unknown', 'discriminatedUnion']);
 
 /** Base types that accept `undefined` without an `.optional()`. */
 const OPTIONAL_TYPES = new Set(['any', 'unknown', 'undefined', 'void']);
@@ -163,7 +161,7 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
   if (suppliedInCode) type = 'code';
   else if (asFieldset) type = 'fieldset';
   else if (secret) type = 'password'; // never meta.editWidget: it could unmask the value
-  else type = meta.editWidget ?? widgetFor(zodType, !!options);
+  else type = meta.editWidget ?? widgetTypeFor(zodType, getChoiceArity(fieldSchema));
 
   const field: OptionsFormField = {
     name: path.join('.'),
@@ -186,21 +184,6 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
   };
   if (asFieldset) field.fields = fieldsOf(base, path, ctx);
   return field;
-}
-
-function widgetFor(zodType: string, hasOptions: boolean): string {
-  if (zodType === 'array' || zodType === 'set') return 'tags';
-  if (hasOptions) return 'select';
-  switch (zodType) {
-    case 'string': return 'text';
-    case 'number':
-    case 'int':
-    case 'float':
-    case 'bigint': return 'number';
-    case 'boolean': return 'checkbox';
-    case 'date': return 'date';
-    default: return JSON_TYPES.has(zodType) ? 'json' : 'text';
-  }
 }
 
 /** Metadata from every wrapper on the way down, the outermost winning (`.optional().meta(...)` included). */

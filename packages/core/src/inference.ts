@@ -164,6 +164,19 @@ export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | nul
   return entries.filter((e) => (seen.has(e.value) ? false : (seen.add(e.value), true)));
 }
 
+/**
+ * How many of a closed vocabulary a field takes: `'single'` (an enum, a literal, a
+ * union of literals), `'multi'` (an array or set of those), or `null` when the field
+ * is not a closed choice. The one place "is this a closed choice" is decided.
+ */
+export type ChoiceArity = 'single' | 'multi';
+
+export function getChoiceArity(schema: z.ZodType): ChoiceArity | null {
+  if (!getVocabularyEntries(schema)) return null;
+  const type = (unwrapZodSchema(schema) as any)?._zod?.def?.type;
+  return type === 'array' || type === 'set' ? 'multi' : 'single';
+}
+
 /** The closed vocabulary's values as strings (see {@link getVocabularyEntries}), or null when open. */
 export function getVocabulary(schema: z.ZodType): string[] | null {
   return getVocabularyEntries(schema)?.map((e) => e.value) ?? null;
