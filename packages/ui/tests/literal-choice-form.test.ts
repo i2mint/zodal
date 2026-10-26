@@ -73,3 +73,20 @@ describe('view badges keep plain literals and enums (#58)', () => {
     expect(names).toEqual(expect.arrayContaining(['k', 'e']));
   });
 });
+
+describe('open and mixed unions are not silently dropped (#57)', () => {
+  it.each([
+    ['open + literal', z.union([z.literal('a'), z.string()])],
+    ['string | number', z.union([z.string(), z.number()])],
+    ['discriminated union', z.discriminatedUnion('k', [z.object({ k: z.literal('a') }), z.object({ k: z.literal('b'), n: z.number() })])],
+  ])('%s is an editable json field', (_n, schema) => {
+    const f = field(schema);
+    expect(f).toBeDefined();
+    expect(f.type).toBe('json');
+    expect(f.options).toBeUndefined();
+  });
+
+  it('a union of literals is still a select', () => {
+    expect(field(z.union([z.literal('a'), z.literal('b')])).type).toBe('select');
+  });
+});

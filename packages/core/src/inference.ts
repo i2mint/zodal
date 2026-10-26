@@ -304,6 +304,16 @@ const OBJECT_FIELD_DEFAULTS: FieldAffordance = {
   detailOnly: true,
 };
 
+/** An open or mixed union (`string | number`, a discriminated union): shown as is, edited as JSON. */
+const UNION_FIELD_DEFAULTS: FieldAffordance = {
+  sortable: false,
+  filterable: false,
+  searchable: false,
+  groupable: false,
+  editable: true,
+  visible: true,
+};
+
 const UNKNOWN_FIELD_DEFAULTS: FieldAffordance = {
   sortable: false,
   filterable: false,
@@ -346,6 +356,9 @@ function getTypeDefaults(zodType: string): FieldAffordance {
     case 'record':
     case 'map':
       return { ...OBJECT_FIELD_DEFAULTS };
+    case 'union':
+    case 'discriminatedUnion':
+      return { ...UNION_FIELD_DEFAULTS };
     default:
       return { ...UNKNOWN_FIELD_DEFAULTS };
   }
