@@ -164,12 +164,21 @@ export function metaMatches(
   return (field) => predicate(field) ? PRIORITY.APP : -1;
 }
 
+/** `editWidget` values that still mean "pick from the vocabulary" (anything else is the user opting out of it). */
+const CHOICE_WIDGETS: ReadonlySet<string> = new Set(['select', 'multiselect', 'tags']);
+
 /**
- * Match closed-choice fields (an enum, a literal, a union of literals; see `ResolvedFieldAffordance.choice`).
- * Pass an arity to match only `'single'` or only `'multi'`. Returns DEFAULT priority on match.
+ * Match closed-choice fields (an enum, a literal, a union of literals; see
+ * `ResolvedFieldAffordance.choice`) of the given arity, `'single'` by default (a select);
+ * pass `'multi'` for an array or set of them (tags). A field whose `editWidget` names a
+ * non-choice widget (`'text'`) is not matched. Returns DEFAULT priority on match.
  */
-export function closedChoice(arity?: ChoiceArity): RendererTester {
-  return (field) => (arity ? field.choice === arity : field.choice === 'single' || field.choice === 'multi') ? PRIORITY.DEFAULT : -1;
+export function closedChoice(arity: ChoiceArity = 'single'): RendererTester {
+  return (field) => {
+    const widget = field.editWidget;
+    const widgetOk = widget === undefined || (typeof widget === 'string' && CHOICE_WIDGETS.has(widget));
+    return field.choice === arity && widgetOk ? PRIORITY.DEFAULT : -1;
+  };
 }
 
 /** Match fields with a specific editWidget value. Returns OVERRIDE priority on match. */

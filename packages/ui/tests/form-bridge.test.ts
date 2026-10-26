@@ -19,6 +19,13 @@ describe('selectedValue', () => {
     expect(f.options?.[0].raw).toBeUndefined();
     expect(selectedValue(f, '2')).toBe(2n);
   });
+  it('keeps raw false and 0', () => {
+    expect(selectedValue({ options: [{ label: 'No', value: 'false', raw: false }], required: true }, 'false')).toBe(false);
+    expect(selectedValue({ options: [{ label: 'Zero', value: '0', raw: 0 }], required: true }, '0')).toBe(0);
+  });
+  it('a stale value is no value', () => {
+    expect(selectedValue(cfg(z.literal([2, 4])), '3')).toBeUndefined();
+  });
   it('the placeholder clears an optional field and leaves a required one empty', () => {
     const f = cfg(z.enum(['a', 'b']));
     expect(selectedValue({ ...f, required: false }, '')).toBeUndefined();
@@ -39,11 +46,15 @@ describe('formFieldAffordance', () => {
 describe('closedChoice tester', () => {
   const fa = (schema: z.ZodType) => defineCollection(z.object({ x: schema })).fieldAffordances.x;
   const ctx = { mode: 'form' } as any;
-  it('matches single and multi choices, optionally by arity', () => {
+  it('matches by arity', () => {
     expect(closedChoice()(fa(z.enum(['a'])), ctx)).toBe(PRIORITY.DEFAULT);
-    expect(closedChoice()(fa(z.array(z.enum(['a']))), ctx)).toBe(PRIORITY.DEFAULT);
     expect(closedChoice('single')(fa(z.array(z.enum(['a']))), ctx)).toBe(-1);
     expect(closedChoice('multi')(fa(z.array(z.enum(['a']))), ctx)).toBe(PRIORITY.DEFAULT);
+  });
+  it('defaults to single, and a non-choice editWidget opts out', () => {
+    expect(closedChoice()(fa(z.array(z.enum(['a']))), ctx)).toBe(-1);
+    expect(closedChoice()({ ...fa(z.enum(['a'])), editWidget: 'text' }, ctx)).toBe(-1);
+    expect(closedChoice()({ ...fa(z.enum(['a'])), editWidget: 'select' }, ctx)).toBe(PRIORITY.DEFAULT);
   });
   it('does not match open fields or stubs without choice', () => {
     expect(closedChoice()(fa(z.string()), ctx)).toBe(-1);
