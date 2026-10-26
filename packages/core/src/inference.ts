@@ -34,17 +34,39 @@ export function getZodBaseType(schema: z.ZodType): string {
 /**
  * Get the inner schema, unwrapping optional, nullable, default, prefault, readonly,
  * catch and nonoptional wrappers, `z.lazy` (its resolved schema) and pipes (their
- * output side, or the input side of a `.transform()`). Gives up after
- * {@link MAX_UNWRAP_DEPTH} layers (see {@link peelZodWrapper}), returning the schema it reached.
+ * output side, or the input side of a `.transform()`) and a union of `T` with `null` /
+ * `undefined` (`z.union([z.string(), z.null()])` is `z.string()`, like `.nullable()`).
+ * Gives up after {@link MAX_UNWRAP_DEPTH} layers (see {@link peelZodWrapper}), returning
+ * the schema it reached.
  */
 export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
   let current: z.ZodType = schema;
   for (let i = 0; i < MAX_UNWRAP_DEPTH; i++) {
-    const next = peelZodWrapper(current);
+    const next = peelZodWrapper(current) ?? soleNonEmptyMember(current);
     if (!next) return current;
     current = next;
   }
   return current;
+}
+
+/** Is this union member only `null` / `undefined` (through wrappers, never resolving a union)? */
+function isEmptyZodMember(schema: z.ZodType): boolean {
+  let current: z.ZodType | undefined = schema;
+  for (let i = 0; current && i < MAX_UNWRAP_DEPTH; i++) {
+    const def = (current as any)._zod?.def;
+    if (def?.type === 'null' || def?.type === 'undefined') return true;
+    if (def?.type === 'literal') return (def.values ?? [def.value]).every((v: unknown) => v === null || v === undefined);
+    current = peelZodWrapper(current);
+  }
+  return false;
+}
+
+/** The one member of a union once its empty members are dropped, else `undefined`. */
+function soleNonEmptyMember(schema: z.ZodType): z.ZodType | undefined {
+  const def = (schema as any)._zod?.def;
+  if (def?.type !== 'union') return undefined;
+  const members = (def.options ?? []).filter((m: z.ZodType) => !isEmptyZodMember(m));
+  return members.length === 1 ? members[0] : undefined;
 }
 
 /** Is any layer of this schema's wrapper chain a `.readonly()`? */

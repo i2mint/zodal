@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
+import { defineCollection } from '../src/index.js';
 import {
   inferFieldAffordances,
   getZodBaseType,
@@ -362,5 +363,34 @@ describe('getNumericStep (#43)', () => {
     expect(getNumericStep(z.int().optional())).toBe(1);
     expect(getNumericStep(z.number().int())).toBe(1);
     expect(getNumericStep(z.number())).toBeUndefined();
+  });
+});
+
+describe('union of T and null/undefined unwraps to T (#63)', () => {
+  it('matches .nullable()', () => {
+    expect(getZodBaseType(z.union([z.string(), z.null()]))).toBe('string');
+    expect(getZodBaseType(z.union([z.null(), z.number(), z.undefined()]))).toBe('number');
+    expect(getZodBaseType(z.union([z.enum(['a', 'b']), z.null()]))).toBe('enum');
+  });
+  it('keeps a real union as a union', () => {
+    expect(getZodBaseType(z.union([z.string(), z.number(), z.null()]))).toBe('union');
+    expect(getZodBaseType(z.union([z.null(), z.undefined()]))).toBe('union');
+  });
+});
+
+describe('union with an empty member, more cases (#63)', () => {
+  it('does not recurse forever on a self-referencing union', () => {
+    const A: z.ZodType = z.lazy(() => z.union([A, z.null()]));
+    expect(() => getZodBaseType(A)).not.toThrow();
+  });
+  it('treats wrapped and literal empties as empty', () => {
+    expect(getZodBaseType(z.union([z.string(), z.null().optional()]))).toBe('string');
+    expect(getZodBaseType(z.union([z.string(), z.literal(null)]))).toBe('string');
+  });
+  it('a nullable-union field gets the same widget as .nullable()', () => {
+    const c = defineCollection(z.object({ a: z.union([z.string(), z.null()]), b: z.string().nullable() }));
+    const pick = (f: any) => ({ zodType: f.zodType, editable: f.editable, filterable: f.filterable, searchable: f.searchable, sortable: f.sortable, groupable: f.groupable });
+    expect(pick(c.fieldAffordances.a)).toEqual(pick(c.fieldAffordances.b));
+    expect(c.fieldAffordances.a.zodType).toBe('string');
   });
 });
