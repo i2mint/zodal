@@ -49,12 +49,23 @@ export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
   return current;
 }
 
-/** The one member of a union once its `null` / `undefined` members are dropped, else `undefined`. */
+/** Is this union member only `null` / `undefined` (through wrappers, never resolving a union)? */
+function isEmptyZodMember(schema: z.ZodType): boolean {
+  let current: z.ZodType | undefined = schema;
+  for (let i = 0; current && i < MAX_UNWRAP_DEPTH; i++) {
+    const def = (current as any)._zod?.def;
+    if (def?.type === 'null' || def?.type === 'undefined') return true;
+    if (def?.type === 'literal') return (def.values ?? [def.value]).every((v: unknown) => v === null || v === undefined);
+    current = peelZodWrapper(current);
+  }
+  return false;
+}
+
+/** The one member of a union once its empty members are dropped, else `undefined`. */
 function soleNonEmptyMember(schema: z.ZodType): z.ZodType | undefined {
   const def = (schema as any)._zod?.def;
   if (def?.type !== 'union') return undefined;
-  const isEmpty = (m: any) => ['null', 'undefined'].includes((unwrapZodSchema(m) as any)._zod?.def?.type);
-  const members = (def.options ?? []).filter((m: any) => !isEmpty(m));
+  const members = (def.options ?? []).filter((m: z.ZodType) => !isEmptyZodMember(m));
   return members.length === 1 ? members[0] : undefined;
 }
 

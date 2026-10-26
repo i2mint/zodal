@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
+import { defineCollection } from '../src/index.js';
 import {
   inferFieldAffordances,
   getZodBaseType,
@@ -374,5 +375,23 @@ describe('union of T and null/undefined unwraps to T (#63)', () => {
   it('keeps a real union as a union', () => {
     expect(getZodBaseType(z.union([z.string(), z.number(), z.null()]))).toBe('union');
     expect(getZodBaseType(z.union([z.null(), z.undefined()]))).toBe('union');
+  });
+});
+
+describe('union with an empty member, more cases (#63)', () => {
+  it('does not recurse forever on a self-referencing union', () => {
+    const A: z.ZodType = z.lazy(() => z.union([A, z.null()]));
+    expect(() => getZodBaseType(A)).not.toThrow();
+  });
+  it('treats wrapped and literal empties as empty', () => {
+    expect(getZodBaseType(z.union([z.string(), z.null().optional()]))).toBe('string');
+    expect(getZodBaseType(z.union([z.string(), z.literal(null)]))).toBe('string');
+  });
+  it('a nullable-union field gets the same widget as .nullable()', () => {
+    const c = defineCollection(z.object({ a: z.union([z.string(), z.null()]), b: z.string().nullable() }));
+    const { zodType: za, ...a } = c.fieldAffordances.a as any;
+    const { zodType: zb, ...b } = c.fieldAffordances.b as any;
+    expect(za).toBe(zb);
+    expect(a).toEqual({ ...b, label: a.label });
   });
 });
