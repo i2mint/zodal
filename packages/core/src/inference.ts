@@ -604,7 +604,8 @@ export function inferFieldAffordancesWithTrace(
   const baseType = getZodBaseType(schema);
 
   // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
-  const afterType = getTypeDefaults(defaultsType(schema, baseType));
+  const typeForDefaults = defaultsType(schema, baseType);
+  const afterType = getTypeDefaults(typeForDefaults);
   if (isZodReadonly(schema)) afterType.editable = false;
 
   // Layer 2: Validation-based refinements
@@ -649,7 +650,7 @@ export function inferFieldAffordancesWithTrace(
       layers.push({
         layer: 'type',
         value: typeVal,
-        reason: `${baseType} type defaults`,
+        reason: typeForDefaults === baseType ? `${baseType} type defaults` : `${baseType} is a closed choice: ${typeForDefaults} defaults`,
       });
     }
 

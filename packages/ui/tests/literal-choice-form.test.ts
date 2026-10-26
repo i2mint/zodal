@@ -23,4 +23,14 @@ describe('toFormConfig: literal choices (#56)', () => {
     expect(f.type).toBe('select');
     expect(f.options?.map((o) => o.value)).toEqual(['a', 'b']);
   });
+
+  it('an explicit editWidget still wins', () => {
+    expect(field(z.literal([2, 4]).meta({ editWidget: 'radio' })).type).toBe('radio');
+  });
+
+  it('an array of literals stays a closed tags field', () => {
+    const f = field(z.array(z.literal(['a', 'b'])));
+    expect(f.type).toBe('tags');
+    expect(f.allowCreate).toBe(false);
+  });
 });
