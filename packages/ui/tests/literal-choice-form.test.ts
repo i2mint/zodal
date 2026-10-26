@@ -78,6 +78,7 @@ describe('open and mixed unions are not silently dropped (#57)', () => {
   it.each([
     ['open + literal', z.union([z.literal('a'), z.string()])],
     ['string | number', z.union([z.string(), z.number()])],
+    ['intersection', z.intersection(z.object({ a: z.string() }), z.object({ b: z.number() }))],
     ['discriminated union', z.discriminatedUnion('k', [z.object({ k: z.literal('a') }), z.object({ k: z.literal('b'), n: z.number() })])],
   ])('%s is an editable json field', (_n, schema) => {
     const f = field(schema);
