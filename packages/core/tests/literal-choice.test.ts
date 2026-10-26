@@ -17,7 +17,8 @@ describe('literal choices get enum defaults (#56)', () => {
     expect(t?.layers[0].reason).toMatch(/closed choice/);
   });
 
-  it('an open union keeps unknown defaults', () => {
+  it('an open union is editable but not filterable (#57)', () => {
     expect(c.fieldAffordances.u.filterable).toBe(false);
+    expect(c.fieldAffordances.u.editable).toBe(true);
   });
 });
