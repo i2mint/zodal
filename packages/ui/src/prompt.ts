@@ -93,9 +93,8 @@ export function toPrompt(collection: CollectionDefinition<any>): string {
       const filterType = typeof affordance.filterable === 'string' ? affordance.filterable : 'text';
       let detail = `- \`${key}\` (${filterType})`;
       if (filterType === 'select' || filterType === 'multiSelect') {
-        const fa = collection.fieldAffordances[key];
         const choice = getChoiceArity((collection.schema.shape as Record<string, z.ZodType>)[key]);
-        if (choice) detail += choice === 'multi' ? ` — multi-choice field` : ` — enum field`;
+        if (choice === 'single') detail += ` — enum field`;
       }
       if (filterType === 'range') {
         detail += ` — numeric/date range`;

@@ -318,8 +318,7 @@ const UNKNOWN_FIELD_DEFAULTS: FieldAffordance = {
  * (`z.literal([2, 4])`) is a closed choice, so it behaves like an enum.
  */
 function defaultsType(schema: z.ZodType, baseType: string): string {
-  const isChoice = baseType === 'literal' || baseType === 'union';
-  return isChoice && getVocabularyEntries(schema) ? 'enum' : baseType;
+  return getChoiceArity(schema) === 'single' ? 'enum' : baseType;
 }
 
 /** Map Zod base type to default affordances. */

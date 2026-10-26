@@ -43,14 +43,14 @@ describe('one widget rule for both form generators (#58)', () => {
     many: z.array(z.literal(['a', 'b'])),
     n: z.literal([2, 4]),
   };
-  it('toFormConfig and toOptionsFormConfig agree on every widget', () => {
+  it('toFormConfig and toOptionsFormConfig give the same widget for every field', () => {
+    const expected = { tags: 'tags', big: 'text', choice: 'select', many: 'tags', n: 'select' };
     const form = toFormConfig(defineCollection(z.object(schemas)));
     const opts = toOptionsFormConfig(z.object(schemas));
-    for (const o of opts) {
-      const f = form.find((x) => x.name === o.name);
-      if (f) expect(f.type, o.name).toBe(o.type);
+    for (const [name, type] of Object.entries(expected)) {
+      expect(form.find((f) => f.name === name)?.type, `form ${name}`).toBe(type);
+      expect(opts.find((f) => f.name === name)?.type, `options ${name}`).toBe(type);
     }
-    expect(form.find((f) => f.name === 'tags')?.type).toBe('tags');
   });
 
   it('a bigint vocabulary option stays JSON-safe', () => {
@@ -59,11 +59,17 @@ describe('one widget rule for both form generators (#58)', () => {
   });
 
   it('toPrompt and view badges treat literal unions like enums', () => {
-    const c = defineCollection(z.object({ id: z.string(), s: z.union([z.literal('a'), z.literal('b')]) }), {
-      fields: { s: { filterable: 'select' } },
-    } as any);
+    const c = defineCollection(z.object({ id: z.string(), s: z.union([z.literal('a'), z.literal('b')]) }));
     expect(toPrompt(c)).toContain('enum field');
     const v = toViewConfig(c, 'list');
     expect(v.fields.badges.map((b) => b.name)).toContain('s');
+  });
+});
+
+describe('view badges keep plain literals and enums (#58)', () => {
+  it('a literal and an enum are badges', () => {
+    const c = defineCollection(z.object({ id: z.string(), name: z.string(), k: z.literal('x'), e: z.enum(['a', 'b']) }));
+    const names = toViewConfig(c, 'list').fields.badges.map((b) => b.name);
+    expect(names).toEqual(expect.arrayContaining(['k', 'e']));
   });
 });

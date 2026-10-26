@@ -97,8 +97,7 @@ export function widgetTypeFor(zodType: string, choice: ChoiceArity | null): stri
     case 'string': return 'text';
     case 'number':
     case 'int':
-    case 'float':
-    case 'bigint': return 'number';
+    case 'float': return 'number';
     case 'boolean': return 'checkbox';
     case 'date': return 'date';
     case 'array':
@@ -121,7 +120,7 @@ function inferFormWidgetType(zodType: string, fa: FieldAffordance, choice: Choic
 /**
  * One selectable value. `value` is a string for widgets to key on; `raw` is the
  * value as the schema accepts it (a number for a numeric enum): write `raw` back.
- * Absent for strings and bigints (the string `value` is then the portable form).
+ * Absent for strings and bigints (the string `value` is then the portable form; a bigint choice must be coerced with `BigInt(value)` by the caller).
  */
 export interface VocabularyOption {
   label: string;
