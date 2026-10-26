@@ -364,3 +364,15 @@ describe('getNumericStep (#43)', () => {
     expect(getNumericStep(z.number())).toBeUndefined();
   });
 });
+
+describe('union of T and null/undefined unwraps to T (#63)', () => {
+  it('matches .nullable()', () => {
+    expect(getZodBaseType(z.union([z.string(), z.null()]))).toBe('string');
+    expect(getZodBaseType(z.union([z.null(), z.number(), z.undefined()]))).toBe('number');
+    expect(getZodBaseType(z.union([z.enum(['a', 'b']), z.null()]))).toBe('enum');
+  });
+  it('keeps a real union as a union', () => {
+    expect(getZodBaseType(z.union([z.string(), z.number(), z.null()]))).toBe('union');
+    expect(getZodBaseType(z.union([z.null(), z.undefined()]))).toBe('union');
+  });
+});
