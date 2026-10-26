@@ -81,12 +81,15 @@ export function numericFieldProps(
 }
 
 /** Infer the form widget type from Zod type + affordances. */
-function inferFormWidgetType(zodType: string, fa: FieldAffordance): string {
+function inferFormWidgetType(zodType: string, fa: FieldAffordance, closedChoice = false): string {
   // Explicit override takes precedence
   if (fa.editWidget) return fa.editWidget;
 
   // Content fields default to file upload
   if (fa.storageRole === 'content') return 'file';
+
+  // A literal or union of literals is a closed choice, whatever its value type.
+  if (closedChoice && zodType !== 'array' && zodType !== 'set') return 'select';
 
   switch (zodType) {
     case 'string': return 'text';
@@ -160,7 +163,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
     fields.push({
       name: key,
       label: fa.title,
-      type: inferFormWidgetType(zodType, fa),
+      type: inferFormWidgetType(zodType, fa, !!vocabulary),
       required: isRequired,
       disabled: fa.editable === false,
       hidden: fa.hidden ?? false,
