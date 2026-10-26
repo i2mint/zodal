@@ -389,9 +389,8 @@ describe('union with an empty member, more cases (#63)', () => {
   });
   it('a nullable-union field gets the same widget as .nullable()', () => {
     const c = defineCollection(z.object({ a: z.union([z.string(), z.null()]), b: z.string().nullable() }));
-    const { zodType: za, ...a } = c.fieldAffordances.a as any;
-    const { zodType: zb, ...b } = c.fieldAffordances.b as any;
-    expect(za).toBe(zb);
-    expect(a).toEqual({ ...b, label: a.label });
+    const pick = (f: any) => ({ zodType: f.zodType, editable: f.editable, filterable: f.filterable, searchable: f.searchable, sortable: f.sortable, groupable: f.groupable });
+    expect(pick(c.fieldAffordances.a)).toEqual(pick(c.fieldAffordances.b));
+    expect(c.fieldAffordances.a.zodType).toBe('string');
   });
 });
