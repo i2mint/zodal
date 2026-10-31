@@ -54,6 +54,7 @@ Each provides concrete components for a UI library:
 | `zodal-groups/` | `@zodal/groups-core`, `-ui`, `-ui-vanilla` | Folders/tags/labels/polyhierarchy: membership edges, profiles, tree/columns/facet projections | `zodal-groups/.claude/CLAUDE.md` |
 | `zodal-dials/` | `@zodal/dials-*` | Settings, config, preferences | `zodal-dials/AGENTS.md` |
 | `zodal-graphs/` | `@zodal/graph-*` (not yet on npm) | Graphs: node/edge data, views, layouts | `zodal-graphs/.claude/CLAUDE.md` |
+| `zodal-speech/` | `@zodal/speech` | Speech audio with a synced transcript: model, headless player, DOM renderer, one-file bundle | `zodal-speech/skills/zodal-speech/SKILL.md` |
 | `polytag/` | (planned) `polytag` | Composition tier: CRUD over tag-based collections; data in (formats × grammars), backend menu, view menu, playground. Depends on both store and UI sides, like an app | `polytag/.claude/CLAUDE.md`, epic i2mint/polytag#10 |
 
 ## Decision: Where Does This Code Go?
