@@ -4,8 +4,7 @@
  */
 
 import type { ResolvedFieldAffordance } from '@zodal/core';
-import type { FormFieldConfig } from './form-config.js';
-import { optionRaw } from '../tag-logic.js';
+import { optionRaw, type FormFieldConfig } from './form-config.js';
 
 /**
  * The field affordance to resolve a form field's renderer with:

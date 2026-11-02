@@ -10,7 +10,9 @@
  */
 
 import type { FilterCondition } from '@zodal/core';
-import type { VocabularyOption } from './generators/form-config.js';
+import { optionRaw, type VocabularyOption } from './generators/form-config.js';
+
+export { optionRaw };
 import type { Suggestion, SuggestionSource } from './registry/tester.js';
 
 // ============================================================================
@@ -110,15 +112,6 @@ export function toValueList(value: unknown): unknown[] {
   return [value];
 }
 
-/**
- * The value to write back for an option, as the schema accepts it: a bigint choice as a
- * bigint, else its `raw` when present, else its string value.
- */
-export function optionRaw(option: TagOption): TagValue {
-  const { raw, kind } = option as VocabularyOption;
-  if (kind === 'bigint') return BigInt(option.value);
-  return raw !== undefined ? raw : option.value;
-}
 
 /** The option a stored value corresponds to, if any. */
 export function findOption(options: readonly TagOption[] | undefined, value: unknown): TagOption | undefined {
