@@ -4,7 +4,7 @@
  */
 
 import type { ResolvedFieldAffordance } from '@zodal/core';
-import type { FormFieldConfig } from './form-config.js';
+import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /**
  * The field affordance to resolve a form field's renderer with:
@@ -30,6 +30,23 @@ export function formFieldAffordance(
  */
 export function selectedValue(config: Pick<FormFieldConfig, 'options' | 'required'>, selected: string): unknown {
   const option = config.options?.find((o) => o.value === selected);
-  if (option) return option.kind === 'bigint' ? BigInt(option.value) : (option.raw ?? option.value);
+  if (option) return optionRaw(option);
   return selected === '' && config.required ? '' : undefined;
+}
+
+/**
+ * The option key (the string `value` a select, radio or tags widget keys on) of `value`,
+ * the field's current value: the inverse of `selectedValue`. An option matches only when
+ * its schema value is `value` itself (`4` matches option `'4'` of a numeric choice, the
+ * string `'4'` does not), so a value of the wrong type is not shown as chosen.
+ * No value, or a value that is not an option (stale), yields `''`, the placeholder.
+ * For a tags widget, call it per element; an element keyed `''` is not an option.
+ */
+export function optionKey(config: Pick<FormFieldConfig, 'options'>, value: unknown): string {
+  return config.options?.find((o) => optionRaw(o) === value)?.value ?? '';
+}
+
+/** The value an option stands for, as the schema accepts it. */
+function optionRaw(option: VocabularyOption): unknown {
+  return option.kind === 'bigint' ? BigInt(option.value) : (option.raw ?? option.value);
 }
