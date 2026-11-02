@@ -348,20 +348,34 @@ const provider = createInMemoryProvider(mockData, { idField: 'id' });
 ```
 
 ### Optimistic updates
-```typescript
-const { update, fetchData } = useProjectStore();
 
+Snapshot, apply, send, then reconcile or roll back, and say so. Keep the item visibly pending until confirmed, and make a failure visible with Retry. Never just refetch silently, which hides the failure. Use this only for likely, reversible, low-stakes edits; for payments, irreversible deletes or server-computed values, keep the control pending and the content unchanged until the provider confirms. (A store-level `mutationMode` is a follow-up in `docs/adr/0001-feedback-principle.md`.)
+
+```typescript
 async function handleInlineEdit(id: string, field: string, value: unknown) {
-  // Optimistically update local state
-  update(id, { [field]: value });
+  const before = useProjectStore.getState().items.find((i) => i.id === id);   // snapshot
+  useProjectStore.getState().update(id, { [field]: value, _pending: true });  // apply, marked pending
   try {
-    await provider.update(id, { [field]: value });
-  } catch {
-    // Revert on failure
-    fetchData();
+    const saved = await provider.update(id, { [field]: value });              // send
+    useProjectStore.getState().update(id, { ...saved, _pending: false });     // reconcile with the server
+  } catch (error) {
+    if (before) useProjectStore.getState().update(id, { ...before, _pending: false }); // roll back
+    notify({ message: `Could not save ${field}`, action: { label: 'Retry', run: () => handleInlineEdit(id, field, value) } });
   }
 }
 ```
+
+### Return the work from callbacks: feedback is the renderers' default
+
+Operation buttons, collection operations and items with `onOpen` show a pressed state at once, stay pending (and ignore repeat presses) while the callback's promise runs, and show a spinner past `FEEDBACK_MS.indicator`. They can only do that if the callback returns the promise:
+
+```typescript
+<CollectionView items={items} config={view}
+  onOperation={(op, item) => dispatchFor(op)({ ids: [item.id] })}   // returns the command result
+  onOpen={(item) => router.open(item.id)} />                         // returns the navigation's promise
+```
+
+For a control you draw yourself, use `usePress` / `wirePress` from the renderer package, or `createActionFeedback` from `@zodal/ui`.
 
 ### Multiple collections on one page
 ```typescript
@@ -397,3 +411,5 @@ function ProjectTasksPage() {
 - [ ] Filter panel wired with registry-resolved widgets
 - [ ] Capability-aware UI (conditional buttons, server vs. client sort/filter)
 - [ ] Search debounced and connected to store
+- [ ] Callbacks (`onOperation`, `onCollectionOperation`, `onOpen`) return the work's promise, so the renderers show pending and guard repeat presses
+- [ ] Optimistic edits are visibly pending until confirmed and roll back visibly, with Retry

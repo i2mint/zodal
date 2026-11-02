@@ -66,6 +66,17 @@ export type {
   GroupItemsOptions,
 } from './generators/view-config.js';
 
+// Feedback: the response-time limits, and an action's pending / indicator / guard state
+export { FEEDBACK_MS, feedbackFor, createActionFeedback, isCommandFailure } from './feedback.js';
+export type {
+  FeedbackLevel,
+  ActionStatus,
+  ActionFeedbackState,
+  ActionFeedbackOptions,
+  ActionFeedback,
+  FeedbackClock,
+} from './feedback.js';
+
 // State management
 export { createCollectionStore } from './state/store.js';
 export type {

@@ -13,6 +13,7 @@ zodal is a TypeScript/JavaScript monorepo for declarative, schema-driven collect
 | [architecture.md](architecture.md) | Package structure, dependency graph, API surfaces |
 | [ideas-and-future.md](ideas-and-future.md) | Unimplemented ideas, future directions, deferred features |
 | [known-issues.md](known-issues.md) | Known limitations, gotchas, workarounds |
+| [adr/0001-feedback-principle.md](adr/0001-feedback-principle.md) | Decision: every pressable acknowledges at once, pending is guarded, waits escalate (the feedback principle in `@zodal/ui` and the renderers) |
 
 ### Research & Design (reference)
 Original research documents that informed the design, now in `docs/research/`:

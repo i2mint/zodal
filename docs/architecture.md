@@ -81,6 +81,7 @@ type FilterExpression =
 - 5 composable slices: `createSortingSlice`, `createFilterSlice`, `createPaginationSlice`, `createSelectionSlice`, `createColumnSlice`
 - `createZustandStoreSlice(collection, provider?)` — Zustand `create()` compatible
 - `createRendererRegistry()` — ranked tester registry with `PRIORITY` bands
+- `FEEDBACK_MS`, `feedbackFor(expectedMs)`, `createActionFeedback(action, options)` — the response-time limits and one action's pressed-to-settled state (pending at once, delayed indicator, double-tap guard); see design principle 6
 - `toPrompt(collection)` — AI/LLM-consumable description
 - `toCode(collection, options?)` — TypeScript code generation
 
@@ -98,3 +99,4 @@ type FilterExpression =
 3. **Escape hatches everywhere** — any inferred default can be overridden
 4. **Zod v4 as schema substrate** — not schema-agnostic
 5. **Thin glue, not a framework** — configure existing tools, don't replace them
+6. **Feedback by default** — every pressable a renderer draws acknowledges a press on itself within 0.1 s (`data-pressed` from `pointerdown`), is pending while the work it started runs (`data-pending`, `aria-busy`, `aria-disabled`, repeat presses ignored), and shows an indicator only once the wait passes `FEEDBACK_MS.indicator`. The machine is `createActionFeedback` in `@zodal/ui`; renderers apply it without host code, and each renderer package carries the conformance test. Callbacks (`onOperation`, `onOpen`, `dispatch`) return the work's promise. Decision: [adr/0001-feedback-principle.md](adr/0001-feedback-principle.md)
