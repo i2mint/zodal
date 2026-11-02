@@ -96,7 +96,8 @@ describe('toColumnDefs', () => {
     expect(sortFn(z.enum(Level))).toBe('basic');
     expect(sortFn(z.literal([2, 10]))).toBe('basic');
     expect(sortFn(z.union([z.literal(1n), z.literal(2n)]))).toBe('basic');
-    expect(sortFn(z.union([z.literal('a'), z.literal(1)]))).toBe('basic');
+    // A mix of strings and numbers: alphanumeric (basic would order them by input order).
+    expect(sortFn(z.union([z.literal('a'), z.literal(1)]))).toBe('alphanumeric');
     // A multi choice is not a single value to sort by.
     expect(sortFn(z.array(z.enum(['a', 'b'])))).toBe('basic');
   });
