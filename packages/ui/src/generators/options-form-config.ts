@@ -23,14 +23,13 @@ import { z } from 'zod';
 import {
   getChoiceArity,
   getVocabularyEntries,
-  getStringLength,
   getZodMeta,
   humanizeFieldName,
   secretPaths as schemaSecretPaths,
   unwrapZodSchema,
 } from '@zodal/core';
 import type { SecretPath } from '@zodal/core';
-import { numericFieldProps, toOption, widgetTypeFor } from './form-config.js';
+import { numericFieldProps, stringFieldProps, toOption, widgetTypeFor } from './form-config.js';
 import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /** One entry of an options form. */
@@ -178,7 +177,8 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     zodType,
     ...(options ? { options } : {}),
     ...(suppliedInCode || secret ? {} : numericFieldProps(zodType, fieldSchema, typeof meta.step === 'number' ? meta.step : undefined)),
-    ...(suppliedInCode ? {} : getStringLength(fieldSchema)),
+    // A secret keeps its length limits (a password input's maxLength reveals nothing), unlike numeric props.
+    ...(suppliedInCode ? {} : stringFieldProps(fieldSchema, type)),
     ...(isList && !suppliedInCode && !secret ? { allowCreate: !vocabulary } : {}),
     ...(defaultValue !== undefined ? { defaultValue } : {}),
     ...(secret ? { secret } : {}),

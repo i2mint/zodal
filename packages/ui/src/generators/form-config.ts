@@ -85,6 +85,14 @@ export function numericFieldProps(
   };
 }
 
+/**
+ * The `minLength` and `maxLength` of a string field (none for any other type, or when the
+ * widget edits it as JSON text, where quotes and escapes would make the limits wrong).
+ */
+export function stringFieldProps(schema: z.ZodType, widget: string): Pick<FormFieldConfig, 'minLength' | 'maxLength'> {
+  return widget === 'json' ? {} : getStringLength(schema);
+}
+
 /** Zod types a form has no dedicated widget for: edited as JSON text. */
 const JSON_TYPES = new Set([
   'object', 'record', 'map', 'tuple', 'union', 'intersection', 'any', 'unknown', 'discriminatedUnion',
@@ -191,11 +199,12 @@ export function toFormConfig<T extends z.ZodObject<any>>(
     const vocabulary = getVocabularyEntries(fieldSchema);
     const enumValues = vocabulary?.map((e) => e.value) ?? null;
     if (vocabulary) options = vocabulary.map(toOption);
+    const type = inferFormWidgetType(zodType, fa, getChoiceArity(fieldSchema));
 
     fields.push({
       name: key,
       label: fa.title,
-      type: inferFormWidgetType(zodType, fa, getChoiceArity(fieldSchema)),
+      type,
       required: isRequired,
       disabled: fa.editable === false,
       hidden: fa.hidden ?? false,
@@ -206,7 +215,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       order: fa.order ?? orderCounter++,
       zodType,
       ...numericFieldProps(zodType, fieldSchema, fa.step),
-      ...getStringLength(fieldSchema),
+      ...stringFieldProps(fieldSchema, type),
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
     });
   }

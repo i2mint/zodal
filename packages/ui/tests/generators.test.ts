@@ -251,6 +251,20 @@ describe('toFormConfig string length (#78)', () => {
     expect(f.notes).not.toHaveProperty('maxLength');
     expect(f.count).not.toHaveProperty('maxLength');
   });
+  it('reads string formats; leaves arrays, codecs and JSON-edited strings without limits', () => {
+    const c = defineCollection(z.object({
+      email: z.email().max(50),
+      tags: z.array(z.string()).max(3),
+      when: z.codec(z.iso.datetime(), z.date(), { decode: (s) => new Date(s), encode: (d) => d.toISOString() }),
+      blob: z.string().max(5).meta({ editWidget: 'json' }),
+    }));
+    const f = Object.fromEntries(toFormConfig(c).map((x) => [x.name, x]));
+    expect(f.email.maxLength).toBe(50);
+    expect(f.tags).not.toHaveProperty('maxLength');
+    expect(f.when).not.toHaveProperty('maxLength');
+    expect(f.blob.type).toBe('json');
+    expect(f.blob).not.toHaveProperty('maxLength');
+  });
 });
 
 describe('toFilterConfig', () => {

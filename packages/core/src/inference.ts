@@ -256,6 +256,7 @@ export interface StringLength {
 export function getStringLength(schema: z.ZodType): StringLength {
   const unwrapped = unwrapZodSchema(schema) as any;
   const result: StringLength = {};
+  if (unwrapped?._zod?.def?.type !== 'string') return result;
   if (typeof unwrapped.minLength === 'number') result.minLength = unwrapped.minLength;
   if (typeof unwrapped.maxLength === 'number') result.maxLength = unwrapped.maxLength;
   return result;
