@@ -9,6 +9,7 @@ import {
   humanizeFieldName,
   getNumericStep,
   getStringLength,
+  getDateBounds,
   getNumericBounds,
   getVocabulary,
 } from '../src/inference.js';
@@ -467,5 +468,19 @@ describe('limits across a pipe (#86)', () => {
   it('no pipe: unchanged', () => {
     expect(getNumericBounds(z.number().positive().max(5))).toEqual({ min: 0, exclusiveMin: true, max: 5 });
     expect(getStringLength(z.string().max(3))).toEqual({ maxLength: 3 });
+  });
+});
+
+describe('getDateBounds (#106)', () => {
+  const day = 86_400_000;
+  it('reads .min() and .max() as epoch milliseconds, through wrappers and across a plain pipe', () => {
+    expect(getDateBounds(z.date().min(new Date(0)).max(new Date(day)))).toEqual({ min: 0, max: day });
+    expect(getDateBounds(z.date().min(new Date(day)).optional().nullable())).toEqual({ min: day });
+    expect(getDateBounds(z.date().min(new Date(0)).pipe(z.date().min(new Date(day))))).toEqual({ min: day });
+  });
+  it('is empty for an unbounded date and for other types', () => {
+    expect(getDateBounds(z.date())).toEqual({});
+    expect(getDateBounds(z.number().min(1))).toEqual({});
+    expect(getDateBounds(z.string())).toEqual({});
   });
 });

@@ -92,6 +92,13 @@ describe('toFilterConfig with data', () => {
     const c = defineCollection(z.object({ at: z.date().meta({ filterable: 'range' }) }));
     expect(byName(toFilterConfig(c, { data: [{ at: foreign }], quantileCount: 1 })).at.quantiles).toEqual([86400000, 86400000]);
   });
+  it('a date range filter and a date form field get bounds in epoch milliseconds (#106)', async () => {
+    const { toFormConfig } = await import('../src/index.js');
+    const c = defineCollection(z.object({ at: z.date().min(new Date(0)).max(new Date(86_400_000)).meta({ filterable: 'range' }) }));
+    expect(byName(toFilterConfig(c)).at.bounds).toEqual({ min: 0, max: 86_400_000 });
+    expect(toFormConfig(c)[0].bounds).toEqual({ min: 0, max: 86_400_000 });
+    expect(toFormConfig(c)[0]).not.toHaveProperty('step');
+  });
   it('bigints and unparsed strings give no quantiles', () => {
     const c = defineCollection(z.object({ n: z.bigint().meta({ filterable: 'range' }), at: z.date().meta({ filterable: 'range' }) }));
     const f = byName(toFilterConfig(c, { data: [{ n: 1n, at: '2020-01-01' }, { n: 2n, at: '2021-01-01' }] }));

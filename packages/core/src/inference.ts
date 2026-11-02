@@ -450,6 +450,23 @@ function tighterBounds(a: NumericBounds, b: NumericBounds): NumericBounds {
   };
 }
 
+/**
+ * The bounds of a date schema (`.min()` / `.max()`, through wrappers and across a plain pipe,
+ * the tighter of its sides), as epoch milliseconds: the unit of a date range filter's
+ * `quantiles`. Unbounded sides are absent; a non-date schema has none.
+ */
+export function getDateBounds(schema: z.ZodType): NumericBounds {
+  const asMs = (d: unknown) => (d instanceof Date && Number.isFinite(d.getTime()) ? d.getTime() : undefined);
+  return limitSchemas(schema)
+    .filter((side: any) => side?._zod?.def?.type === 'date')
+    .map((side: any): NumericBounds => {
+      const min = asMs(side.minDate);
+      const max = asMs(side.maxDate);
+      return { ...(min !== undefined ? { min } : {}), ...(max !== undefined ? { max } : {}) };
+    })
+    .reduce(tighterBounds, {});
+}
+
 /** A string schema's length limits (see {@link getStringLength}). */
 export interface StringLength {
   minLength?: number;

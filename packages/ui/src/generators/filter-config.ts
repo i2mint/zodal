@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FilterType } from '@zodal/core';
-import { getNumericBounds } from '@zodal/core';
+import { getDateBounds, getNumericBounds } from '@zodal/core';
 import { fieldOptions, NUMERIC_TYPES, type VocabularyOption } from './form-config.js';
 import { quantilesOf } from '../stats.js';
 
@@ -20,7 +20,7 @@ export interface FilterFieldConfig {
   filterType: FilterType;
   /** Options for select/multiselect filters (and `contains` on a collection field with a closed vocabulary). */
   options?: VocabularyOption[];
-  /** Numeric bounds for range filters. */
+  /** A range filter's bounds: a number field's, or a date field's in epoch milliseconds (like its `quantiles`). */
   bounds?: { min?: number; max?: number };
   /**
    * For a range filter: the data's quantiles, non-decreasing and finite. `quantiles[i]` is the
@@ -107,7 +107,7 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
     let bounds: { min?: number; max?: number } | undefined;
     let quantiles: number[] | undefined;
     if (filterType === 'range') {
-      bounds = getNumericBounds(fieldSchema);
+      bounds = affordance.zodType === 'date' ? getDateBounds(fieldSchema) : getNumericBounds(fieldSchema);
       quantiles = quantilesFor(key, affordance.zodType);
     }
 
