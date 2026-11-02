@@ -205,8 +205,12 @@ export function toCommandRecord<P = unknown, R = unknown>(
  * credentials). Never throws itself, whatever was thrown.
  */
 function failureOf(err: unknown, fallbackCode: string): OperationCommandResult<never> {
-  const { code, message } = (typeof err === 'object' && err !== null ? err : {}) as { code?: unknown; message?: unknown };
-  return fail(typeof code === 'string' ? code : fallbackCode, typeof message === 'string' ? message : describeThrown(err));
+  try {
+    const { code, message } = (typeof err === 'object' && err !== null ? err : {}) as { code?: unknown; message?: unknown };
+    return fail(typeof code === 'string' ? code : fallbackCode, typeof message === 'string' ? message : describeThrown(err));
+  } catch {
+    return fail(fallbackCode, 'unknown error'); // a getter on the thrown value threw
+  }
 }
 
 /** A thrown non-error as text; some values (`Object.create(null)`) cannot even be stringified. */

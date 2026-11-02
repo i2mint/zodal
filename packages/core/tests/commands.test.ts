@@ -103,6 +103,8 @@ describe('operationDispatcher (#97)', () => {
     expect(await quota()).toEqual({ ok: false, error: { code: 'quota', message: 'over quota' } });
     const odd = operationDispatcher({ execute: () => { throw Object.create(null); } })(op);
     expect(await odd()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'unknown error' } });
+    const trap = operationDispatcher({ execute: () => { throw { get message(): string { throw new Error('nope'); } }; } })(op);
+    expect(await trap()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'unknown error' } });
   });
   it('a throwing executor is a failed result, keeping a string code and never the raw error', async () => {
     const dispatch = operationDispatcher({ execute: () => { throw Object.assign(new Error('gone'), { code: 'offline', secret: 'x' }); } })(op);
