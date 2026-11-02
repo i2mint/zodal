@@ -5,7 +5,7 @@
  * and named priority bands.
  */
 
-import type { ChoiceArity, ResolvedFieldAffordance } from '@zodal/core';
+import type { ChoiceArity, OperationDefinition, OperationScope, ResolvedFieldAffordance } from '@zodal/core';
 
 // ============================================================================
 // Priority Bands
@@ -31,8 +31,11 @@ export const PRIORITY = {
 
 /** Context passed to renderer testers. */
 export interface RendererContext {
-  /** The render mode: 'cell' for table cells, 'form' for form fields, 'filter' for filter widgets. */
-  mode: 'cell' | 'form' | 'filter';
+  /**
+   * The render mode: 'cell' for table cells, 'form' for form fields, 'filter' for filter widgets,
+   * 'operation' for an operation's control (a button, a menu item; see {@link OperationRenderProps}).
+   */
+  mode: 'cell' | 'form' | 'filter' | 'operation';
   /**
    * Where a tag-like widget (a `'tags'` form field, a `contains` filter) gets its
    * suggestions: the values already used in the collection, a zodal-groups
@@ -115,14 +118,17 @@ export type FilterFieldProps<C = unknown, V = unknown> = FieldRenderProps<C, V |
  * A tester function: returns a priority score (> 0 means match) or -1 (no match).
  * Higher score wins.
  */
-export type RendererTester = (
-  field: ResolvedFieldAffordance,
+export type RendererTester<TSubject = ResolvedFieldAffordance> = (
+  subject: TSubject,
   context: RendererContext,
 ) => number;
 
-/** A registry entry pairing a tester with a renderer. */
-export interface RendererEntry<TComponent = unknown> {
-  tester: RendererTester;
+/**
+ * A registry entry pairing a tester with a renderer. `TSubject` is what the registry resolves
+ * for: a field (the default) or an `OperationDefinition` (an operation registry).
+ */
+export interface RendererEntry<TComponent = unknown, TSubject = ResolvedFieldAffordance> {
+  tester: RendererTester<TSubject>;
   renderer: TComponent;
   /** Optional name for debugging. */
   name?: string;
@@ -208,7 +214,7 @@ export function storageRoleIs(role: 'metadata' | 'content'): RendererTester {
  * Combine testers with AND logic. Sums individual scores on match.
  * Returns -1 if any tester returns -1.
  */
-export function and(...testers: RendererTester[]): RendererTester {
+export function and<S = ResolvedFieldAffordance>(...testers: RendererTester<S>[]): RendererTester<S> {
   return (field, context) => {
     let totalScore = 0;
     for (const tester of testers) {
@@ -224,7 +230,7 @@ export function and(...testers: RendererTester[]): RendererTester {
  * Combine testers with OR logic. Returns the highest score among matches.
  * Returns -1 if all testers return -1.
  */
-export function or(...testers: RendererTester[]): RendererTester {
+export function or<S = ResolvedFieldAffordance>(...testers: RendererTester<S>[]): RendererTester<S> {
   return (field, context) => {
     let maxScore = -1;
     for (const tester of testers) {
@@ -233,4 +239,44 @@ export function or(...testers: RendererTester[]): RendererTester {
     }
     return maxScore;
   };
+}
+
+// ============================================================================
+// Operations
+// ============================================================================
+
+/**
+ * What an operation's component (a button, a menu item) receives, resolved from an operation
+ * registry: `createRendererRegistry<Component, OperationDefinition>()`, then
+ * `registry.resolve(operation, { mode: 'operation' })`. The component shows whatever
+ * `operation.confirm` asks for before calling `dispatch`.
+ */
+export interface OperationRenderProps<TParams = unknown> {
+  operation: OperationDefinition<TParams>;
+  /** Run the operation (the host decides what that does: a store action, a command). */
+  dispatch: (params?: TParams) => void | Promise<void>;
+  context?: RendererContext;
+  disabled?: boolean;
+  /** Aborted when the component is unmounted or replaced. */
+  signal?: AbortSignal;
+}
+
+/** An operation tester: the score of a renderer for an `OperationDefinition`. */
+export type OperationTester = RendererTester<OperationDefinition>;
+
+const inOperationMode = (context: RendererContext) => context.mode === 'operation';
+
+/** Match operations of the given scope (`'item'`, `'selection'`, `'collection'`). Returns DEFAULT priority on match. */
+export function operationScopeIs(...scopes: OperationScope[]): OperationTester {
+  return (op, context) => (inOperationMode(context) && scopes.includes(op.scope) ? PRIORITY.DEFAULT : -1);
+}
+
+/** Match operations of the given visual variant (`'destructive'`...). Returns LIBRARY priority on match. */
+export function operationVariantIs(...variants: NonNullable<OperationDefinition['variant']>[]): OperationTester {
+  return (op, context) => (inOperationMode(context) && op.variant !== undefined && variants.includes(op.variant) ? PRIORITY.LIBRARY : -1);
+}
+
+/** Match operations by name: an app's renderer for one operation. Returns APP priority on match. */
+export function operationIs(...names: string[]): OperationTester {
+  return (op, context) => (inOperationMode(context) && names.includes(op.name) ? PRIORITY.APP : -1);
 }

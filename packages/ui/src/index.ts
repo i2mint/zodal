@@ -124,6 +124,9 @@ export {
   storageRoleIs,
   and,
   or,
+  operationIs,
+  operationScopeIs,
+  operationVariantIs,
 } from './registry/tester.js';
 export type {
   RendererTester,
@@ -135,6 +138,8 @@ export type {
   FieldRenderProps,
   FieldBinding,
   FilterFieldProps,
+  OperationRenderProps,
+  OperationTester,
 } from './registry/tester.js';
 
 // Tag widget logic (framework-free; renderers draw their tag input, chip filter and chip cell over it)
