@@ -23,8 +23,8 @@ export { toOptionsFormConfig } from './generators/options-form-config.js';
 export type { OptionsFormField, OptionsFormConfigOptions } from './generators/options-form-config.js';
 
 // Filter configuration generator
-export { toFilterConfig } from './generators/filter-config.js';
-export type { FilterFieldConfig } from './generators/filter-config.js';
+export { toFilterConfig, quantilesOf } from './generators/filter-config.js';
+export type { FilterFieldConfig, FilterConfigOptions } from './generators/filter-config.js';
 
 // Collection view generator (list / grid / kanban, grouped and collapsible) and view ranking
 export {

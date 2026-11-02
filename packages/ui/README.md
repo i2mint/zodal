@@ -23,8 +23,9 @@ const columns = toColumnDefs(collection);
 const createFields = toFormConfig(collection, 'create');
 const editFields = toFormConfig(collection, 'edit');
 
-// Filter panel configs
+// Filter panel configs (with rows in memory, range filters also get the data's percentiles)
 const filters = toFilterConfig(collection);
+const sliderFilters = toFilterConfig(collection, { data: rows });
 
 // Pure-function state management
 const store = createCollectionStore(collection);
