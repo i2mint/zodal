@@ -124,6 +124,7 @@ export {
   storageRoleIs,
   and,
   or,
+  anyOperation,
   operationIs,
   operationScopeIs,
   operationVariantIs,

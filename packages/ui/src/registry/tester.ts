@@ -5,7 +5,7 @@
  * and named priority bands.
  */
 
-import type { ChoiceArity, OperationDefinition, OperationScope, ResolvedFieldAffordance } from '@zodal/core';
+import type { ChoiceArity, OperationCommandResult, OperationDefinition, OperationScope, ResolvedFieldAffordance } from '@zodal/core';
 
 // ============================================================================
 // Priority Bands
@@ -251,14 +251,16 @@ export function or<S = ResolvedFieldAffordance>(...testers: RendererTester<S>[])
  * `registry.resolve(operation, { mode: 'operation' })`. The component shows whatever
  * `operation.confirm` asks for before calling `dispatch`.
  */
-export interface OperationRenderProps<TParams = unknown> {
+export interface OperationRenderProps<TParams = unknown, TResult = unknown> {
   operation: OperationDefinition<TParams>;
-  /** Run the operation (the host decides what that does: a store action, a command). */
-  dispatch: (params?: TParams) => void | Promise<void>;
+  /**
+   * Run the operation: the host binds it to the operation's command, so it returns that
+   * command's result (`ok(value)` or `fail(code, message)`). Await it to show progress, and
+   * show a failure's message.
+   */
+  dispatch: (params?: TParams) => OperationCommandResult<TResult> | Promise<OperationCommandResult<TResult>>;
   context?: RendererContext;
   disabled?: boolean;
-  /** Aborted when the component is unmounted or replaced. */
-  signal?: AbortSignal;
 }
 
 /** An operation tester: the score of a renderer for an `OperationDefinition`. */
@@ -271,9 +273,14 @@ export function operationScopeIs(...scopes: OperationScope[]): OperationTester {
   return (op, context) => (inOperationMode(context) && scopes.includes(op.scope) ? PRIORITY.DEFAULT : -1);
 }
 
-/** Match operations of the given visual variant (`'destructive'`...). Returns LIBRARY priority on match. */
+/** Match operations of the given visual variant (`'destructive'`...; an unset variant is `'default'`). Returns LIBRARY priority on match. */
 export function operationVariantIs(...variants: NonNullable<OperationDefinition['variant']>[]): OperationTester {
-  return (op, context) => (inOperationMode(context) && op.variant !== undefined && variants.includes(op.variant) ? PRIORITY.LIBRARY : -1);
+  return (op, context) => (inOperationMode(context) && variants.includes(op.variant ?? 'default') ? PRIORITY.LIBRARY : -1);
+}
+
+/** Match any operation: a renderer set's default control. Returns FALLBACK priority. */
+export function anyOperation(): OperationTester {
+  return (_op, context) => (inOperationMode(context) ? PRIORITY.FALLBACK : -1);
 }
 
 /** Match operations by name: an app's renderer for one operation. Returns APP priority on match. */
