@@ -42,6 +42,15 @@ export type AggregationFn = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'median' |
  * Design principle: exclusion-based (OData pattern).
  * If not specified, defaults are inferred from the Zod type.
  */
+/**
+ * A widget's own options: plain data a renderer reads (see `FieldAffordance.editWidgetOptions`).
+ * Untyped by default; an app or a renderer package types its keys by declaration merging:
+ * `declare module '@zodal/core' { interface WidgetOptions { layout?: string } }`.
+ */
+export interface WidgetOptions {
+  [key: string]: unknown;
+}
+
 export interface FieldAffordance {
   // --- Query capabilities (OData-inspired) ---
   /** Can items be ordered by this field? Default: inferred from type. */
@@ -117,12 +126,12 @@ export interface FieldAffordance {
   /** Help text shown below edit widget. */
   editHelp?: string;
   /**
-   * A widget's own options (a layout, a heading, a clear value...), passed through untouched to
-   * `FormFieldConfig.widgetOptions` for the renderer to read. Plain data: callbacks and anything
-   * known only at render time belong in the render context. A later inference layer replaces
-   * the whole object (no deep merge).
+   * The edit widget's own options (a layout, a heading, a clear value...), passed on as
+   * `FormFieldConfig.editWidgetOptions` for the renderer to read. Plain data: callbacks and
+   * anything known only at render time belong in the render context. A later inference layer
+   * replaces the whole object (no deep merge); from `.meta()`, only a plain object is taken.
    */
-  widgetOptions?: Record<string, unknown>;
+  editWidgetOptions?: Readonly<WidgetOptions>;
   /** Increment for a numeric edit widget (a slider's or a number input's step). Inferred from `.multipleOf()`, else `1` for an integer. */
   step?: number;
 

@@ -25,6 +25,7 @@ import {
   getVocabularyEntries,
   getZodMeta,
   humanizeFieldName,
+  isPlainObject,
   secretPaths as schemaSecretPaths,
   unwrapZodSchema,
 } from '@zodal/core';
@@ -173,7 +174,8 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     hidden: meta.hidden === true,
     placeholder: meta.editPlaceholder,
     helpText: meta.editHelp ?? meta.description ?? (fieldSchema as any).description,
-    ...(meta.widgetOptions ? { widgetOptions: meta.widgetOptions } : {}),
+    // A secret is drawn as a password field and a code-only value as a note: their declared widget is not used.
+    ...(suppliedInCode || secret || !isPlainObject(meta.editWidgetOptions) ? {} : { editWidgetOptions: { ...meta.editWidgetOptions } }),
     order: meta.order ?? index,
     zodType,
     ...(options ? { options } : {}),

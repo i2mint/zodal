@@ -597,6 +597,13 @@ export function inferFieldAffordances(key: string, schema: z.ZodType): FieldAffo
   return affordances;
 }
 
+/** A plain object (`{}` or `Object.create(null)`): not null, an array, or a class instance. */
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 /** Extract affordance-relevant fields from Zod metadata. */
 function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<FieldAffordance> {
   const result: Partial<FieldAffordance> = {};
@@ -608,7 +615,7 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
     'immutableAfterCreate', 'visible', 'hidden', 'detailOnly', 'summaryField',
     'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
     'title', 'description', 'displayFormat', 'badge', 'copyable', 'truncate',
-    'tooltip', 'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'widgetOptions', 'step',
+    'tooltip', 'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'editWidgetOptions', 'step',
     'storageRole',
   ];
 
@@ -617,6 +624,8 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
       (result as any)[key] = meta[key];
     }
   }
+  // Plain data only: a string, an array or a class instance is not a widget's options.
+  if ('editWidgetOptions' in result && !isPlainObject(result.editWidgetOptions)) delete result.editWidgetOptions;
 
   // Support nested affordance object from .meta({ affordances: { ... } })
   if (meta.affordances && typeof meta.affordances === 'object') {
@@ -650,7 +659,7 @@ export function humanizeFieldName(key: string): string {
 const TRACED_PROPS: (keyof FieldAffordance)[] = [
   'sortable', 'filterable', 'searchable', 'groupable', 'aggregatable',
   'editable', 'visible', 'hidden', 'detailOnly', 'summaryField',
-  'readable', 'inlineEditable', 'editWidget', 'filterWidget', 'truncate', 'tooltip',
+  'readable', 'inlineEditable', 'editWidget', 'filterWidget', 'editWidgetOptions', 'truncate', 'tooltip',
   'storageRole',
 ];
 

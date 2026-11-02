@@ -7,6 +7,7 @@ export type {
   FilterType,
   AggregationFn,
   FieldAffordance,
+  WidgetOptions,
   FieldStorageRole,
   ContentRef,
   // Collection-level
@@ -67,6 +68,7 @@ export {
   getNumericStep,
   getStringLength,
   humanizeFieldName,
+  isPlainObject,
 } from './inference.js';
 
 // Zod wrapper peeling (one wrapper list for inference, secrets and descriptors)
