@@ -53,6 +53,7 @@ export interface ColumnConfig {
     copyable?: boolean;
     truncate?: number;
     tooltip?: boolean;
+    /** A closed choice's option values: always `options.map((o) => o.value)`, kept for renderers that read only the values. */
     enumValues?: string[];
     /** A closed choice's options (label, hint, data), the same as its form and filter get: a cell shows the label of its value. */
     options?: VocabularyOption[];

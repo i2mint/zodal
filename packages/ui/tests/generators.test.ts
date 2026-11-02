@@ -517,4 +517,13 @@ describe('toColumnDefs options (#99)', () => {
     expect(cols.mood.meta.options?.map((o) => o.label)).toEqual(['Low', 'Ok']);
     expect(cols.note.meta.options).toBeUndefined();
   });
+  it('a multi-choice column and a bigint choice carry options too', () => {
+    const c = defineCollection(z.object({ id: z.string(), tags: z.array(z.enum(['a', 'b'])), big: z.bigint() }), {
+      fields: { big: { choices: [{ value: 10n, label: 'Ten' }] } },
+    });
+    const cols = Object.fromEntries(toColumnDefs(c).map((col) => [col.id, col]));
+    expect(cols.tags.meta.options?.map((o) => o.value)).toEqual(['a', 'b']);
+    expect(cols.big.meta.options).toEqual([{ label: 'Ten', value: '10', kind: 'bigint' }]);
+    expect(cols.big.meta.enumValues).toEqual(['10']);
+  });
 });
