@@ -72,7 +72,7 @@ export default story('Define a zero-config collection', {
 - One describe block per public function or major behavior
 - Name tests as behavior: `'infers string defaults'`, not `'test string'`
 
-**Test files are typechecked** (`pnpm typecheck` runs `tsc -p tsconfig.test.json` in each package, over `src` and `tests`; CI runs it). So `@ts-expect-error` and `expectTypeOf` assertions are real tests, and a test that deliberately passes a wrong shape says so with a cast or a typed fixture (see `withOptions` in `packages/store/tests/descriptor.test.ts`), not by being left untyped.
+**Test files are typechecked** (`pnpm typecheck` runs `tsc -p tsconfig.test.json` in each package, over `src` and `tests`, and the root `tsconfig.test.json` over the root `tests/`, resolving `@zodal/*` to the packages' sources as the integration vitest config does; CI runs it). So `@ts-expect-error` and `expectTypeOf` assertions are real tests, and a test that deliberately passes a wrong shape says so with a cast or a typed fixture (see `withOptions` in `packages/store/tests/descriptor.test.ts`), not by being left untyped.
 
 ## Integration Test Conventions
 

@@ -11,6 +11,7 @@ const flat = (fields: OptionsFormField[]): Record<string, OptionsFormField> =>
 describe('An options form for a provider descriptor (#26)', () => {
   const descriptor = defineProviderDescriptor({
     name: 'example-s3',
+    label: 'Example S3',
     source: { module: 'example', export: 'exampleS3' },
     runtime: 'any',
     options: z.object({

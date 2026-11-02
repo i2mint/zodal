@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@zodal/store/descriptor": ["packages/store/src/descriptor.ts"],
+      "@zodal/core": ["packages/core/src/index.ts"],
+      "@zodal/store": ["packages/store/src/index.ts"],
+      "@zodal/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "include": ["tests"]
+}

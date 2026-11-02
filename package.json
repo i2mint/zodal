@@ -7,7 +7,7 @@
     "test": "turbo test",
     "test:integration": "vitest run --config tests/vitest.config.ts",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck",
+    "typecheck": "turbo typecheck && tsc -p tsconfig.test.json",
     "check:peers": "node scripts/check-satellite-peers.mjs"
   },
   "devDependencies": {
