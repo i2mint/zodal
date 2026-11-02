@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { toFormConfig, formFieldAffordance, selectedValue, closedChoice, PRIORITY } from '../src/index.js';
+import { toFormConfig, formFieldAffordance, selectedValue, optionKey, closedChoice, PRIORITY } from '../src/index.js';
 
 const cfg = (schema: z.ZodType) => toFormConfig(defineCollection(z.object({ x: schema })))[0];
 
@@ -30,6 +30,40 @@ describe('selectedValue', () => {
     const f = cfg(z.enum(['a', 'b']));
     expect(selectedValue({ ...f, required: false }, '')).toBeUndefined();
     expect(selectedValue({ ...f, required: true }, '')).toBe('');
+  });
+});
+
+describe('optionKey', () => {
+  it('keys numbers, booleans, bigints and strings by their option value', () => {
+    expect(optionKey(cfg(z.literal([2, 4])), 4)).toBe('4');
+    expect(optionKey(cfg(z.literal([true, false])), false)).toBe('false');
+    expect(optionKey(cfg(z.literal([1n, 2n])), 2n)).toBe('2');
+    expect(optionKey(cfg(z.enum(['a', 'b'])), 'b')).toBe('b');
+  });
+  it('matches by schema value, not by its string form', () => {
+    expect(optionKey(cfg(z.literal([2, 4])), '4')).toBe('');
+    expect(optionKey(cfg(z.literal([1n, 2n])), 2)).toBe('');
+    expect(optionKey(cfg(z.literal([0, 1])), false)).toBe('');
+  });
+  it('no value, or a stale one, is the placeholder', () => {
+    const f = cfg(z.literal([2, 4]));
+    expect(optionKey(f, undefined)).toBe('');
+    expect(optionKey(f, null)).toBe('');
+    expect(optionKey(f, 3)).toBe('');
+    expect(optionKey({}, 'a')).toBe('');
+  });
+  it('round-trips with selectedValue', () => {
+    for (const schema of [z.literal([2, 4]), z.literal([1n, 2n]), z.enum(['a', 'b']), z.boolean().pipe(z.literal(true))]) {
+      const f = cfg(schema);
+      for (const o of f.options ?? []) expect(optionKey(f, selectedValue(f, o.value))).toBe(o.value);
+      expect(optionKey(f, selectedValue({ ...f, required: true }, ''))).toBe('');
+      expect(optionKey(f, selectedValue({ ...f, required: false }, ''))).toBe('');
+    }
+  });
+  it('a mixed 1 | "1" choice keeps the number (documented limit)', () => {
+    const f = cfg(z.union([z.literal(1), z.literal('1')]));
+    expect(optionKey(f, 1)).toBe('1');
+    expect(optionKey(f, '1')).toBe('');
   });
 });
 

@@ -144,6 +144,16 @@ export function toOption(e: VocabularyEntry): VocabularyOption {
 }
 
 /**
+ * The value an option stands for, as the schema accepts it: a bigint choice as a bigint,
+ * else its `raw` when present, else its string value. Takes any `{ value }` option, so a
+ * suggestion (which has no `raw`) decodes to its string.
+ */
+export function optionRaw(option: Pick<VocabularyOption, 'value'> & Partial<VocabularyOption>): string | number | boolean | bigint {
+  if (option.kind === 'bigint') return BigInt(option.value);
+  return option.raw !== undefined ? option.raw : option.value;
+}
+
+/**
  * Generate form field configurations for create or edit forms.
  */
 export function toFormConfig<T extends z.ZodObject<any>>(
