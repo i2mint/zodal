@@ -95,6 +95,7 @@ describe('toColumnDefs', () => {
     // Numbers (a numeric enum included), booleans, bigints: basic, so 2 sorts before 10.
     expect(sortFn(z.enum(Level))).toBe('basic');
     expect(sortFn(z.literal([2, 10]))).toBe('basic');
+    expect(sortFn(z.literal([true, false]))).toBe('basic');
     expect(sortFn(z.union([z.literal(1n), z.literal(2n)]))).toBe('basic');
     // A mix of strings and numbers: alphanumeric (basic would order them by input order).
     expect(sortFn(z.union([z.literal('a'), z.literal(1)]))).toBe('alphanumeric');
