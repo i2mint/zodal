@@ -365,6 +365,18 @@ describe('getNumericStep (#43)', () => {
     expect(getNumericStep(z.number().int())).toBe(1);
     expect(getNumericStep(z.number())).toBeUndefined();
   });
+  it('across a plain pipe, the step that meets both sides (#90)', () => {
+    expect(getNumericStep(z.int().pipe(z.number().max(3)))).toBe(1);
+    expect(getNumericStep(z.number().pipe(z.int()))).toBe(1);
+    expect(getNumericStep(z.int().pipe(z.number().multipleOf(5)))).toBe(5);
+    expect(getNumericStep(z.number().multipleOf(4).pipe(z.number().multipleOf(6)))).toBe(12);
+    expect(getNumericStep(z.number().multipleOf(0.5).pipe(z.int()))).toBe(1);
+    expect(getNumericStep(z.number().multipleOf(0.25).pipe(z.number().multipleOf(0.5)))).toBe(0.5);
+  });
+  it('a codec or a transform keeps one side', () => {
+    const cents = z.codec(z.int(), z.number().multipleOf(0.01), { decode: (c) => c / 100, encode: (d) => Math.round(d * 100) });
+    expect(getNumericStep(cents)).toBe(0.01);
+  });
 });
 
 describe('union of T and null/undefined unwraps to T (#63)', () => {

@@ -328,14 +328,36 @@ export function getStringLength(schema: z.ZodType): StringLength {
 
 /**
  * The increment a numeric input should step by: the schema's `.multipleOf()`, else `1`
- * for an integer (`z.int()`, `.int()`), else `undefined` (any number).
+ * for an integer (`z.int()`, `.int()`), else `undefined` (any number). Across a plain pipe,
+ * the step that meets both sides (see `commonStep`).
  */
 export function getNumericStep(schema: z.ZodType): number | undefined {
-  const unwrapped = unwrapZodSchema(schema) as any;
-  const bag = unwrapped._zod?.bag;
-  if (typeof bag?.multipleOf === 'number') return bag.multipleOf;
-  if (unwrapped.isInt === true) return 1;
-  return undefined;
+  return limitSchemas(schema).map(numericStepOf).reduce(commonStep, undefined);
+}
+
+/** The step one (unwrapped) schema declares: its `.multipleOf()`, and `1` if it is an integer. */
+function numericStepOf(unwrapped: any): number | undefined {
+  const multipleOf = unwrapped._zod?.bag?.multipleOf;
+  return commonStep(typeof multipleOf === 'number' ? multipleOf : undefined, unwrapped.isInt === true ? 1 : undefined);
+}
+
+/**
+ * The step a value meeting both steps moves by: the larger when it is a multiple of the
+ * smaller (an integer's 1 and a multipleOf(5): 5; 0.5 and 1: 1), the least common multiple of
+ * two whole numbers (4 and 6: 12), else the larger, as the closest hint.
+ */
+function commonStep(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  const [small, large] = a <= b ? [a, b] : [b, a];
+  const ratio = large / small;
+  if (Math.abs(ratio - Math.round(ratio)) < 1e-9) return large;
+  if (Number.isInteger(small) && Number.isInteger(large)) return (small * large) / gcd(small, large);
+  return large;
+}
+
+function gcd(x: number, y: number): number {
+  return y === 0 ? x : gcd(y, x % y);
 }
 
 // ============================================================================

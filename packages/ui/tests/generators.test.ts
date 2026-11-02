@@ -237,6 +237,15 @@ describe('toFormConfig', () => {
 // toFilterConfig
 // ============================================================================
 
+describe('toFormConfig numeric props across a pipe (#90)', () => {
+  it('an integer piped into an exclusive bound gets the step that moves the bound in', () => {
+    const c = defineCollection(z.object({ n: z.int().pipe(z.number().lt(5)) }));
+    const [f] = toFormConfig(c);
+    expect(f.step).toBe(1);
+    expect(f.bounds).toEqual({ max: 4 });
+  });
+});
+
 describe('toFormConfig string length (#78)', () => {
   it('carries minLength and maxLength for strings only', () => {
     const c = defineCollection(z.object({
