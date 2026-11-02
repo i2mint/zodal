@@ -337,6 +337,22 @@ for (const col of columns) {
 
 **Operations are declarative; execution is a command.** Render `OperationDefinition`s (label, icon, confirm, shortcut) as buttons or menu items, and on activation dispatch the command whose id is `operationCommandId(namespace, op)`. The app builds those commands with `toCommandRecord(op, execute, { namespace })` from `@zodal/core` (acture's `CommandRecord` shape; `execute` returns `ok(value)` or `fail(code, message)`). A confirmation (`op.confirm`) is the renderer's to show before dispatching: commands carry no confirm, so gate destructive ones with `when` for other surfaces. An operation declared `undoable` (`true`, or `{ seconds }`) can be undone after it runs: offer Undo when its dispatch succeeds and the undo history actually recorded an entry for it (acture-undo skips an empty capture), for `undoSeconds(op, { defaultSeconds })` seconds (from `@zodal/core`: the operation's own `{ seconds }`, else the renderer set's default). View configs carry `undoable` on each operation. A renderer set for users who mis-tap may offer Undo instead of a confirmation; that choice is the set's policy, not the operation's. To let an app swap the control per operation, register operation renderers in their own registry, `createRendererRegistry<Component, OperationDefinition>()`, with the operation testers (`anyOperation` as the fallback, `operationScopeIs`, `operationVariantIs`, `operationIs`; they match only in `'operation'` mode), resolve with `registry.resolve(op, { mode: 'operation' })`, and give the component `OperationRenderProps` (`{ operation, dispatch, context?, disabled? }`). The host binds `dispatch` to the operation's command with `operationDispatcher({ namespace, execute, context })` from `@zodal/core` (`dispatchFor(op)`; with acture, `execute: (id, params, ctx) => registry.dispatch(id, params, ctx)`, and `context` gives what the commands' `when` clauses read, such as the selection), so it returns that command's `ok` / `fail` result: await it for progress and show a failure's message.
 
+## Feedback Contract (every pressable)
+
+Every element a renderer draws that a person presses (an operation button, a menu item, an item with `onOpen`, a tile) applies the feedback principle by default, with no host code. Decision and research: `docs/adr/0001-feedback-principle.md`.
+
+- **Pressed within 0.1 s, on the element:** `data-pressed` on `pointerdown` (primary button), cleared on `pointerup` / `pointercancel` / `pointerleave`. CSS `:active` alone does not fire on iOS Safari.
+- **Act on `click`** (and Enter for a non-button), never on `pointerdown` (WCAG 2.5.2).
+- **Pending in the same event:** `data-pending`, `aria-busy="true"`, `aria-disabled="true"` (never native `disabled`: it drops focus); repeat presses ignored until it settles; `data-status="success" | "error"` after.
+- **Indicator by elapsed time:** `data-indicator` (a spinner) only after `FEEDBACK_MS.indicator`, held at least 500 ms.
+- **Back/forward cache:** clear pending on `pageshow` with `persisted`.
+- **Styles ship with the renderer** at zero specificity or as utility classes, with a reduced-motion variant and `touch-action: manipulation`; hover is decoration only (`@media (hover: hover)`), and nothing is conveyed only by `title` or a hover tooltip.
+- **Callbacks return the work:** type them `(…) => void | PromiseLike<unknown>`; an operation's `dispatch` returns its `OperationCommandResult` (`{ ok: false }` reads as an error).
+
+Build it on `createActionFeedback` from `@zodal/ui` (pending synchronously, the guard: `run()` returns `null` while pending, the delayed indicator, `reset()`), or on the renderers' own helpers: `wirePress` in `@zodal/ui-vanilla`, `usePress` + `PRESS_CLASS` + `PressIndicator` in `@zodal/ui-shadcn`. A DOM renderer that rebuilds its view on every state change keys the action's state outside the element (`wirePress`'s `share: { scope: config, key }`), or a button rebuilt mid-flight comes back idle and pressable.
+
+**Test it** by copying a renderer package's `tests/feedback.test.ts`: pressed on `pointerdown`; pending, `aria-busy` and `aria-disabled` synchronously after `click()` with a never-resolving handler; three clicks run the handler once; cleared on settle; indicator at the delay and not before; a bfcache restore clears pending.
+
 ## Generator Output Types Reference
 
 ### ColumnConfig (from toColumnDefs)
@@ -500,5 +516,7 @@ for (const { name, score } of scores) {
 - [ ] `createMyLibRegistry()` convenience function exported
 - [ ] Individual renderer arrays exported for selective use
 - [ ] Tests verify tester resolution and priority ordering
+- [ ] Feedback contract: every pressable is pressed on `pointerdown`, pending and guarded while its promise runs, with a delayed indicator, styled by default (reduced motion included)
+- [ ] `tests/feedback.test.ts` copied from an existing renderer and passing
 - [ ] `peerDependencies` on `@zodal/core`, `@zodal/ui`, and your UI lib
 - [ ] README with install, quick start, supported renderers table
