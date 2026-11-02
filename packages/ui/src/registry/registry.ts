@@ -11,19 +11,19 @@ import type { RendererEntry, RendererTester, RendererContext } from './tester.js
 // Registry Interface
 // ============================================================================
 
-export interface RendererRegistry<TComponent = unknown> {
+export interface RendererRegistry<TComponent = unknown, TSubject = ResolvedFieldAffordance> {
   /** All registered entries. */
-  readonly entries: ReadonlyArray<RendererEntry<TComponent>>;
+  readonly entries: ReadonlyArray<RendererEntry<TComponent, TSubject>>;
 
   /** Register a new renderer entry. */
-  register(entry: RendererEntry<TComponent>): void;
+  register(entry: RendererEntry<TComponent, TSubject>): void;
 
-  /** Find the highest-scoring renderer for a field. Returns null if no match. */
-  resolve(field: ResolvedFieldAffordance, context: RendererContext): TComponent | null;
+  /** Find the highest-scoring renderer for a field (or an operation). Returns null if no match. */
+  resolve(subject: TSubject, context: RendererContext): TComponent | null;
 
-  /** Debug: show all testers and their scores for a field. */
+  /** Debug: show all testers and their scores for a field (or an operation). */
   explain(
-    field: ResolvedFieldAffordance,
+    subject: TSubject,
     context: RendererContext,
   ): Array<{ renderer: TComponent; score: number; name?: string }>;
 }
@@ -36,7 +36,9 @@ export interface RendererRegistry<TComponent = unknown> {
  * Create a new renderer registry.
  *
  * The registry resolves renderers by running all testers against a field
- * and returning the renderer with the highest score.
+ * and returning the renderer with the highest score. `TSubject` is what it resolves for:
+ * a field (the default), or an `OperationDefinition` for an operation registry
+ * (`createRendererRegistry<Component, OperationDefinition>()`, resolved in `'operation'` mode).
  *
  * @example
  * ```typescript
@@ -57,24 +59,24 @@ export interface RendererRegistry<TComponent = unknown> {
  * const Component = registry.resolve(field, { mode: 'form' });
  * ```
  */
-export function createRendererRegistry<TComponent = unknown>(): RendererRegistry<TComponent> {
-  const entries: RendererEntry<TComponent>[] = [];
+export function createRendererRegistry<TComponent = unknown, TSubject = ResolvedFieldAffordance>(): RendererRegistry<TComponent, TSubject> {
+  const entries: RendererEntry<TComponent, TSubject>[] = [];
 
   return {
     get entries() {
-      return entries as ReadonlyArray<RendererEntry<TComponent>>;
+      return entries as ReadonlyArray<RendererEntry<TComponent, TSubject>>;
     },
 
-    register(entry: RendererEntry<TComponent>) {
+    register(entry: RendererEntry<TComponent, TSubject>) {
       entries.push(entry);
     },
 
-    resolve(field: ResolvedFieldAffordance, context: RendererContext): TComponent | null {
+    resolve(subject: TSubject, context: RendererContext): TComponent | null {
       let bestScore = -1;
       let bestRenderer: TComponent | null = null;
 
       for (const entry of entries) {
-        const score = entry.tester(field, context);
+        const score = entry.tester(subject, context);
         if (score > bestScore) {
           bestScore = score;
           bestRenderer = entry.renderer;
@@ -85,13 +87,13 @@ export function createRendererRegistry<TComponent = unknown>(): RendererRegistry
     },
 
     explain(
-      field: ResolvedFieldAffordance,
+      subject: TSubject,
       context: RendererContext,
     ): Array<{ renderer: TComponent; score: number; name?: string }> {
       return entries
         .map((entry) => ({
           renderer: entry.renderer,
-          score: entry.tester(field, context),
+          score: entry.tester(subject, context),
           name: entry.name,
         }))
         .sort((a, b) => b.score - a.score);
