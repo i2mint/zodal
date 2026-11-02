@@ -25,7 +25,9 @@ export interface FilterFieldConfig {
   /**
    * For a range filter: the data's quantiles, non-decreasing and finite. `quantiles[i]` is the
    * value at percentile `100 * i / (quantiles.length - 1)` (101 values: whole percentiles), so a
-   * slider can lay its track out by the data. Filled by `toFilterConfig(c, { data })`, or by the app.
+   * slider can lay its track out by the data. A date field's quantiles are epoch milliseconds
+   * (`new Date(q)` is the date at that percentile; a slider writes back `new Date(value)`).
+   * Filled by `toFilterConfig(c, { data })`, or by the app.
    */
   quantiles?: number[];
   /** Zod type. */
@@ -36,12 +38,18 @@ export interface FilterFieldConfig {
 export interface FilterConfigOptions {
   /**
    * Rows in memory: each range filter gets the `quantiles` of its field's values that are
-   * numbers (dates, bigints and strings are skipped, so such a field gets none; rows that
-   * are not objects are skipped). Read once, so a one-shot iterable works.
+   * numbers or dates (as epoch milliseconds). Bigints and strings (an ISO date not yet parsed)
+   * are skipped, and so are rows that are not objects. Read once, so a one-shot iterable works.
    */
   data?: Iterable<object | null | undefined>;
   /** How many intervals the quantiles split the data into (`quantileCount + 1` values). Default 100: whole percentiles. */
   quantileCount?: number;
+}
+
+/** A value's position on a range filter's scale: a number as itself, a date as epoch milliseconds; else none. */
+function rangeValueOf(value: unknown): number | undefined {
+  if (typeof value === 'number') return value;
+  return value instanceof Date ? value.getTime() : undefined; // an invalid date is NaN, which quantilesOf ignores
 }
 
 /**
@@ -56,7 +64,7 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
   const rows = data ? Array.from(data) : undefined;
   const quantilesFor = (key: string): number[] | undefined => {
     if (!rows) return undefined;
-    const values = rows.map((r) => (r as Record<string, unknown> | null)?.[key]).filter((v): v is number => typeof v === 'number');
+    const values = rows.map((r) => rangeValueOf((r as Record<string, unknown> | null)?.[key])).filter((v): v is number => v !== undefined);
     const q = quantilesOf(values, quantileCount);
     return q.length ? q : undefined;
   };

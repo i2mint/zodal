@@ -71,9 +71,18 @@ describe('toFilterConfig with data', () => {
     expect(f.gross.quantiles).toEqual([1, 2, 3]);
     expect(f.year).not.toHaveProperty('quantiles');
   });
-  it('a date range filter gets no quantiles (numbers only)', () => {
+  it('a date range filter gets quantiles in epoch milliseconds (#85)', () => {
     const c = defineCollection(z.object({ at: z.date().meta({ filterable: 'range' }) }));
-    const f = byName(toFilterConfig(c, { data: [{ at: new Date(0) }, { at: new Date(1) }] }));
+    const day = 86_400_000;
+    const rows = [{ at: new Date(0) }, { at: new Date(4 * day) }, { at: new Date(NaN) }, { at: '1970-01-02' }, {}];
+    const f = byName(toFilterConfig(c, { data: rows, quantileCount: 2 }));
+    expect(f.at.quantiles).toEqual([0, 2 * day, 4 * day]);
+    expect(new Date(f.at.quantiles![1]).toISOString()).toBe('1970-01-03T00:00:00.000Z');
+  });
+  it('bigints and unparsed strings give no quantiles', () => {
+    const c = defineCollection(z.object({ n: z.bigint().meta({ filterable: 'range' }), at: z.date().meta({ filterable: 'range' }) }));
+    const f = byName(toFilterConfig(c, { data: [{ n: 1n, at: '2020-01-01' }, { n: 2n, at: '2021-01-01' }] }));
+    expect(f.n).not.toHaveProperty('quantiles');
     expect(f.at).not.toHaveProperty('quantiles');
   });
   it('filterWidgetIs matches filterWidget, else editWidget', () => {
