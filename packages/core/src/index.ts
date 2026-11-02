@@ -92,10 +92,11 @@ export {
 } from './codec-types.js';
 
 // Operations as commands (acture-shaped, no acture dependency)
-export { toCommandRecord, ok, fail, operationCommandId, normalizeKeybinding } from './commands.js';
+export { toCommandRecord, ok, fail, operationCommandId, operationDispatcher, normalizeKeybinding } from './commands.js';
 export type {
   OperationCommand,
   OperationCommandResult,
+  CommandExecutor,
   OperationCommandError,
   OperationPatch,
   OperationEffect,

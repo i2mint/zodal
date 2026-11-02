@@ -192,11 +192,51 @@ export function toCommandRecord<P = unknown, R = unknown>(
       try {
         return await execute(params, ctx);
       } catch (err) {
-        // Keep a string `code` the error carries (as acture's dispatcher does); never the raw object.
-        const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : 'execute_threw';
-        return fail(code, err instanceof Error ? err.message : String(err));
+        return failureOf(err, 'execute_threw');
       }
     },
   };
   return Object.freeze(command);
+}
+
+/**
+ * A thrown error as a failed result: the string `code` it carries (as acture's dispatcher
+ * keeps it), else `fallbackCode`, and its message, never the raw object (it may hold credentials).
+ */
+function failureOf(err: unknown, fallbackCode: string): OperationCommandResult<never> {
+  const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : fallbackCode;
+  return fail(code, err instanceof Error ? err.message : String(err));
+}
+
+/** Runs a command by id: acture's `registry.execute(id, params)`, or any host's dispatcher. */
+export type CommandExecutor = (
+  commandId: string,
+  params?: unknown,
+) => OperationCommandResult<unknown> | Promise<OperationCommandResult<unknown>>;
+
+/**
+ * The `dispatch` a renderer calls for each operation (`OperationRenderProps.dispatch` in
+ * `@zodal/ui`): it runs the command {@link toCommandRecord} registered for that operation
+ * (the same id, {@link operationCommandId}) through the host's `execute`, so a renderer never
+ * builds command ids. The id is checked when the dispatch is made, not when it is called.
+ * A throwing `execute` (an unknown command, a dead connection) becomes
+ * `fail('dispatch_threw', message)`, so a renderer only ever handles a result.
+ *
+ * @example
+ * ```ts
+ * const dispatchFor = operationDispatcher({ namespace: 'notes', execute: (id, p) => registry.execute(id, p) });
+ * <Button operation={archive} dispatch={dispatchFor(archive)} />
+ * ```
+ */
+export function operationDispatcher({ namespace, execute }: { namespace?: string; execute: CommandExecutor }) {
+  return <P = unknown, R = unknown>(operation: Pick<OperationDefinition, 'name'>) => {
+    const id = operationCommandId(namespace, operation);
+    return async (params?: P): Promise<OperationCommandResult<R>> => {
+      try {
+        return (await execute(id, params)) as OperationCommandResult<R>;
+      } catch (err) {
+        return failureOf(err, 'dispatch_threw');
+      }
+    };
+  };
 }

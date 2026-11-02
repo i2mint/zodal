@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { toCommandRecord, operationCommandId, normalizeKeybinding, ok, fail } from '../src/commands.js';
+import { toCommandRecord, operationCommandId, operationDispatcher, normalizeKeybinding, ok, fail } from '../src/commands.js';
 import type { OperationDefinition } from '../src/types.js';
 
 const archive: OperationDefinition = {
@@ -66,5 +66,33 @@ describe('review round 2', () => {
   it('a thrown error keeps its string code', async () => {
     const r = await toCommandRecord(archive, () => { throw Object.assign(new Error('x'), { code: 'not_found' }); }).execute(undefined, {});
     expect(r).toEqual({ ok: false, error: { code: 'not_found', message: 'x' } });
+  });
+});
+
+describe('operationDispatcher (#97)', () => {
+  const op: OperationDefinition = { name: 'archive', label: 'Archive', scope: 'selection' };
+
+  it('runs the command registered for the operation, by the same id', async () => {
+    const seen: [string, unknown][] = [];
+    const cmd = toCommandRecord(op, (p: { ids: string[] }) => ok(p.ids.length), { namespace: 'notes' });
+    const dispatchFor = operationDispatcher({
+      namespace: 'notes',
+      execute: (id, params) => {
+        seen.push([id, params]);
+        return id === cmd.id ? cmd.execute(params as { ids: string[] }, {}) : fail('unknown_command', id);
+      },
+    });
+    const dispatch = dispatchFor<{ ids: string[] }, number>(op);
+    expect(await dispatch({ ids: ['a', 'b'] })).toEqual({ ok: true, value: 2 });
+    expect(seen).toEqual([['notes.archive', { ids: ['a', 'b'] }]]);
+  });
+  it('a throwing executor is a failed result, keeping a string code and never the raw error', async () => {
+    const dispatch = operationDispatcher({ execute: () => { throw Object.assign(new Error('gone'), { code: 'offline', secret: 'x' }); } })(op);
+    expect(await dispatch()).toEqual({ ok: false, error: { code: 'offline', message: 'gone' } });
+    const plain = operationDispatcher({ execute: async () => { throw 'boom'; } })(op);
+    expect(await plain()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'boom' } });
+  });
+  it('checks the id when the dispatch is made', () => {
+    expect(() => operationDispatcher({ execute: () => ok(1) })({ name: '1bad' })).toThrow(/must start with a letter/);
   });
 });
