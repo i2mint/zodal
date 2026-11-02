@@ -9,8 +9,6 @@ import { z } from 'zod';
 import type {
   CollectionConfig,
   CollectionAffordances,
-  ChoiceArity,
-  ChoiceOption,
   FieldAffordance,
   OperationDefinition,
   PaginationConfig,
@@ -23,8 +21,8 @@ import {
   inferFieldAffordancesWithTrace,
   getZodBaseType,
   getChoiceArity,
+  checkChoices,
   humanizeFieldName,
-  unwrapZodSchema,
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
 import { affordanceRegistry as defaultRegistry } from './registry.js';
@@ -291,17 +289,21 @@ function resolveAllFieldAffordances(
   const result: Record<string, ResolvedFieldAffordance> = {};
 
   for (const [key, fieldSchema] of Object.entries(shape)) {
-    // Layers 1-4: Infer defaults from type + name + meta
-    const inferred = inferFieldAffordances(key, fieldSchema);
-
     // Layer 5: Affordance registry (survives .optional()/.nullable() wrapping)
     const registryOverrides = defaultRegistry.get(fieldSchema) ?? {};
 
     // Layer 6: Explicit config overrides
     const explicitOverrides = explicit?.[key] ?? {};
-    const merged = { ...inferred, ...registryOverrides, ...explicitOverrides };
-    // Checked even on an enum, whose own arity wins: a curated value must be one the schema accepts.
-    const curated = curatedChoiceArity(key, fieldSchema, merged.choices);
+
+    // Layers 1-4: Infer defaults from type + name + meta, then layer 5 and 6 on top.
+    const layered = (resolved?: Pick<FieldAffordance, 'choices'>) =>
+      ({ ...inferFieldAffordances(key, fieldSchema, resolved), ...registryOverrides, ...explicitOverrides });
+    const declared = layered();
+    // Curated choices (from any layer) are checked here, even on an enum: each must be a value
+    // the schema accepts. When they make the field a closed choice, its layer-1 defaults are a
+    // closed choice's (a select filter, not a range), still under .meta(), registry and config.
+    const choices = checkChoices(key, fieldSchema, declared.choices);
+    const merged = choices?.length ? layered({ choices }) : declared;
 
     // Build a fully-resolved affordance: title, zodType, and zodDef are always
     // populated; storageRole defaults to 'metadata' so testers like
@@ -312,34 +314,13 @@ function resolveAllFieldAffordances(
       ...merged,
       title: merged.title ?? humanizeFieldName(key),
       zodType: getZodBaseType(fieldSchema),
-      choice: getChoiceArity(fieldSchema) ?? curated,
+      choice: getChoiceArity(fieldSchema, merged),
       zodDef: (fieldSchema as { _zod?: { def?: unknown } })._zod?.def,
       storageRole: merged.storageRole ?? 'metadata',
     } as ResolvedFieldAffordance;
   }
 
   return result;
-}
-
-/**
- * The arity curated `choices` give a field that is not a closed choice by its schema:
- * `'multi'` for an array or set field, else `'single'`; `null` without choices. Throws when a
- * choice is not a value the schema accepts (for an array or set: as one element), so a wrong
- * list fails where it is declared, not when a user picks it.
- */
-function curatedChoiceArity(key: string, schema: z.ZodType, choices: readonly ChoiceOption[] | undefined): ChoiceArity | null {
-  if (!choices?.length) return null;
-  const def = (unwrapZodSchema(schema) as any)._zod?.def;
-  const multi = def?.type === 'array' || def?.type === 'set';
-  const accepts: z.ZodType = multi ? (def.element ?? def.valueType) : schema;
-  for (const { value } of choices) {
-    const parsed = accepts.safeParse(value);
-    if (!parsed.success) {
-      const why = parsed.error.issues[0]?.message ?? 'refused';
-      throw new Error(`defineCollection: field "${key}" lists the choice ${JSON.stringify(typeof value === 'bigint' ? `${value}n` : value)}, which its schema refuses (${why}).`);
-    }
-  }
-  return multi ? 'multi' : 'single';
 }
 
 /** Detect the ID field from schema. */
@@ -469,7 +450,7 @@ function generateExplanation(
     const explicitOverrides = config?.fields?.[key as keyof typeof config.fields] ?? {};
 
     // Get layer-by-layer traces from the inference engine (including registry)
-    const { traces } = inferFieldAffordancesWithTrace(key, fieldSchema, defaultRegistry);
+    const { traces } = inferFieldAffordancesWithTrace(key, fieldSchema, defaultRegistry, resolved[key]);
 
     // Augment with config override layer (Layer 6)
     for (const trace of traces) {

@@ -41,14 +41,27 @@ export type AggregationFn = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'median' |
  * with what a widget shows for it.
  */
 export interface ChoiceOption {
-  /** The value written to the field (for an array or set field: one element). */
+  /**
+   * The value written to the field (for an array or set field: one element), as the app
+   * holds it: for a codec field, its output side. Unique by its text (`String(value)`), the
+   * key a widget uses, so `1` and `'1'` cannot both be listed.
+   */
   value: string | number | boolean | bigint;
-  /** What the widget shows. Default: the value as text, capitalised. */
+  /** What the widget shows, as given. Default: the value as text, capitalised. */
   label?: string;
   /** A line of explanation under the label. */
   hint?: string;
-  /** Anything else the widget reads for this choice (a tone, an icon). Plain data. */
-  data?: Readonly<Record<string, unknown>>;
+  /** Anything else the widget reads for this choice (see {@link ChoiceData}). Plain data. */
+  data?: Readonly<ChoiceData>;
+}
+
+/**
+ * A curated choice's own data (`ChoiceOption.data`): a tone, an icon, whatever a widget reads.
+ * Untyped by default; an app or a renderer package types its keys by declaration merging:
+ * `declare module '@zodal/core' { interface ChoiceData { tone?: 'calm' | 'loud' } }`.
+ */
+export interface ChoiceData {
+  [key: string]: unknown;
 }
 
 /**
@@ -149,10 +162,13 @@ export interface FieldAffordance {
   editWidgetOptions?: Readonly<WidgetOptions>;
   /**
    * Curated choices: the values a widget offers, each with a label, a hint and data, without
-   * changing the storage schema (a bounded number offering "Every hour" = 60). Each value must
-   * be one the field's schema accepts (checked by `defineCollection`). The field then becomes a
-   * closed choice (`choice: 'single'`, or `'multi'` for an array or set field) whose options
-   * are these, in this order; on an enum they replace the vocabulary's options.
+   * changing the storage schema (a bounded number offering "Every hour" = 60). `defineCollection`
+   * checks them: each must be a `{ value, label?, hint?, data? }` whose value the field's schema
+   * accepts (as one element for an array or set field; a codec's output side), no two with the
+   * same `String(value)`. The field then becomes a closed choice (`ResolvedFieldAffordance.choice`
+   * is `'single'`, or `'multi'` for an array or set field) and gets a closed choice's defaults
+   * (a `'select'` filter, groupable) under any `.meta()`, registry or config value; its options
+   * are these, in this order (`getFieldChoices`); on an enum they replace the vocabulary's.
    */
   choices?: readonly ChoiceOption[];
   /** Increment for a numeric edit widget (a slider's or a number input's step). Inferred from `.multipleOf()`, else `1` for an integer. */
@@ -370,8 +386,8 @@ export interface CollectionConfig<TShape extends Record<string, unknown> = Recor
 
 /**
  * How many of a closed vocabulary a field takes: `'single'` (an enum, a literal, a
- * union of literals), `'multi'` (an array or set of those), or `null` when the field
- * is not a closed choice.
+ * union of literals, or a field with curated `choices`), `'multi'` (an array or set of
+ * those), or `null` when the field is not a closed choice.
  */
 export type ChoiceArity = 'single' | 'multi';
 
@@ -387,7 +403,7 @@ export interface ResolvedFieldAffordance extends FieldAffordance {
   title: string;
   zodType: string;
   zodDef: unknown;
-  /** Closed-choice arity of the field (`'single'`, `'multi'`), or `null` when it is not a closed choice. Testers read this instead of guessing from `zodType`. Test `=== 'single'` / `=== 'multi'`, not `!== null`: a hand-built affordance (a test stub) may omit it. */
+  /** Closed-choice arity of the field (`'single'`, `'multi'`), or `null` when it is not a closed choice: by its schema (an enum, literals, an array of them) or by its curated `choices` (see `FieldAffordance.choices`; decided by `getChoiceArity`). Testers read this instead of guessing from `zodType`. Test `=== 'single'` / `=== 'multi'`, not `!== null`: a hand-built affordance (a test stub) may omit it. */
   choice: ChoiceArity | null;
   /** Storage role — always resolved (defaults to 'metadata'). */
   storageRole: FieldStorageRole;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { toFormConfig, toFilterConfig, selectedValue, optionKey } from '../src/index.js';
+import { toFormConfig, toFilterConfig, toColumnDefs, toViewConfig, toPrompt, rankViews, selectedValue, optionKey } from '../src/index.js';
 
 const byName = <T extends { name: string }>(xs: T[]) => Object.fromEntries(xs.map((x) => [x.name, x]));
 
@@ -46,5 +46,43 @@ describe('curated choices in forms and filters (#79)', () => {
   it('a select filter offers the curated choices', () => {
     const filters = byName(toFilterConfig(c));
     expect(filters.interval.options?.map((o) => o.label)).toEqual(['Every hour', '15']);
+  });
+});
+
+describe('every generator reads curated choices (#79 review)', () => {
+  const Task = z.object({
+    id: z.string(),
+    title: z.string(),
+    interval: z.int().min(1).max(1440),
+  });
+  const choices = [{ value: 60, label: 'Every hour' }, { value: 15, label: 'Every 15 minutes' }];
+  const c = defineCollection(Task, { fields: { interval: { choices } }, affordances: { groupBy: { defaultField: 'interval' } } });
+  const options = [{ label: 'Every hour', value: '60', raw: 60 }, { label: 'Every 15 minutes', value: '15', raw: 15 }];
+
+  it('a curated number filters as a select of its choices by default, not a range', () => {
+    const filter = toFilterConfig(c).find((f) => f.name === 'interval');
+    expect(filter?.filterType).toBe('select');
+    expect(filter?.options).toEqual(options);
+    expect(filter?.bounds).toBeUndefined();
+  });
+  it('column metadata and sort use the choices', () => {
+    const col = toColumnDefs(c).find((x) => x.id === 'interval');
+    expect(col?.meta.enumValues).toEqual(['60', '15']);
+    expect(col?.sortingFn).toBe('basic');
+  });
+  it('view fields, badges, group order and kanban closedness use the choices', () => {
+    const view = toViewConfig(c, 'list');
+    expect(view.group?.order).toEqual(options);
+    const kanban = rankViews(c).find((v) => v.view === 'kanban');
+    expect(kanban?.gaps.map((g) => g.code)).not.toContain('closedVocabulary');
+    const ungrouped = toViewConfig(c, 'list', { groupBy: null });
+    const badge = ungrouped.fields.badges.find((b) => b.name === 'interval');
+    expect(badge?.options).toEqual(options);
+  });
+  it('the prompt calls it a closed single choice', () => {
+    expect(toPrompt(c)).toContain('`interval` (select) — enum field');
+  });
+  it('a malformed or duplicate list never reaches a generator', () => {
+    expect(() => defineCollection(Task, { fields: { interval: { choices: [{ value: 15 }, { value: 15 }] } } })).toThrow(/twice/);
   });
 });

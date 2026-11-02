@@ -11,7 +11,7 @@
 
 import { z } from 'zod';
 import { peelZodWrapper, zodPipeKind } from './zod-unwrap.js';
-import type { ChoiceArity, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
+import type { ChoiceArity, ChoiceData, ChoiceOption, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
 import type { AffordanceRegistry } from './registry.js';
 
 // ============================================================================
@@ -218,19 +218,165 @@ export function getVocabularyEntries(schema: z.ZodType): VocabularyEntry[] | nul
   return entries.filter((e) => (seen.has(e.value) ? false : (seen.add(e.value), true)));
 }
 
+/** The closed vocabulary's values as strings (see {@link getVocabularyEntries}), or null when open. */
+export function getVocabulary(schema: z.ZodType): string[] | null {
+  return getVocabularyEntries(schema)?.map((e) => e.value) ?? null;
+}
+
+// ============================================================================
+// Closed choices: by the schema's vocabulary, or by curated `choices`
+// ============================================================================
+
+/** The curated choices an affordance declares, when it declares any (an empty list is none). */
+type ChoicesOf = Pick<FieldAffordance, 'choices'>;
+
 /**
  * How many of a closed vocabulary a field takes (see {@link ChoiceArity}), or `null` when the
- * field is not a closed choice. The one place "is this a closed choice" is decided.
+ * field is not a closed choice. The one place "is this a closed choice" is decided: by the
+ * schema's vocabulary ({@link getVocabularyEntries}), or by the curated `choices` of its
+ * affordance (`FieldAffordance.choices`). `'multi'` for an array or set field.
  */
-export function getChoiceArity(schema: z.ZodType): ChoiceArity | null {
-  if (!getVocabularyEntries(schema)) return null;
+export function getChoiceArity(schema: z.ZodType, { choices }: ChoicesOf = {}): ChoiceArity | null {
+  if (!choices?.length && !getVocabularyEntries(schema)) return null;
   const type = (unwrapZodSchema(schema) as any)?._zod?.def?.type;
   return type === 'array' || type === 'set' ? 'multi' : 'single';
 }
 
-/** The closed vocabulary's values as strings (see {@link getVocabularyEntries}), or null when open. */
-export function getVocabulary(schema: z.ZodType): string[] | null {
-  return getVocabularyEntries(schema)?.map((e) => e.value) ?? null;
+/** One choice a field offers (see {@link getFieldChoices}). */
+export interface FieldChoice extends VocabularyEntry {
+  /** What a widget shows: a curated choice's label as given, else the vocabulary's label (or the value), capitalised. */
+  label: string;
+  /** A curated choice's line of explanation. */
+  hint?: string;
+  /** A curated choice's own data (a tone, an icon). */
+  data?: Readonly<ChoiceData>;
+}
+
+/**
+ * The choices a field offers, in order, or `null` when it is open: its curated `choices`
+ * when its affordance declares any (they replace an enum's vocabulary), else its schema's
+ * closed vocabulary. The one source of a field's options for every generator (forms,
+ * filters, columns, views); a field has choices exactly when {@link getChoiceArity} is not `null`.
+ */
+export function getFieldChoices(schema: z.ZodType, { choices }: ChoicesOf = {}): FieldChoice[] | null {
+  if (choices?.length) return choices.map(curatedChoice);
+  return getVocabularyEntries(schema)?.map((e) => ({ ...e, label: capitalize(e.label) })) ?? null;
+}
+
+function curatedChoice({ value, label, hint, data }: ChoiceOption): FieldChoice {
+  return {
+    value: String(value),
+    raw: value,
+    label: label ?? capitalize(String(value)),
+    ...(hint !== undefined ? { hint } : {}),
+    ...(data !== undefined ? { data } : {}),
+  };
+}
+
+/** The label a widget shows for a value with no label of its own: its first letter upper-cased. */
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** The shape `FieldAffordance.choices` must have, as error messages state it. */
+const CHOICES_SHAPE = '[{ value, label?, hint?, data? }, ...]';
+/** The types a choice's value may have (`ChoiceOption.value`). */
+const CHOICE_VALUE_TYPES: ReadonlySet<string> = new Set(['string', 'number', 'boolean', 'bigint']);
+
+/**
+ * Check a field's curated `choices` (from `.meta()`, the registry or the config) and return them:
+ * a {@link CHOICES_SHAPE} list, no two values with the same text (`String(value)`, the key a
+ * widget uses), each value one the schema accepts (as one element for an array or set field;
+ * for a codec, its output side: see {@link choiceValueSchema}). Throws an error naming the field
+ * otherwise, so a wrong list fails where it is declared, not when a user picks it.
+ */
+export function checkChoices(key: string, schema: z.ZodType, choices: unknown): readonly ChoiceOption[] | undefined {
+  if (choices === undefined) return undefined;
+  const field = `defineCollection: field "${key}"`;
+  if (!Array.isArray(choices)) throw new Error(`${field}: choices must be ${CHOICES_SHAPE}, got ${showValue(choices)}`);
+  const seen = new Map<string, ChoiceOption['value']>();
+  for (const entry of choices) {
+    if (!isChoiceOption(entry)) throw new Error(`${field}: choices must be ${CHOICES_SHAPE}, got ${showValue(entry)}`);
+    const text = String(entry.value);
+    if (seen.has(text)) {
+      const first = seen.get(text);
+      throw new Error(first === entry.value
+        ? `${field} lists the choice ${showValue(entry.value)} twice.`
+        : `${field} lists the choices ${showValue(first)} and ${showValue(entry.value)}, which a widget cannot tell apart (both are keyed "${text}").`);
+    }
+    seen.set(text, entry.value);
+  }
+  if (!choices.length) return choices;
+  const accepts = choiceValueSchema(key, schema);
+  for (const { value } of choices as ChoiceOption[]) {
+    const refusal = choiceRefusal(key, accepts, value);
+    if (refusal !== undefined) throw new Error(`${field} lists the choice ${showValue(value)}, which its schema refuses (${refusal}).`);
+  }
+  return choices;
+}
+
+/** A `{ value, label?, hint?, data? }` with a primitive value, string label and hint, and plain-object data. */
+function isChoiceOption(entry: unknown): entry is ChoiceOption {
+  if (!isPlainObject(entry) || !CHOICE_VALUE_TYPES.has(typeof entry.value)) return false;
+  if (entry.label !== undefined && typeof entry.label !== 'string') return false;
+  if (entry.hint !== undefined && typeof entry.hint !== 'string') return false;
+  return entry.data === undefined || isPlainObject(entry.data);
+}
+
+/**
+ * The schema one curated value must satisfy: the field's schema itself (so its refinements
+ * count), the element of an array or set field, and past a codec (or a plain pipe fed by a
+ * `.transform()`) its output side, since a choice is a value the app holds, not one it parses.
+ * Throws on a `.transform()` output: it has no schema, and checking against its input would
+ * accept values the transform never produces.
+ */
+function choiceValueSchema(key: string, schema: z.ZodType, inElement = false): z.ZodType {
+  let target = schema;
+  let current: z.ZodType = schema;
+  for (let depth = 0; depth < MAX_UNWRAP_DEPTH; depth++) {
+    const def = (current as any)?._zod?.def;
+    if (!def) return target;
+    const kind = zodPipeKind(current);
+    if (kind === 'transform') {
+      throw new Error(`defineCollection: field "${key}" lists choices, but its schema ends in a .transform(), whose output has no schema to check them against; declare it with z.codec(input, output) instead.`);
+    }
+    if (kind === 'codec' || (kind === 'plain' && transformsValue(def.in))) {
+      target = current = def.out;
+      continue;
+    }
+    if (!inElement && (def.type === 'array' || def.type === 'set')) {
+      return choiceValueSchema(key, def.element ?? def.valueType, true);
+    }
+    const next = peelZodWrapper(current) ?? soleNonEmptyMember(current);
+    if (!next) return target;
+    current = next;
+  }
+  return target;
+}
+
+/** Why `schema` refuses `value` (its first issue), or `undefined` when it accepts it. */
+function choiceRefusal(key: string, schema: z.ZodType, value: ChoiceOption['value']): string | undefined {
+  let parsed: ReturnType<z.ZodType['safeParse']>;
+  try {
+    parsed = schema.safeParse(value);
+  } catch (error) {
+    if (error instanceof z.core.$ZodAsyncError) {
+      throw new Error(`defineCollection: field "${key}" lists choices, but cannot check choices against an async refinement (its schema needs parseAsync); declare the choices on a field whose checks are synchronous.`, { cause: error });
+    }
+    throw error;
+  }
+  return parsed.success ? undefined : (parsed.error.issues[0]?.message ?? 'refused');
+}
+
+/** A value as an error message shows it: a bigint as `10n`, anything else as JSON. */
+function showValue(value: unknown): string {
+  const bigintAsLiteral = (_: string, v: unknown) => (typeof v === 'bigint' ? `${v}n` : v);
+  if (typeof value === 'bigint') return `${value}n`;
+  try {
+    return JSON.stringify(value, bigintAsLiteral) ?? String(value);
+  } catch {
+    return String(value); // a cycle
+  }
 }
 
 /** Read Zod v4 metadata from the global registry. */
@@ -469,11 +615,11 @@ const UNKNOWN_FIELD_DEFAULTS: FieldAffordance = {
 };
 
 /**
- * The type whose defaults a field gets: a literal or a union of literals
- * (`z.literal([2, 4])`) is a closed choice, so it behaves like an enum.
+ * The type whose defaults a field gets: a single closed choice (a literal, a union of
+ * literals like `z.literal([2, 4])`, or a field with curated `choices`) behaves like an enum.
  */
-function defaultsType(schema: z.ZodType, baseType: string): string {
-  return getChoiceArity(schema) === 'single' ? 'enum' : baseType;
+function defaultsType(schema: z.ZodType, baseType: string, affordance: ChoicesOf): string {
+  return getChoiceArity(schema, affordance) === 'single' ? 'enum' : baseType;
 }
 
 /** Map Zod base type to default affordances. */
@@ -675,12 +821,16 @@ function refineByFieldName(key: string, defaults: FieldAffordance): FieldAfforda
  * 2. Validation-based refinements (email → email widget, uuid → not editable)
  * 3. Name-based heuristics (id → hidden, createdAt → not editable, password → not readable)
  * 4. Zod .meta() annotations (explicit overrides from the developer)
+ *
+ * `resolved.choices` are the field's curated choices once every layer is merged (as
+ * `defineCollection` resolves them): when they make the field a closed choice, layer 1 gives
+ * it a closed choice's defaults, which the later layers still override.
  */
-export function inferFieldAffordances(key: string, schema: z.ZodType): FieldAffordance {
+export function inferFieldAffordances(key: string, schema: z.ZodType, resolved: ChoicesOf = {}): FieldAffordance {
   const baseType = getZodBaseType(schema);
 
   // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
-  let affordances = getTypeDefaults(defaultsType(schema, baseType));
+  let affordances = getTypeDefaults(defaultsType(schema, baseType, resolved));
   if (isZodReadonly(schema)) affordances = { ...affordances, editable: false };
 
   // Layer 2: Validation-based refinements
@@ -774,16 +924,19 @@ const TRACED_PROPS: (keyof FieldAffordance)[] = [
  * Returns both the final affordances and traces for every tracked property.
  *
  * @param registry - Optional affordance registry (Layer 5)
+ * @param resolved - The field's curated choices over every layer (see {@link inferFieldAffordances})
  */
 export function inferFieldAffordancesWithTrace(
   key: string,
   schema: z.ZodType,
   registry?: AffordanceRegistry,
+  resolved: ChoicesOf = {},
 ): { affordances: FieldAffordance; traces: InferenceTrace[] } {
   const baseType = getZodBaseType(schema);
 
   // Layer 1: Type-based defaults (a `.readonly()` field is not editable)
-  const typeForDefaults = defaultsType(schema, baseType);
+  const typeForDefaults = defaultsType(schema, baseType, resolved);
+  const closedBy = getChoiceArity(schema) ? 'is a closed choice' : 'has curated choices';
   const afterType = getTypeDefaults(typeForDefaults);
   if (isZodReadonly(schema)) afterType.editable = false;
 
@@ -829,7 +982,7 @@ export function inferFieldAffordancesWithTrace(
       layers.push({
         layer: 'type',
         value: typeVal,
-        reason: typeForDefaults === baseType ? `${baseType} type defaults` : `${baseType} is a closed choice: ${typeForDefaults} defaults`,
+        reason: typeForDefaults === baseType ? `${baseType} type defaults` : `${baseType} ${closedBy}: ${typeForDefaults} defaults`,
       });
     }
 

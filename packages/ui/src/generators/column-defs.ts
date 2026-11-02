@@ -6,8 +6,8 @@
  */
 
 import { z } from 'zod';
-import type { CollectionDefinition, FilterType, ResolvedFieldAffordance, VocabularyEntry } from '@zodal/core';
-import { getVocabularyEntries, getNumericBounds } from '@zodal/core';
+import type { CollectionDefinition, FieldChoice, FilterType, ResolvedFieldAffordance } from '@zodal/core';
+import { getFieldChoices, getNumericBounds } from '@zodal/core';
 
 /**
  * A framework-agnostic column definition.
@@ -68,7 +68,7 @@ export interface ColumnConfig {
  * A closed single choice sorts by what its values are, however the schema spells it
  * (an enum, a union of literals, a numeric enum); see {@link choiceSortFnName}.
  */
-function inferSortFnName(zodType: string, fa: ResolvedFieldAffordance, choices: VocabularyEntry[] | null): string {
+function inferSortFnName(zodType: string, fa: ResolvedFieldAffordance, choices: FieldChoice[] | null): string {
   if (fa.choice === 'single' && choices) return choiceSortFnName(choices);
   switch (zodType) {
     case 'string': return 'text';
@@ -87,7 +87,7 @@ function inferSortFnName(zodType: string, fa: ResolvedFieldAffordance, choices: 
  * (numbers, bigints, booleans: 2 before 10), `alphanumeric` for a mix, where `basic`'s
  * comparison of a string with a number is inconsistent (the order would depend on the input's).
  */
-function choiceSortFnName(choices: VocabularyEntry[]): string {
+function choiceSortFnName(choices: FieldChoice[]): string {
   const strings = choices.filter((e) => typeof e.raw === 'string').length;
   if (strings === choices.length) return 'text';
   return strings === 0 ? 'basic' : 'alphanumeric';
@@ -153,7 +153,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
     if (!fieldSchema) continue;
 
     const zodType = fa.zodType;
-    const choices = getVocabularyEntries(fieldSchema);
+    const choices = getFieldChoices(fieldSchema, fa);
 
     columns.push({
       id: key,

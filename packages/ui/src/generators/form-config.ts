@@ -6,9 +6,9 @@
  */
 
 import { z } from 'zod';
-import type { ChoiceOption, CollectionDefinition, FieldAffordance, NumericBounds, WidgetOptions } from '@zodal/core';
-import { getChoiceArity, getNumericBounds, getNumericStep, getStringLength, getVocabularyEntries } from '@zodal/core';
-import type { ChoiceArity, VocabularyEntry } from '@zodal/core';
+import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, WidgetOptions } from '@zodal/core';
+import { getFieldChoices, getNumericBounds, getNumericStep, getStringLength } from '@zodal/core';
+import type { ChoiceArity } from '@zodal/core';
 
 export interface FormFieldConfig {
   /** Field key. */
@@ -146,19 +146,21 @@ export interface VocabularyOption {
   /** A curated choice's line of explanation (see `FieldAffordance.choices`). */
   hint?: string;
   /** A curated choice's own data (a tone, an icon). */
-  data?: Readonly<Record<string, unknown>>;
+  data?: Readonly<ChoiceData>;
 }
 
 /**
- * A vocabulary entry as a widget option; the label is capitalized. `raw` is set
- * only when it differs from the string `value` (numbers, booleans), so string
- * vocabularies keep the plain `{ label, value }` shape.
+ * A field choice as a widget option, its label as `getFieldChoices` gives it. `raw` is set
+ * only when it differs from the string `value` (numbers, booleans), so string choices keep
+ * the plain `{ label, value }` shape; `hint` and `data` only when the choice has them.
  */
-export function toOption(e: VocabularyEntry): VocabularyOption {
-  const label = e.label.charAt(0).toUpperCase() + e.label.slice(1);
+function toOption({ value, raw, label, hint, data }: FieldChoice): VocabularyOption {
   // A bigint is not JSON-safe: its string `value` is the portable form.
-  if (typeof e.raw === 'bigint') return { label, value: e.value, kind: 'bigint' };
-  return typeof e.raw === 'string' ? { label, value: e.value } : { label, value: e.value, raw: e.raw };
+  const option: VocabularyOption = typeof raw === 'bigint' ? { label, value, kind: 'bigint' }
+    : typeof raw === 'string' ? { label, value } : { label, value, raw };
+  if (hint !== undefined) option.hint = hint;
+  if (data !== undefined) option.data = data;
+  return option;
 }
 
 /**
@@ -171,24 +173,14 @@ export function optionRaw(option: Pick<VocabularyOption, 'value'> & Partial<Voca
   return option.raw !== undefined ? option.raw : option.value;
 }
 
-/** A curated choice as a widget option: its label as given (else the capitalised value), hint and data. */
-export function choiceToOption(choice: ChoiceOption): VocabularyOption {
-  const base = toOption({ value: String(choice.value), raw: choice.value, label: String(choice.value) });
-  return {
-    ...base,
-    ...(choice.label !== undefined ? { label: choice.label } : {}),
-    ...(choice.hint !== undefined ? { hint: choice.hint } : {}),
-    ...(choice.data ? { data: choice.data } : {}),
-  };
-}
-
 /**
- * A field's choices as widget options: its curated `choices` when declared, else its closed
- * vocabulary's (an enum, literals, or an array of them); `undefined` when the field is open.
+ * A field's choices as widget options (see `getFieldChoices` in `@zodal/core`): its curated
+ * `choices` when declared (labels as given, else the value capitalised; with hint and data),
+ * else its closed vocabulary's (an enum, literals, or an array of them); `undefined` when the
+ * field is open. Pass `{}` as the affordance to read the schema's vocabulary only.
  */
 export function fieldOptions(schema: z.ZodType, affordance: Pick<FieldAffordance, 'choices'>): VocabularyOption[] | undefined {
-  if (affordance.choices?.length) return affordance.choices.map(choiceToOption);
-  return getVocabularyEntries(schema)?.map(toOption);
+  return getFieldChoices(schema, affordance)?.map(toOption);
 }
 
 /**
@@ -222,7 +214,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
     // Closed choices (curated, or a vocabulary: an enum, literals, or an array of them,
     // a 'tags' widget with allowed values). Open array fields accept new values (allowCreate).
     const options = fieldOptions(fieldSchema, fa);
-    const type = inferFormWidgetType(zodType, fa, fa.choice ?? getChoiceArity(fieldSchema));
+    const type = inferFormWidgetType(zodType, fa, fa.choice);
 
     fields.push({
       name: key,
