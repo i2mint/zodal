@@ -35,7 +35,7 @@
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@zodal/core": "workspace:^"

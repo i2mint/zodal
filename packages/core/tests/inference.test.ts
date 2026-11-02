@@ -451,9 +451,9 @@ describe('limits across a pipe (#86)', () => {
     expect(getNumericBounds(z.number().min(1).max(9).pipe(z.number().gt(3).max(9)))).toEqual({ min: 3, exclusiveMin: true, max: 9 });
   });
   it('a side of another kind adds nothing: a string input to a coerced number', () => {
-    expect(getNumericBounds(z.string().max(5).pipe(z.coerce.number().min(1)))).toEqual({ min: 1 });
-    expect(getStringLength(z.string().max(5).pipe(z.coerce.number().min(1)))).toEqual({});
-    expect(getStringLength(z.string().max(10).pipe(z.coerce.date()))).toEqual({});
+    expect(getNumericBounds(z.string().max(5).pipe(z.coerce.number<string>().min(1)))).toEqual({ min: 1 });
+    expect(getStringLength(z.string().max(5).pipe(z.coerce.number<string>().min(1)))).toEqual({});
+    expect(getStringLength(z.string().max(10).pipe(z.coerce.date<string>()))).toEqual({});
     expect(getStringLength(z.string().max(4).pipe(z.stringbool()))).toEqual({});
   });
   it('a codec or a transform changes the value: only the side unwrapping picks counts', () => {

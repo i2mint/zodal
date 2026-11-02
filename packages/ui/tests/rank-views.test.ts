@@ -69,7 +69,7 @@ describe('rankViews', () => {
       testers: { table: () => ({ score: 10, reasons: ['house rule'], gaps: [] }), kanban: undefined },
     });
     expect(views(ranked)).toEqual(['table', 'list', 'grid']);
-    for (const r of ranked) if (isItemViewMode(r.view)) expect(() => toViewConfig(notes, r.view, r.options)).not.toThrow();
+    for (const { view, options } of ranked) if (isItemViewMode(view)) expect(() => toViewConfig(notes, view, options)).not.toThrow();
   });
 
   it('turns a bad groupBy declaration into a blocking gap instead of throwing', () => {

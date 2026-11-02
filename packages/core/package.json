@@ -25,7 +25,7 @@
     "build": "tsup",
     "prepublishOnly": "pnpm build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "peerDependencies": {
     "zod": "^4.0.0"
