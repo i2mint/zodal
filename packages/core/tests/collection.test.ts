@@ -453,6 +453,7 @@ describe('undoable operations (#82)', () => {
     expect(undoSeconds(op(false), { defaultSeconds: 10 })).toBeUndefined();
     expect(undoSeconds(op(undefined), { defaultSeconds: 10 })).toBeUndefined();
     expect(() => undoSeconds(op({ seconds: NaN }), { defaultSeconds: 10 })).toThrow(/seconds NaN/);
+    expect(() => undoSeconds(op(true), { defaultSeconds: 0 })).toThrow(/defaultSeconds must be a positive number, got 0/);
   });
   it('describe() marks an undoable operation', () => {
     expect(defineCollection(schema, { operations: [op(true)] }).describe()).toMatch(/archive \[item\]: Archive \(undoable\)/);
