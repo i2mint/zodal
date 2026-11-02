@@ -110,6 +110,8 @@ export type {
 // Renderer registry
 export { createRendererRegistry } from './registry/registry.js';
 export type { RendererRegistry } from './registry/registry.js';
+export { defineRendererSet } from './registry/renderer-set.js';
+export type { RendererSet, RendererSetDefinition } from './registry/renderer-set.js';
 
 // Renderer tester predicates
 export {
