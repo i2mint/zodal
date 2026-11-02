@@ -503,3 +503,18 @@ describe('contains filters on array fields (#31)', () => {
     expect(byId.labels.filterFn).toBe('arrIncludesAll');
   });
 });
+
+describe('toColumnDefs options (#99)', () => {
+  it('a column carries its closed choice\'s options, curated labels and hints included', () => {
+    const c = defineCollection(z.object({ id: z.string(), interval: z.int().min(1).max(1440), mood: z.enum(['low', 'ok']), note: z.string() }), {
+      fields: { interval: { choices: [{ value: 60, label: 'Every hour', hint: 'The default' }, { value: 15 }] } },
+    });
+    const cols = Object.fromEntries(toColumnDefs(c).map((col) => [col.id, col]));
+    expect(cols.interval.meta.options).toEqual([
+      { label: 'Every hour', value: '60', raw: 60, hint: 'The default' },
+      { label: '15', value: '15', raw: 15 },
+    ]);
+    expect(cols.mood.meta.options?.map((o) => o.label)).toEqual(['Low', 'Ok']);
+    expect(cols.note.meta.options).toBeUndefined();
+  });
+});
