@@ -37,6 +37,15 @@ export type FilterType =
 export type AggregationFn = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'median' | 'uniqueCount';
 
 /**
+ * A widget's own options: plain data a renderer reads (see `FieldAffordance.editWidgetOptions`).
+ * Untyped by default; an app or a renderer package types its keys by declaration merging:
+ * `declare module '@zodal/core' { interface WidgetOptions { layout?: string } }`.
+ */
+export interface WidgetOptions {
+  [key: string]: unknown;
+}
+
+/**
  * Declares what operations are meaningful on a single field of an item.
  *
  * Design principle: exclusion-based (OData pattern).
@@ -116,6 +125,13 @@ export interface FieldAffordance {
   editPlaceholder?: string;
   /** Help text shown below edit widget. */
   editHelp?: string;
+  /**
+   * The edit widget's own options (a layout, a heading, a clear value...), passed on as
+   * `FormFieldConfig.editWidgetOptions` for the renderer to read. Plain data: callbacks and
+   * anything known only at render time belong in the render context. A later inference layer
+   * replaces the whole object (no deep merge); from `.meta()`, only a plain object is taken.
+   */
+  editWidgetOptions?: Readonly<WidgetOptions>;
   /** Increment for a numeric edit widget (a slider's or a number input's step). Inferred from `.multipleOf()`, else `1` for an integer. */
   step?: number;
 

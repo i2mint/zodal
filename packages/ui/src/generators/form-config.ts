@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import type { CollectionDefinition, FieldAffordance, NumericBounds } from '@zodal/core';
+import type { CollectionDefinition, FieldAffordance, NumericBounds, WidgetOptions } from '@zodal/core';
 import { getChoiceArity, getNumericBounds, getNumericStep, getStringLength, getVocabularyEntries } from '@zodal/core';
 import type { ChoiceArity, VocabularyEntry } from '@zodal/core';
 
@@ -55,6 +55,8 @@ export interface FormFieldConfig {
   minLength?: number;
   /** A string field's most characters (`.max()`, `.length()`), for the input's `maxLength`. */
   maxLength?: number;
+  /** The field's `editWidgetOptions` affordance: the widget's own options, a shallow copy per config. */
+  editWidgetOptions?: Readonly<WidgetOptions>;
 }
 
 const NUMERIC_TYPES = new Set(['number', 'int', 'float']);
@@ -210,6 +212,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       hidden: fa.hidden ?? false,
       placeholder: fa.editPlaceholder,
       helpText: fa.editHelp ?? fa.description,
+      ...(fa.editWidgetOptions ? { editWidgetOptions: { ...fa.editWidgetOptions } } : {}),
       options,
       ...(zodType === 'array' || zodType === 'set' ? { allowCreate: !enumValues } : {}),
       order: fa.order ?? orderCounter++,
