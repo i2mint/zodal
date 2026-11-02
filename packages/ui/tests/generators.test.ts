@@ -84,6 +84,23 @@ describe('toColumnDefs', () => {
     expect(createdAtCol.sortingFn).toBe('datetime');
   });
 
+  it('sorts every closed single choice by what its values are', () => {
+    enum Level { Low = 2, High = 10 }
+    const sortFn = (schema: z.ZodType) => toColumnDefs(defineCollection(z.object({ level: schema }))).find((c) => c.id === 'level')?.sortingFn;
+    // Strings: text, however the choice is spelled.
+    expect(sortFn(z.enum(['a', 'b']))).toBe('text');
+    expect(sortFn(z.literal(['a', 'b']))).toBe('text');
+    expect(sortFn(z.union([z.literal('a'), z.literal('b')]))).toBe('text');
+    expect(sortFn(z.enum(['a', 'b']).nullable())).toBe('text');
+    // Numbers (a numeric enum included), booleans, bigints: basic, so 2 sorts before 10.
+    expect(sortFn(z.enum(Level))).toBe('basic');
+    expect(sortFn(z.literal([2, 10]))).toBe('basic');
+    expect(sortFn(z.union([z.literal(1n), z.literal(2n)]))).toBe('basic');
+    expect(sortFn(z.union([z.literal('a'), z.literal(1)]))).toBe('basic');
+    // A multi choice is not a single value to sort by.
+    expect(sortFn(z.array(z.enum(['a', 'b'])))).toBe('basic');
+  });
+
   it('sets correct filter function for different filter types', () => {
     const cols = toColumnDefs(collection);
 

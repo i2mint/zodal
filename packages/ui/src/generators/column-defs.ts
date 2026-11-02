@@ -6,8 +6,8 @@
  */
 
 import { z } from 'zod';
-import type { CollectionDefinition, FieldAffordance, FilterType } from '@zodal/core';
-import { getVocabulary, getNumericBounds } from '@zodal/core';
+import type { CollectionDefinition, FilterType } from '@zodal/core';
+import { getVocabulary, getVocabularyEntries, getChoiceArity, getNumericBounds } from '@zodal/core';
 
 /**
  * A framework-agnostic column definition.
@@ -62,8 +62,16 @@ export interface ColumnConfig {
   };
 }
 
-/** Map Zod type to the appropriate TanStack Table sort function name. */
-function inferSortFnName(zodType: string, affordance: FieldAffordance): string {
+/**
+ * Map a field to the appropriate TanStack Table sort function name.
+ *
+ * A closed single choice sorts by what its values are, however the schema spells it
+ * (an enum, a union of literals, a numeric enum): text for strings, basic otherwise,
+ * so numeric choices sort as numbers (2 before 10).
+ */
+function inferSortFnName(zodType: string, schema: z.ZodType): string {
+  const choices = getChoiceArity(schema) === 'single' ? getVocabularyEntries(schema) : null;
+  if (choices) return choices.every((e) => typeof e.raw === 'string') ? 'text' : 'basic';
   switch (zodType) {
     case 'string': return 'text';
     case 'number':
@@ -72,7 +80,6 @@ function inferSortFnName(zodType: string, affordance: FieldAffordance): string {
     case 'bigint': return 'basic';
     case 'date': return 'datetime';
     case 'boolean': return 'basic';
-    case 'enum': return 'text';
     default: return 'basic';
   }
 }
@@ -151,7 +158,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
       size: fa.columnWidth,
       minSize: fa.minWidth,
       maxSize: fa.maxWidth,
-      sortingFn: inferSortFnName(zodType, fa),
+      sortingFn: inferSortFnName(zodType, fieldSchema),
       sortDescFirst: fa.sortable === 'desc',
       filterFn: fa.filterable ? inferFilterFnName(fa.filterable, zodType) : undefined,
       meta: {
