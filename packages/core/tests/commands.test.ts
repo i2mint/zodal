@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
-import { toCommandRecord, operationCommandId, normalizeKeybinding, ok, fail } from '../src/commands.js';
+import { toCommandRecord, operationCommandId, operationDispatcher, normalizeKeybinding, ok, fail } from '../src/commands.js';
 import type { OperationDefinition } from '../src/types.js';
 
 const archive: OperationDefinition = {
@@ -66,5 +66,53 @@ describe('review round 2', () => {
   it('a thrown error keeps its string code', async () => {
     const r = await toCommandRecord(archive, () => { throw Object.assign(new Error('x'), { code: 'not_found' }); }).execute(undefined, {});
     expect(r).toEqual({ ok: false, error: { code: 'not_found', message: 'x' } });
+  });
+});
+
+describe('operationDispatcher (#97)', () => {
+  const op: OperationDefinition = { name: 'archive', label: 'Archive', scope: 'selection' };
+
+  it('runs the command registered for the operation, by the same id', async () => {
+    const seen: [string, unknown][] = [];
+    const cmd = toCommandRecord(op, (p: { ids: string[] }) => ok(p.ids.length), { namespace: 'notes' });
+    const dispatchFor = operationDispatcher({
+      namespace: 'notes',
+      execute: (id, params) => {
+        seen.push([id, params]);
+        return id === cmd.id ? cmd.execute(params as { ids: string[] }, {}) : fail('unknown_command', id);
+      },
+    });
+    const dispatch = dispatchFor<{ ids: string[] }, number>(op);
+    expect(await dispatch({ ids: ['a', 'b'] })).toEqual({ ok: true, value: 2 });
+    expect(seen).toEqual([['notes.archive', { ids: ['a', 'b'] }]]);
+  });
+  it('passes the dispatch context, read at dispatch time, for a when clause', async () => {
+    let selection: string[] = [];
+    const dispatch = operationDispatcher({
+      namespace: 'notes',
+      // A host executor that checks `when: 'selection.length >= 1'` the way acture's dispatch would.
+      execute: (_id, _params, ctx) => ((ctx?.selection as string[] | undefined)?.length ? ok('ran') : fail('when_clause_failed', 'nothing selected')),
+      context: () => ({ selection }),
+    })(op);
+    expect((await dispatch()).ok).toBe(false);
+    selection = ['a'];
+    expect(await dispatch()).toEqual({ ok: true, value: 'ran' });
+  });
+  it('keeps a thrown plain object\'s message, and survives a value that cannot be stringified', async () => {
+    const quota = operationDispatcher({ execute: () => { throw { code: 'quota', message: 'over quota' }; } })(op);
+    expect(await quota()).toEqual({ ok: false, error: { code: 'quota', message: 'over quota' } });
+    const odd = operationDispatcher({ execute: () => { throw Object.create(null); } })(op);
+    expect(await odd()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'unknown error' } });
+    const trap = operationDispatcher({ execute: () => { throw { get message(): string { throw new Error('nope'); } }; } })(op);
+    expect(await trap()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'unknown error' } });
+  });
+  it('a throwing executor is a failed result, keeping a string code and never the raw error', async () => {
+    const dispatch = operationDispatcher({ execute: () => { throw Object.assign(new Error('gone'), { code: 'offline', secret: 'x' }); } })(op);
+    expect(await dispatch()).toEqual({ ok: false, error: { code: 'offline', message: 'gone' } });
+    const plain = operationDispatcher({ execute: async () => { throw 'boom'; } })(op);
+    expect(await plain()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'boom' } });
+  });
+  it('checks the id when the dispatch is made', () => {
+    expect(() => operationDispatcher({ execute: () => ok(1) })({ name: '1bad' })).toThrow(/must start with a letter/);
   });
 });

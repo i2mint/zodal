@@ -192,11 +192,85 @@ export function toCommandRecord<P = unknown, R = unknown>(
       try {
         return await execute(params, ctx);
       } catch (err) {
-        // Keep a string `code` the error carries (as acture's dispatcher does); never the raw object.
-        const code = typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : 'execute_threw';
-        return fail(code, err instanceof Error ? err.message : String(err));
+        return failureOf(err, 'execute_threw');
       }
     },
   };
   return Object.freeze(command);
+}
+
+/**
+ * A thrown value as a failed result: the string `code` it carries (as acture's dispatcher keeps
+ * it), else `fallbackCode`, and its string `message`, never the raw object (it may hold
+ * credentials). Never throws itself, whatever was thrown.
+ */
+function failureOf(err: unknown, fallbackCode: string): OperationCommandResult<never> {
+  try {
+    const { code, message } = (typeof err === 'object' && err !== null ? err : {}) as { code?: unknown; message?: unknown };
+    return fail(typeof code === 'string' ? code : fallbackCode, typeof message === 'string' ? message : describeThrown(err));
+  } catch {
+    return fail(fallbackCode, 'unknown error'); // a getter on the thrown value threw
+  }
+}
+
+/** A thrown non-error as text; some values (`Object.create(null)`) cannot even be stringified. */
+function describeThrown(err: unknown): string {
+  try {
+    return String(err);
+  } catch {
+    return 'unknown error';
+  }
+}
+
+/**
+ * Runs a command by id with its params and the dispatch context its `when` clause reads:
+ * acture's `registry.dispatch(id, params, ctx)`, or any host's dispatcher.
+ */
+export type CommandExecutor = (
+  commandId: string,
+  params?: unknown,
+  ctx?: Record<string, unknown>,
+) => OperationCommandResult<unknown> | Promise<OperationCommandResult<unknown>>;
+
+/** Options of {@link operationDispatcher}. */
+export interface OperationDispatcherOptions {
+  /** Runs a command by id: with acture, `(id, params, ctx) => registry.dispatch(id, params, ctx)`. */
+  execute: CommandExecutor;
+  /** The command id namespace, as given to {@link toCommandRecord}. */
+  namespace?: string;
+  /** The context each dispatch passes on (what a `when` clause such as `'selection.length >= 1'` reads), read at dispatch time. */
+  context?: () => Record<string, unknown>;
+}
+
+/**
+ * The `dispatch` a renderer calls for each operation (`OperationRenderProps.dispatch` in
+ * `@zodal/ui`): it runs the command {@link toCommandRecord} registered for that operation
+ * (the same id, {@link operationCommandId}) through the host's `execute`, with the current
+ * `context`, so a renderer never builds command ids. The id is checked when the dispatch is
+ * made, not when it is called. A throwing `execute` (a dead connection; acture itself answers
+ * an unknown id with a failed result) becomes `fail('dispatch_threw', message)`, so a
+ * renderer only ever handles a result. `P` and `R` are the caller's to give (`dispatchFor<P, R>(op)`):
+ * `R` is asserted, not checked.
+ *
+ * @example
+ * ```ts
+ * const dispatchFor = operationDispatcher({
+ *   namespace: 'notes',
+ *   execute: (id, params, ctx) => registry.dispatch(id, params, ctx), // acture
+ *   context: () => ({ selection: store.getState().selection }),
+ * });
+ * <Button operation={archive} dispatch={dispatchFor(archive)} />
+ * ```
+ */
+export function operationDispatcher({ execute, namespace, context }: OperationDispatcherOptions) {
+  return <P = unknown, R = unknown>(operation: Pick<OperationDefinition, 'name'>) => {
+    const id = operationCommandId(namespace, operation);
+    return async (params?: P): Promise<OperationCommandResult<R>> => {
+      try {
+        return (await execute(id, params, context?.())) as OperationCommandResult<R>;
+      } catch (err) {
+        return failureOf(err, 'dispatch_threw');
+      }
+    };
+  };
 }
