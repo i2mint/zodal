@@ -41,6 +41,19 @@ export interface PeelZodWrapperOptions {
 }
 
 /**
+ * What a pipe does to the value, or `undefined` when `schema` is not a pipe:
+ * `'transform'` (a `.transform()`: its output carries no type), `'codec'` (a `z.codec`,
+ * which converts between its two sides) or `'plain'` (a `.pipe()` passing the value on
+ * unchanged, so it must meet both sides).
+ */
+export function zodPipeKind(schema: unknown): 'plain' | 'codec' | 'transform' | undefined {
+  const def = (schema as any)?._zod?.def;
+  if (def?.type !== 'pipe') return undefined;
+  if (def.out?._zod?.def?.type === 'transform') return 'transform';
+  return def.transform ? 'codec' : 'plain';
+}
+
+/**
  * One unwrapping step: the schema a wrapper stands for, or `undefined` when `schema` is
  * not a wrapper. Peels the {@link ZOD_WRAPPER_TYPES}, a pipe and (by default) a `z.lazy`.
  */
@@ -54,7 +67,7 @@ export function peelZodWrapper(
   if (ZOD_WRAPPER_TYPES.has(def.type)) return def.innerType;
   if (def.type === 'pipe') {
     if (pipe === 'input') return def.in;
-    return def.out?._zod?.def?.type === 'transform' ? def.in : def.out;
+    return zodPipeKind(schema) === 'transform' ? def.in : def.out;
   }
   if (def.type === 'lazy' && lazy !== 'keep') {
     // Zod caches the resolved schema on `_zod.innerType`.

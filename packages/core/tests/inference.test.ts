@@ -421,12 +421,16 @@ describe('limits across a pipe (#86)', () => {
   });
   it('a side of another kind adds nothing: a string input to a coerced number', () => {
     expect(getNumericBounds(z.string().max(5).pipe(z.coerce.number().min(1)))).toEqual({ min: 1 });
-    expect(getStringLength(z.string().max(5).pipe(z.coerce.number().min(1)))).toEqual({ maxLength: 5 });
+    expect(getStringLength(z.string().max(5).pipe(z.coerce.number().min(1)))).toEqual({});
+    expect(getStringLength(z.string().max(10).pipe(z.coerce.date()))).toEqual({});
+    expect(getStringLength(z.string().max(4).pipe(z.stringbool()))).toEqual({});
   });
   it('a codec or a transform changes the value: only the side unwrapping picks counts', () => {
     const cents = z.codec(z.int().max(10000), z.number().max(100), { decode: (c) => c / 100, encode: (d) => d * 100 });
     expect(getNumericBounds(cents)).toEqual({ max: 100 });
     expect(getStringLength(z.string().max(3).transform((s) => s.length))).toEqual({ maxLength: 3 });
+    // A transform feeding a plain pipe: its input (before x100) is in other units than the pipe's output.
+    expect(getNumericBounds(z.number().max(100).transform((x) => x * 100).pipe(z.number().max(5000)))).toEqual({ max: 5000 });
   });
   it('no pipe: unchanged', () => {
     expect(getNumericBounds(z.number().positive().max(5))).toEqual({ min: 0, exclusiveMin: true, max: 5 });

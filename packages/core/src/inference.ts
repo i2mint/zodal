@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import { peelZodWrapper } from './zod-unwrap.js';
+import { peelZodWrapper, zodPipeKind } from './zod-unwrap.js';
 import type { ChoiceArity, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
 import type { AffordanceRegistry } from './registry.js';
 
@@ -54,16 +54,19 @@ export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
  * unwrapped schema, and across a plain `.pipe()`, which passes the value on unchanged,
  * both of its sides (`z.string().max(10).pipe(z.string().trim())` keeps the `max(10)`).
  * A codec or a `.transform()` changes the value, so there only the side `unwrapZodSchema`
- * picks counts: a codec's input limits are in other units than the value a form edits.
+ * picks counts (a codec's input limits are in other units than the value a form edits),
+ * and a `.transform()` feeding a plain pipe adds nothing: its input is in other units too.
  */
-function limitSchemas(schema: z.ZodType, depth = 0): z.ZodType[] {
-  const def = (schema as any)?._zod?.def;
-  if (!def || depth > MAX_UNWRAP_DEPTH) return [schema];
-  if (def.type === 'pipe' && !def.transform && def.out?._zod?.def?.type !== 'transform') {
-    return [...limitSchemas(def.in, depth + 1), ...limitSchemas(def.out, depth + 1)];
+function limitSchemas(schema: z.ZodType, depth = 0, feedsPipe = false): z.ZodType[] {
+  if (!(schema as any)?._zod?.def || depth >= MAX_UNWRAP_DEPTH) return [schema];
+  const kind = zodPipeKind(schema);
+  if (kind === 'plain') {
+    const def = (schema as any)._zod.def;
+    return [...limitSchemas(def.in, depth + 1, true), ...limitSchemas(def.out, depth + 1, feedsPipe)];
   }
+  if (kind === 'transform' && feedsPipe) return [];
   const next = peelZodWrapper(schema) ?? soleNonEmptyMember(schema);
-  return next ? limitSchemas(next, depth + 1) : [schema];
+  return next ? limitSchemas(next, depth + 1, feedsPipe) : [schema];
 }
 
 /** Is this union member only `null` / `undefined` (through wrappers, never resolving a union)? */
@@ -302,6 +305,7 @@ export interface StringLength {
  */
 export function getStringLength(schema: z.ZodType): StringLength {
   const result: StringLength = {};
+  if (getZodBaseType(schema) !== 'string') return result; // a string coerced to a number or a date is not a string field
   for (const side of limitSchemas(schema) as any[]) {
     if (side?._zod?.def?.type !== 'string') continue;
     if (typeof side.minLength === 'number') result.minLength = Math.max(result.minLength ?? 0, side.minLength);
