@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldChoice, FilterType, ResolvedFieldAffordance } from '@zodal/core';
-import { getFieldChoices, getNumericBounds } from '@zodal/core';
+import { getDateBounds, getFieldChoices, getNumericBounds } from '@zodal/core';
 import { toOption, type VocabularyOption } from './form-config.js';
 
 /**
@@ -57,6 +57,7 @@ export interface ColumnConfig {
     enumValues?: string[];
     /** A closed choice's options (label, hint, data), the same as its form and filter get: a cell shows the label of its value. */
     options?: VocabularyOption[];
+    /** A number field's bounds, or a date field's in epoch milliseconds (as filters and forms carry them). */
     numericBounds?: { min?: number; max?: number };
     pinned?: 'left' | 'right' | false;
     /** Storage role for bifurcation-aware renderers. */
@@ -187,7 +188,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
         tooltip: fa.tooltip,
         enumValues: choices?.map((e) => e.value),
         options: choices?.map(toOption),
-        numericBounds: fieldSchema ? getNumericBounds(fieldSchema) : undefined,
+        numericBounds: zodType === 'date' ? getDateBounds(fieldSchema) : getNumericBounds(fieldSchema),
         pinned: fa.pinned,
         storageRole: fa.storageRole === 'content' ? 'content' : undefined,
         isContentRef: fa.storageRole === 'content' ? true : undefined,

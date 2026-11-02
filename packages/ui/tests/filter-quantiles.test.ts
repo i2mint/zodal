@@ -98,6 +98,9 @@ describe('toFilterConfig with data', () => {
     expect(byName(toFilterConfig(c)).at.bounds).toEqual({ min: 0, max: 86_400_000 });
     expect(toFormConfig(c)[0].bounds).toEqual({ min: 0, max: 86_400_000 });
     expect(toFormConfig(c)[0]).not.toHaveProperty('step');
+    const { toOptionsFormConfig, toColumnDefs } = await import('../src/index.js');
+    expect(toOptionsFormConfig(z.object({ since: z.date().min(new Date(0)) }))[0].bounds).toEqual({ min: 0 });
+    expect(toColumnDefs(c).find((col) => col.id === 'at')?.meta.numericBounds).toEqual({ min: 0, max: 86_400_000 });
   });
   it('bigints and unparsed strings give no quantiles', () => {
     const c = defineCollection(z.object({ n: z.bigint().meta({ filterable: 'range' }), at: z.date().meta({ filterable: 'range' }) }));
