@@ -97,6 +97,7 @@ export type {
   OperationCommand,
   OperationCommandResult,
   CommandExecutor,
+  OperationDispatcherOptions,
   OperationCommandError,
   OperationPatch,
   OperationEffect,

@@ -86,6 +86,24 @@ describe('operationDispatcher (#97)', () => {
     expect(await dispatch({ ids: ['a', 'b'] })).toEqual({ ok: true, value: 2 });
     expect(seen).toEqual([['notes.archive', { ids: ['a', 'b'] }]]);
   });
+  it('passes the dispatch context, read at dispatch time, for a when clause', async () => {
+    let selection: string[] = [];
+    const dispatch = operationDispatcher({
+      namespace: 'notes',
+      // A host executor that checks `when: 'selection.length >= 1'` the way acture's dispatch would.
+      execute: (_id, _params, ctx) => ((ctx?.selection as string[] | undefined)?.length ? ok('ran') : fail('when_clause_failed', 'nothing selected')),
+      context: () => ({ selection }),
+    })(op);
+    expect((await dispatch()).ok).toBe(false);
+    selection = ['a'];
+    expect(await dispatch()).toEqual({ ok: true, value: 'ran' });
+  });
+  it('keeps a thrown plain object\'s message, and survives a value that cannot be stringified', async () => {
+    const quota = operationDispatcher({ execute: () => { throw { code: 'quota', message: 'over quota' }; } })(op);
+    expect(await quota()).toEqual({ ok: false, error: { code: 'quota', message: 'over quota' } });
+    const odd = operationDispatcher({ execute: () => { throw Object.create(null); } })(op);
+    expect(await odd()).toEqual({ ok: false, error: { code: 'dispatch_threw', message: 'unknown error' } });
+  });
   it('a throwing executor is a failed result, keeping a string code and never the raw error', async () => {
     const dispatch = operationDispatcher({ execute: () => { throw Object.assign(new Error('gone'), { code: 'offline', secret: 'x' }); } })(op);
     expect(await dispatch()).toEqual({ ok: false, error: { code: 'offline', message: 'gone' } });

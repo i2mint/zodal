@@ -1,5 +1,5 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
-import type { OperationCommandResult, OperationDefinition } from '@zodal/core';
+import { operationDispatcher, ok, type OperationCommandResult, type OperationDefinition } from '@zodal/core';
 import {
   createRendererRegistry, anyOperation, operationIs, operationScopeIs, operationVariantIs, and, or, PRIORITY, zodTypeIs,
   type OperationRenderProps, type RendererContext,
@@ -47,6 +47,11 @@ describe("renderers for operations ('operation' mode, #80)", () => {
     const fields = createRendererRegistry<string>();
     fields.register({ tester: zodTypeIs('string'), renderer: 'Text' });
     expect(fields.resolve({ zodType: 'string' } as any, { mode: 'form' })).toBe('Text');
+  });
+  it("operationDispatcher's dispatch is an OperationRenderProps dispatch", () => {
+    const dispatchFor = operationDispatcher({ execute: () => ok(1) });
+    const dispatch: OperationRenderProps<{ ids: string[] }, number>['dispatch'] = dispatchFor<{ ids: string[] }, number>(archive);
+    expect(typeof dispatch).toBe('function');
   });
   it('OperationRenderProps carries the definition and a dispatch', () => {
     expectTypeOf<OperationRenderProps<{ reason: string }>['dispatch']>().parameters.toEqualTypeOf<[params?: { reason: string }]>();
