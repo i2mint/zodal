@@ -3,6 +3,8 @@ import {
   createSuggestionController,
   fromContainsFilter,
   matchOptions,
+  optionRaw,
+  resolveChoice,
   resolveDraft,
   splitTags,
   toContainsFilter,
@@ -37,6 +39,17 @@ describe('resolveDraft', () => {
 
   it('treats blank text as empty', () => {
     expect(resolveDraft('   ', open)).toMatchObject({ ok: false, reason: 'empty' });
+  });
+});
+
+describe('optionRaw', () => {
+  it('writes a bigint choice back as a bigint, others as their raw or string value', () => {
+    const big = { label: '2', value: '2', kind: 'bigint' as const };
+    expect(optionRaw(big)).toBe(2n);
+    expect(resolveChoice(big, [])).toEqual({ ok: true, value: 2n, label: '2' });
+    expect(optionRaw(PRIORITIES[0])).toBe(1);
+    expect(optionRaw({ label: 'No', value: 'false', raw: false })).toBe(false);
+    expect(optionRaw({ label: 'Design', value: 'design' })).toBe('design');
   });
 });
 

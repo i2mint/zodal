@@ -60,10 +60,10 @@ describe('optionKey', () => {
       expect(optionKey(f, selectedValue({ ...f, required: false }, ''))).toBe('');
     }
   });
-  it('keys each element of a tags value', () => {
-    const f = cfg(z.array(z.literal([1, 2, 3])));
-    expect(f.type).toBe('tags');
-    expect([3, 1, 9].map((v) => optionKey(f, v))).toEqual(['3', '1', '']);
+  it('a mixed 1 | "1" choice keeps the number (documented limit)', () => {
+    const f = cfg(z.union([z.literal(1), z.literal('1')]));
+    expect(optionKey(f, 1)).toBe('1');
+    expect(optionKey(f, '1')).toBe('');
   });
 });
 

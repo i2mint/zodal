@@ -110,9 +110,13 @@ export function toValueList(value: unknown): unknown[] {
   return [value];
 }
 
-/** The value to write back for an option: its `raw` when present, else its string value. */
+/**
+ * The value to write back for an option, as the schema accepts it: a bigint choice as a
+ * bigint, else its `raw` when present, else its string value.
+ */
 export function optionRaw(option: TagOption): TagValue {
-  const raw = (option as VocabularyOption).raw;
+  const { raw, kind } = option as VocabularyOption;
+  if (kind === 'bigint') return BigInt(option.value);
   return raw !== undefined ? raw : option.value;
 }
 
