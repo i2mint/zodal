@@ -71,6 +71,7 @@ export {
   getNumericBounds,
   getNumericStep,
   getStringLength,
+  getDateBounds,
   humanizeFieldName,
   isPlainObject,
 } from './inference.js';

@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, WidgetOptions } from '@zodal/core';
-import { getFieldChoices, getNumericBounds, getNumericStep, getStringLength } from '@zodal/core';
+import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength } from '@zodal/core';
 import type { ChoiceArity } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -44,7 +44,8 @@ export interface FormFieldConfig {
   /** Max file size in bytes. */
   maxSize?: number;
   /**
-   * A numeric field's bounds (from `.min()` / `.max()` and friends). An exclusive bound
+   * A numeric field's bounds (from `.min()` / `.max()` and friends), or a date field's in epoch
+   * milliseconds (`new Date(bounds.min)` is the earliest date). An exclusive bound
    * (`.positive()`, `.lt()`) is moved in by one `step` when there is one; otherwise it
    * keeps its `exclusiveMin` / `exclusiveMax` flag for the renderer.
    */
@@ -62,12 +63,16 @@ export interface FormFieldConfig {
 /** The Zod types whose values are plain numbers (a bigint is not: `Number()` would round it). */
 export const NUMERIC_TYPES: ReadonlySet<string> = new Set(['number', 'int', 'float']);
 
-/** The `bounds` and `step` of a numeric field (none for any other type); `step` overrides the inferred step. */
+/** The `bounds` and `step` of a numeric field, the `bounds` of a date field (epoch ms); none for any other type. `step` overrides the inferred step. */
 export function numericFieldProps(
   zodType: string,
   schema: z.ZodType,
   step?: number,
 ): Pick<FormFieldConfig, 'bounds' | 'step'> {
+  if (zodType === 'date') {
+    const bounds = getDateBounds(schema);
+    return Object.keys(bounds).length ? { bounds } : {};
+  }
   if (!NUMERIC_TYPES.has(zodType)) return {};
   const declared = step !== undefined && Number.isFinite(step) && step > 0 ? step : undefined;
   const inferredStep = declared ?? getNumericStep(schema);
