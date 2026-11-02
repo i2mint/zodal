@@ -19,6 +19,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Mirrored by the paths in the root tsconfig.test.json: change both together.
       // Subpath before its package: an alias also matches as a prefix.
       '@zodal/store/descriptor': path.resolve(root, 'packages/store/src/descriptor.ts'),
       '@zodal/core': path.resolve(root, 'packages/core/src/index.ts'),

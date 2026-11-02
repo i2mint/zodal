@@ -1,0 +1,15 @@
+{
+  // Typechecks the root tests/. The paths mirror the aliases in tests/vitest.config.ts:
+  // change both together (vitest matches an alias as a prefix, paths match exactly).
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@zodal/store/descriptor": ["./packages/store/src/descriptor.ts"],
+      "@zodal/core": ["./packages/core/src/index.ts"],
+      "@zodal/store": ["./packages/store/src/index.ts"],
+      "@zodal/ui": ["./packages/ui/src/index.ts"]
+    }
+  },
+  "include": ["tests"]
+}
