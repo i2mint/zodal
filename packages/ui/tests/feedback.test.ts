@@ -126,6 +126,49 @@ describe('createActionFeedback: pending at once, indicator later, repeat presses
     expect(fb.run()).not.toBeNull(); // a press after the reset runs
   });
 
+  it('dispose during the minimum-indicator hold applies the outcome now and resolves the run', async () => {
+    const d = deferred<number>();
+    const fb = createActionFeedback(() => d.promise);
+    const done = fb.run();
+    vi.advanceTimersByTime(FEEDBACK_MS.indicator);
+    expect(fb.state.indicator).toBe(true);
+    d.resolve(5);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fb.state.status).toBe('pending'); // held
+    fb.dispose();
+    expect(fb.state).toEqual({ status: 'success', indicator: false, result: 5 });
+    await expect(done).resolves.toEqual({ status: 'success', indicator: false, result: 5 });
+    expect(fb.run()).not.toBeNull(); // not dead
+  });
+
+  it('reset during the hold resolves that run with the idle state', async () => {
+    const d = deferred<number>();
+    const fb = createActionFeedback(() => d.promise);
+    const done = fb.run();
+    vi.advanceTimersByTime(FEEDBACK_MS.indicator);
+    d.resolve(5);
+    await Promise.resolve();
+    await Promise.resolve();
+    fb.reset();
+    await expect(done).resolves.toEqual({ status: 'idle', indicator: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fb.state).toEqual({ status: 'idle', indicator: false });
+  });
+
+  it('a throwing onChange neither breaks the machine nor rejects run', async () => {
+    const errors: unknown[] = [];
+    const original = globalThis.queueMicrotask;
+    globalThis.queueMicrotask = (fn) => { try { fn(); } catch (e) { errors.push(e); } };
+    try {
+      const fb = createActionFeedback(async () => 1, { onChange: () => { throw new Error('listener'); } });
+      await expect(fb.run()).resolves.toMatchObject({ status: 'success' });
+      expect(errors.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.queueMicrotask = original;
+    }
+  });
+
   it('dispose cancels the indicator timer', () => {
     const fb = createActionFeedback(() => new Promise(() => {}));
     fb.run();

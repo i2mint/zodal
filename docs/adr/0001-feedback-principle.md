@@ -39,7 +39,7 @@ All four, each doing the job it is good at, with the code default as the load-be
    - sets `data-indicator` after the delay, and `data-status` when the action settles;
    - ignores repeat presses while pending, and clears pending on `pageshow` with `persisted`.
 
-   Each renderer also styles these attributes by default. Vanilla ships `FEEDBACK_CSS`: zero-specificity `:where()` rules installed once, with a reduced-motion variant and `touch-action: manipulation`; a page opts out by supplying its own `<style data-zodal-feedback>`. shadcn ships `PRESS_CLASS` (Tailwind `data-[...]` variants) and `PressIndicator`. The callbacks are typed `void | PromiseLike<unknown>`, which is backwards compatible: return the work's promise to get the pending state.
+   Each renderer also styles these attributes by default. Vanilla ships `FEEDBACK_CSS`: zero-specificity `:where()` rules installed once, with a reduced-motion variant and `touch-action: manipulation`, and draws the indicator as its own child element so it never touches the host's `::before` / `::after`; a page opts out by supplying its own `<style data-zodal-feedback>`. shadcn ships `PRESS_CLASS` (Tailwind `data-[...]` variants) and `PressIndicator`. The callbacks are typed `=> unknown` rather than `=> void | PromiseLike<unknown>`, which would break existing expression-bodied handlers that return a value. Any return value is accepted, and a thenable one gets the pending state.
 3. **A conformance test in each renderer package** (`tests/feedback.test.ts`). For every pressable it asserts:
    - pressed on `pointerdown`;
    - pending, `aria-busy` and `aria-disabled` synchronously with the click;
@@ -70,16 +70,16 @@ Report 05 of the research recommended the same split independently. Its prompt d
 
 ## Consequences
 
-- **Rebuilt vanilla views keep pending.** A vanilla view is rebuilt on every state change. `wirePress`'s `share: { scope, key }` keys a pending action to the view config plus the item and operation, so a button rebuilt mid-flight comes back pending and still guarded. Hosts should keep the `ViewConfig` object stable (compute it once).
+- **Rebuilt vanilla views keep pending.** A vanilla view is rebuilt on every state change. `wirePress`'s `share: { scope, key }` keys a pending action to the view config plus the item and operation, so a button rebuilt mid-flight comes back pending and still guarded. The tracker is shared from the moment it turns pending, before the callback runs, so a host that rebuilds synchronously inside its callback is covered too. Hosts should keep the `ViewConfig` object stable (compute it once), and pass a `shareScope` per pane when two panes draw the same config.
 - **Interim copy.** The renderer packages build against `@zodal/ui` 0.2.0 from npm, which predates `feedback.ts`, because publishing is blocked (i2mint/zodal#23). Each renderer carries `src/action-feedback.ts`, a byte-for-byte copy of the body, and a test fails if the copy drifts from the sibling checkout. Once a `@zodal/ui` with `createActionFeedback` is published, the copies become re-exports.
 - **Timing is an option.** `indicatorDelayMs` and `minIndicatorMs` can be set on `createActionFeedback`, `wirePress` and `usePress`; renderer sets can expose them through `defineRendererSet` options. 400 ms sits inside the 300-500 ms conventions [10]; Adobe Spectrum 2 waits 1 s.
 - **The Doherty threshold is a budget, not a law.** The 1982 IBM brief shows productivity rising smoothly below one second, with no 400 ms cliff in its readable text [11]. `FEEDBACK_MS.indicator` is documented that way.
 
 ## Follow-ups (issues)
 
-- A store-layer `mutationMode` (`pessimistic | optimistic | undoable`) with inverse-patch rollback and a feedback sink, keeping `DataProvider<T>` a pure transport, as refine and react-admin do [12][13].
-- A load status instead of `loading: boolean` (`first-load | refreshing | ready | error`), so renderers show a skeleton on the first load but a dimmed-stale cue on a refresh [14].
-- A `statusOf` seam on renderer props, so a store or command layer can share an operation's status with every surface that triggers it. Today a palette or AI dispatch shows nothing on the button.
+- #110: a store-layer `mutationMode` (`pessimistic | optimistic | undoable`) with inverse-patch rollback and a feedback sink, keeping `DataProvider<T>` a pure transport, as refine and react-admin do [12][13].
+- #111: a `loadStatus` field beside `loading: boolean` (kept, since hosts read it) (`first-load | refreshing | ready | error`), so renderers show a skeleton on the first load but a dimmed-stale cue on a refresh [14].
+- #112: a `statusOf` seam on renderer props, so a store or command layer can share an operation's status with every surface that triggers it. Today a palette or AI dispatch shows nothing on the button. The machine needs an input for it first (a `getStatus?()` the guard consults), since its status is private to its closure.
 
 ## References
 

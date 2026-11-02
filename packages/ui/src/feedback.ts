@@ -95,8 +95,9 @@ export interface ActionFeedbackOptions<R = unknown> {
   /** Once the indicator shows, it stays at least this long, so it never flickers. Default: 500 ms. */
   minIndicatorMs?: number;
   /**
-   * Is this resolved value a failure? Default: a zodal command result `{ ok: false }`
-   * (`OperationCommandResult`), so an operation's `fail(code, message)` reads as an error.
+   * Is this resolved value a failure? Default: any object with `ok === false`: a zodal command
+   * result (`fail(code, message)`, whose `error` becomes the state's `error`), and also a `fetch`
+   * `Response` with a 4xx/5xx status (the `Response` itself becomes the `error`).
    */
   isFailure?: (value: R) => boolean;
   /** Injected timers, for tests. Default: the global `setTimeout` / `clearTimeout` / `Date.now`. */
@@ -127,7 +128,11 @@ export interface ActionFeedback<A extends unknown[], R> {
    * which would otherwise come back still pending, and for a Cancel.
    */
   reset(): void;
-  /** Cancel pending timers (the control was removed); the action itself is not aborted. */
+  /**
+   * Cancel the timers (the control was removed or hidden): the indicator timer is dropped, and an
+   * outcome waiting out the minimum indicator is applied at once. The action itself is not aborted;
+   * if it is still running, it settles as usual (without the indicator).
+   */
   dispose(): void;
 }
 
@@ -177,16 +182,34 @@ export function createActionFeedback<A extends unknown[], R>(
   let state: ActionFeedbackState<R> = { status: 'idle', indicator: false };
   let indicatorTimer: unknown;
   let indicatorShownAt = 0;
+  /** The minimum-indicator hold, while an outcome waits to be shown: its timer, outcome and resolver. */
+  let hold: { timer: unknown; final: ActionFeedbackState<R>; resolve: (s: ActionFeedbackState<R>) => void } | undefined;
   /** Bumped by `reset`, so an outcome from before it is dropped. */
   let generation = 0;
 
+  /** Set and report the state. A throwing listener must not break the machine or reject `run`. */
   const set = (next: ActionFeedbackState<R>) => {
     state = next;
-    onChange?.(state);
+    try {
+      onChange?.(state);
+    } catch (error) {
+      queueMicrotask(() => {
+        throw error;
+      }); // surfaced like any uncaught error, without unwinding the machine
+    }
   };
   const clearIndicatorTimer = () => {
     if (indicatorTimer !== undefined) clock.clearTimeout(indicatorTimer);
     indicatorTimer = undefined;
+  };
+  /** End a hold now: resolve its run with `final` (its own outcome, or the reset state). */
+  const endHold = (final?: ActionFeedbackState<R>) => {
+    if (!hold) return;
+    const h = hold;
+    hold = undefined;
+    clock.clearTimeout(h.timer);
+    if (final === undefined) set(h.final);
+    h.resolve(final ?? h.final);
   };
   const outcome = (value: R): ActionFeedbackState<R> =>
     isFailure(value)
@@ -203,11 +226,7 @@ export function createActionFeedback<A extends unknown[], R>(
       return Promise.resolve(final);
     }
     return new Promise((resolve) => {
-      indicatorTimer = clock.setTimeout(() => {
-        indicatorTimer = undefined;
-        set(final);
-        resolve(final);
-      }, remaining);
+      hold = { final, resolve, timer: clock.setTimeout(() => endHold(), remaining) };
     });
   };
 
@@ -240,8 +259,13 @@ export function createActionFeedback<A extends unknown[], R>(
     reset() {
       generation++;
       clearIndicatorTimer();
-      if (state.status !== 'idle' || state.indicator) set({ status: 'idle', indicator: false });
+      const idle: ActionFeedbackState<R> = { status: 'idle', indicator: false };
+      endHold(idle);
+      if (state.status !== 'idle' || state.indicator) set(idle);
     },
-    dispose: clearIndicatorTimer,
+    dispose() {
+      clearIndicatorTimer();
+      endHold(); // an outcome waiting out the minimum indicator is shown now, and its run resolves
+    },
   };
 }
