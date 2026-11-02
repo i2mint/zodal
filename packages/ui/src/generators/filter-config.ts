@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { CollectionDefinition, FilterType } from '@zodal/core';
 import { getVocabularyEntries, getNumericBounds } from '@zodal/core';
 import { toOption, type VocabularyOption } from './form-config.js';
+import { quantilesOf } from '../stats.js';
 
 export interface FilterFieldConfig {
   /** Field key. */
@@ -33,26 +34,14 @@ export interface FilterFieldConfig {
 
 /** Options of {@link toFilterConfig}. */
 export interface FilterConfigOptions {
-  /** Rows in memory: each range filter gets the `quantiles` of its field's numeric values. */
-  data?: Iterable<Record<string, unknown>>;
+  /**
+   * Rows in memory: each range filter gets the `quantiles` of its field's values that are
+   * numbers (dates, bigints and strings are skipped, so such a field gets none; rows that
+   * are not objects are skipped). Read once, so a one-shot iterable works.
+   */
+  data?: Iterable<object | null | undefined>;
   /** How many intervals the quantiles split the data into (`quantileCount + 1` values). Default 100: whole percentiles. */
   quantileCount?: number;
-}
-
-/**
- * `count + 1` quantiles of `values` (linear interpolation between order statistics; NaN and
- * infinities ignored), non-decreasing: `result[i]` is the value at percentile `100 * i / count`.
- * Empty when no value is finite. Throws when `count` is not a whole number >= 1.
- */
-export function quantilesOf(values: Iterable<number>, count = 100): number[] {
-  if (!(Number.isInteger(count) && count >= 1)) throw new Error('quantilesOf needs a whole count >= 1');
-  const sorted = Array.from(values).filter((v) => Number.isFinite(v)).sort((x, y) => x - y);
-  if (!sorted.length) return [];
-  return Array.from({ length: count + 1 }, (_, i) => {
-    const x = (i / count) * (sorted.length - 1);
-    const j = Math.floor(x);
-    return j + 1 < sorted.length ? sorted[j] + (x - j) * (sorted[j + 1] - sorted[j]) : sorted[j];
-  });
 }
 
 /**
@@ -67,7 +56,7 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
   const rows = data ? Array.from(data) : undefined;
   const quantilesFor = (key: string): number[] | undefined => {
     if (!rows) return undefined;
-    const values = rows.map((r) => r[key]).filter((v): v is number => typeof v === 'number');
+    const values = rows.map((r) => (r as Record<string, unknown> | null)?.[key]).filter((v): v is number => typeof v === 'number');
     const q = quantilesOf(values, quantileCount);
     return q.length ? q : undefined;
   };

@@ -630,7 +630,7 @@ export function humanizeFieldName(key: string): string {
 const TRACED_PROPS: (keyof FieldAffordance)[] = [
   'sortable', 'filterable', 'searchable', 'groupable', 'aggregatable',
   'editable', 'visible', 'hidden', 'detailOnly', 'summaryField',
-  'readable', 'inlineEditable', 'editWidget', 'truncate', 'tooltip',
+  'readable', 'inlineEditable', 'editWidget', 'filterWidget', 'truncate', 'tooltip',
   'storageRole',
 ];
 

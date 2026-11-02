@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { toFilterConfig, quantilesOf } from '../src/index.js';
+import { toFilterConfig, quantilesOf, filterWidgetIs, toCode, PRIORITY } from '../src/index.js';
+import { inferFieldAffordancesWithTrace } from '@zodal/core';
 
 describe('quantilesOf', () => {
   it('interpolates between order statistics', () => {
@@ -13,6 +14,13 @@ describe('quantilesOf', () => {
     expect(quantilesOf([NaN, 1, Infinity, 3, -Infinity], 2)).toEqual([1, 2, 3]);
     expect(quantilesOf([NaN])).toEqual([]);
     expect(quantilesOf([])).toEqual([]);
+  });
+  it('stays finite and ordered when the data spans more than Number.MAX_VALUE', () => {
+    const q = quantilesOf([-1e308, 1e308], 4);
+    expect(q.every(Number.isFinite)).toBe(true);
+    expect(q).toEqual([...q].sort((x, y) => x - y));
+    expect(q[0]).toBe(-1e308);
+    expect(q[4]).toBe(1e308);
   });
   it('one value is a plateau', () => {
     expect(quantilesOf([7], 2)).toEqual([7, 7, 7]);
@@ -55,6 +63,31 @@ describe('toFilterConfig with data', () => {
     expect(byName(toFilterConfig(collection, { data: rows })).gross.quantiles).toHaveLength(101);
     expect(byName(toFilterConfig(collection)).gross).not.toHaveProperty('quantiles');
     expect(byName(toFilterConfig(collection, { data: [{ id: 'x' }] })).gross).not.toHaveProperty('quantiles');
+  });
+  it('accepts rows typed by an interface, and skips rows that are not objects', () => {
+    interface Film { id: string; gross: number; year?: number; genre: string }
+    const films: Film[] = [{ id: 'a', gross: 1, genre: 'drama' }, { id: 'b', gross: 3, genre: 'drama' }];
+    const f = byName(toFilterConfig(collection, { data: [...films, null, undefined], quantileCount: 2 }));
+    expect(f.gross.quantiles).toEqual([1, 2, 3]);
+    expect(f.year).not.toHaveProperty('quantiles');
+  });
+  it('a date range filter gets no quantiles (numbers only)', () => {
+    const c = defineCollection(z.object({ at: z.date().meta({ filterable: 'range' }) }));
+    const f = byName(toFilterConfig(c, { data: [{ at: new Date(0) }, { at: new Date(1) }] }));
+    expect(f.at).not.toHaveProperty('quantiles');
+  });
+  it('filterWidgetIs matches filterWidget, else editWidget', () => {
+    const ctx = { mode: 'filter' } as any;
+    expect(filterWidgetIs('range-slider')(collection.fieldAffordances.gross, ctx)).toBe(PRIORITY.OVERRIDE);
+    expect(filterWidgetIs('range-slider')({ ...collection.fieldAffordances.year, editWidget: 'range-slider' }, ctx)).toBe(PRIORITY.OVERRIDE);
+    expect(filterWidgetIs('range-slider')({ ...collection.fieldAffordances.gross, editWidget: 'slider' }, ctx)).toBe(PRIORITY.OVERRIDE);
+    expect(filterWidgetIs('slider')({ ...collection.fieldAffordances.gross, editWidget: 'slider' }, ctx)).toBe(-1);
+  });
+  it('toCode and the inference trace know filterWidget', () => {
+    const c = defineCollection(z.object({ g: z.number() }), { fields: { g: { filterable: 'range', filterWidget: 'range-slider' } } });
+    expect(toCode(c, { diffOnly: true })).toContain("filterWidget: 'range-slider'");
+    const { traces } = inferFieldAffordancesWithTrace('gross', schema.shape.gross);
+    expect(traces.map((t) => t.affordance)).toContain('filterWidget');
   });
   it('carries filterWidget from .meta() onto the field affordance', () => {
     expect(collection.fieldAffordances.gross.filterWidget).toBe('range-slider');
