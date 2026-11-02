@@ -82,6 +82,9 @@ describe('toFilterConfig with data', () => {
     expect(filterWidgetIs('range-slider')({ ...collection.fieldAffordances.year, editWidget: 'range-slider' }, ctx)).toBe(PRIORITY.OVERRIDE);
     expect(filterWidgetIs('range-slider')({ ...collection.fieldAffordances.gross, editWidget: 'slider' }, ctx)).toBe(PRIORITY.OVERRIDE);
     expect(filterWidgetIs('slider')({ ...collection.fieldAffordances.gross, editWidget: 'slider' }, ctx)).toBe(-1);
+    // Only in filter mode: a filter renderer must not win a form or a cell.
+    expect(filterWidgetIs('range-slider')(collection.fieldAffordances.gross, { mode: 'form' } as any)).toBe(-1);
+    expect(filterWidgetIs('range-slider')(collection.fieldAffordances.gross, { mode: 'cell' } as any)).toBe(-1);
   });
   it('toCode and the inference trace know filterWidget', () => {
     const c = defineCollection(z.object({ g: z.number() }), { fields: { g: { filterable: 'range', filterWidget: 'range-slider' } } });
