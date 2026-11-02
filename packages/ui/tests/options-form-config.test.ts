@@ -140,3 +140,12 @@ describe('toOptionsFormConfig numeric bounds and step (#43)', () => {
     expect(fields.ratio.step).toBe(0.05);
   });
 });
+
+describe('toOptionsFormConfig string length (#78)', () => {
+  it('carries a string option\'s length limits, a secret\'s too', () => {
+    const f = byName(toOptionsFormConfig(z.object({ bucket: z.string().min(3).max(63), apiKey: z.string().max(40) }), { secretPaths: [['apiKey']] }));
+    expect([f.bucket.minLength, f.bucket.maxLength]).toEqual([3, 63]);
+    expect(f.apiKey.secret).toBeTruthy();
+    expect(f.apiKey.maxLength).toBe(40);
+  });
+});

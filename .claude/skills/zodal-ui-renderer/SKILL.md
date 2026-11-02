@@ -374,6 +374,10 @@ interface FormFieldConfig {
   helpText?: string;
   defaultValue?: unknown;
   options?: { label: string; value: string }[];
+  bounds?: { min?: number; max?: number };  // numeric fields
+  step?: number;                            // numeric fields
+  minLength?: number;                       // string fields: pass to the input, do not re-read the schema
+  maxLength?: number;
   order: number;
   zodType: string;
 }

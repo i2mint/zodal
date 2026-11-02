@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance, NumericBounds } from '@zodal/core';
-import { getChoiceArity, getNumericBounds, getNumericStep, getVocabularyEntries } from '@zodal/core';
+import { getChoiceArity, getNumericBounds, getNumericStep, getStringLength, getVocabularyEntries } from '@zodal/core';
 import type { ChoiceArity, VocabularyEntry } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -51,6 +51,10 @@ export interface FormFieldConfig {
   bounds?: NumericBounds;
   /** A numeric field's increment: a declared `step` affordance, else `.multipleOf()`, else `1` for an integer. */
   step?: number;
+  /** A string field's fewest characters (`.min()`, `.length()`, `.nonempty()`), for the input's `minLength`. */
+  minLength?: number;
+  /** A string field's most characters (`.max()`, `.length()`), for the input's `maxLength`. */
+  maxLength?: number;
 }
 
 const NUMERIC_TYPES = new Set(['number', 'int', 'float']);
@@ -79,6 +83,14 @@ export function numericFieldProps(
     ...(Object.keys(bounds).length ? { bounds } : {}),
     ...(inferredStep !== undefined ? { step: inferredStep } : {}),
   };
+}
+
+/**
+ * The `minLength` and `maxLength` of a string field (none for any other type, or when the
+ * widget edits it as JSON text, where quotes and escapes would make the limits wrong).
+ */
+export function stringFieldProps(schema: z.ZodType, widget: string): Pick<FormFieldConfig, 'minLength' | 'maxLength'> {
+  return widget === 'json' ? {} : getStringLength(schema);
 }
 
 /** Zod types a form has no dedicated widget for: edited as JSON text. */
@@ -187,11 +199,12 @@ export function toFormConfig<T extends z.ZodObject<any>>(
     const vocabulary = getVocabularyEntries(fieldSchema);
     const enumValues = vocabulary?.map((e) => e.value) ?? null;
     if (vocabulary) options = vocabulary.map(toOption);
+    const type = inferFormWidgetType(zodType, fa, getChoiceArity(fieldSchema));
 
     fields.push({
       name: key,
       label: fa.title,
-      type: inferFormWidgetType(zodType, fa, getChoiceArity(fieldSchema)),
+      type,
       required: isRequired,
       disabled: fa.editable === false,
       hidden: fa.hidden ?? false,
@@ -202,6 +215,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       order: fa.order ?? orderCounter++,
       zodType,
       ...numericFieldProps(zodType, fieldSchema, fa.step),
+      ...stringFieldProps(fieldSchema, type),
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
     });
   }
