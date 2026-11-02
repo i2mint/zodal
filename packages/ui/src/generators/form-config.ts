@@ -154,7 +154,7 @@ export interface VocabularyOption {
  * only when it differs from the string `value` (numbers, booleans), so string choices keep
  * the plain `{ label, value }` shape; `hint` and `data` only when the choice has them.
  */
-function toOption({ value, raw, label, hint, data }: FieldChoice): VocabularyOption {
+export function toOption({ value, raw, label, hint, data }: FieldChoice): VocabularyOption {
   // A bigint is not JSON-safe: its string `value` is the portable form.
   const option: VocabularyOption = typeof raw === 'bigint' ? { label, value, kind: 'bigint' }
     : typeof raw === 'string' ? { label, value } : { label, value, raw };

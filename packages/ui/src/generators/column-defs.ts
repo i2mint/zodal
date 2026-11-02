@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import type { CollectionDefinition, FieldChoice, FilterType, ResolvedFieldAffordance } from '@zodal/core';
 import { getFieldChoices, getNumericBounds } from '@zodal/core';
+import { toOption, type VocabularyOption } from './form-config.js';
 
 /**
  * A framework-agnostic column definition.
@@ -52,7 +53,10 @@ export interface ColumnConfig {
     copyable?: boolean;
     truncate?: number;
     tooltip?: boolean;
+    /** A closed choice's option values: always `options.map((o) => o.value)`, kept for renderers that read only the values. */
     enumValues?: string[];
+    /** A closed choice's options (label, hint, data), the same as its form and filter get: a cell shows the label of its value. */
+    options?: VocabularyOption[];
     numericBounds?: { min?: number; max?: number };
     pinned?: 'left' | 'right' | false;
     /** Storage role for bifurcation-aware renderers. */
@@ -182,6 +186,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
         truncate: fa.truncate,
         tooltip: fa.tooltip,
         enumValues: choices?.map((e) => e.value),
+        options: choices?.map(toOption),
         numericBounds: fieldSchema ? getNumericBounds(fieldSchema) : undefined,
         pinned: fa.pinned,
         storageRole: fa.storageRole === 'content' ? 'content' : undefined,
