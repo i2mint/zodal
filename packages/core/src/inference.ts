@@ -624,13 +624,13 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
       (result as any)[key] = meta[key];
     }
   }
-  // Plain data only: a string, an array or a class instance is not a widget's options.
-  if ('editWidgetOptions' in result && !isPlainObject(result.editWidgetOptions)) delete result.editWidgetOptions;
-
   // Support nested affordance object from .meta({ affordances: { ... } })
   if (meta.affordances && typeof meta.affordances === 'object') {
     Object.assign(result, meta.affordances);
   }
+
+  // Plain data only: a string, an array or a class instance is not a widget's options.
+  if ('editWidgetOptions' in result && !isPlainObject(result.editWidgetOptions)) delete result.editWidgetOptions;
 
   // Map standard Zod meta fields
   if (meta.title && !result.title) result.title = meta.title as string;

@@ -55,7 +55,7 @@ export interface FormFieldConfig {
   minLength?: number;
   /** A string field's most characters (`.max()`, `.length()`), for the input's `maxLength`. */
   maxLength?: number;
-  /** The field's `editWidgetOptions` affordance: the widget's own options, a copy per config. */
+  /** The field's `editWidgetOptions` affordance: the widget's own options, a shallow copy per config. */
   editWidgetOptions?: Readonly<WidgetOptions>;
 }
 

@@ -37,12 +37,6 @@ export type FilterType =
 export type AggregationFn = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'median' | 'uniqueCount';
 
 /**
- * Declares what operations are meaningful on a single field of an item.
- *
- * Design principle: exclusion-based (OData pattern).
- * If not specified, defaults are inferred from the Zod type.
- */
-/**
  * A widget's own options: plain data a renderer reads (see `FieldAffordance.editWidgetOptions`).
  * Untyped by default; an app or a renderer package types its keys by declaration merging:
  * `declare module '@zodal/core' { interface WidgetOptions { layout?: string } }`.
@@ -51,6 +45,12 @@ export interface WidgetOptions {
   [key: string]: unknown;
 }
 
+/**
+ * Declares what operations are meaningful on a single field of an item.
+ *
+ * Design principle: exclusion-based (OData pattern).
+ * If not specified, defaults are inferred from the Zod type.
+ */
 export interface FieldAffordance {
   // --- Query capabilities (OData-inspired) ---
   /** Can items be ordered by this field? Default: inferred from type. */

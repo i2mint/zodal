@@ -33,8 +33,10 @@ describe('editWidgetOptions (#77)', () => {
   });
   it('only a plain object is taken from .meta()', () => {
     for (const bad of ['tiles', ['a'], 42, new Date(0)]) {
-      const c = defineCollection(z.object({ x: z.string().meta({ editWidgetOptions: bad }) }));
-      expect(c.fieldAffordances.x).not.toHaveProperty('editWidgetOptions');
+      const direct = defineCollection(z.object({ x: z.string().meta({ editWidgetOptions: bad }) }));
+      const nested = defineCollection(z.object({ x: z.string().meta({ affordances: { editWidgetOptions: bad } }) }));
+      expect(direct.fieldAffordances.x).not.toHaveProperty('editWidgetOptions');
+      expect(nested.fieldAffordances.x).not.toHaveProperty('editWidgetOptions');
     }
   });
   it('an options form carries it, except for a secret or a code-only value', () => {
