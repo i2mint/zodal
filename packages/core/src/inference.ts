@@ -328,14 +328,52 @@ export function getStringLength(schema: z.ZodType): StringLength {
 
 /**
  * The increment a numeric input should step by: the schema's `.multipleOf()`, else `1`
- * for an integer (`z.int()`, `.int()`), else `undefined` (any number).
+ * for an integer (`z.int()`, `.int()`), else `undefined` (any number). Across a plain pipe,
+ * the step that meets both sides (see `commonStep`).
  */
 export function getNumericStep(schema: z.ZodType): number | undefined {
-  const unwrapped = unwrapZodSchema(schema) as any;
-  const bag = unwrapped._zod?.bag;
-  if (typeof bag?.multipleOf === 'number') return bag.multipleOf;
-  if (unwrapped.isInt === true) return 1;
-  return undefined;
+  return limitSchemas(schema).map(numericStepOf).reduce(commonStep, undefined) ?? undefined;
+}
+
+/**
+ * A step: `undefined` when nothing constrains it, `null` when the constraints have no exact
+ * common step (a wrong step is worse than none: it would turn an exclusive bound into a wrong
+ * inclusive one).
+ */
+type Step = number | undefined | null;
+
+/** The step one (unwrapped) schema declares: its `.multipleOf()` (a usable one), combined with `1` if it is an integer. */
+function numericStepOf(unwrapped: any): Step {
+  const declared = unwrapped._zod?.bag?.multipleOf;
+  const multipleOf = typeof declared === 'number' && Number.isFinite(declared) && declared !== 0 ? Math.abs(declared) : undefined;
+  return commonStep(multipleOf, unwrapped.isInt === true ? 1 : undefined);
+}
+
+/**
+ * The step a value meeting both steps moves by: their least common multiple, computed exactly
+ * on the decimal digits (0.1 and 0.25: 0.5; 1 and 2.5: 5; 4 and 6: 12). `null` when it has no
+ * exact safe form.
+ */
+function commonStep(a: Step, b: Step): Step {
+  if (a === null || b === null) return null;
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  const scale = 10 ** Math.max(decimalsOf(a), decimalsOf(b));
+  const x = Math.round(a * scale);
+  const y = Math.round(b * scale);
+  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) return null;
+  const lcm = (x / gcd(x, y)) * y;
+  return Number.isSafeInteger(lcm) ? lcm / scale : null;
+}
+
+/** How many decimal places `x` is written with (0.25: 2, 1e-7: 7, 100: 0). */
+function decimalsOf(x: number): number {
+  const [mantissa, exponent] = x.toExponential().split('e');
+  return Math.max(0, (mantissa.split('.')[1] ?? '').length - Number(exponent));
+}
+
+function gcd(x: number, y: number): number {
+  return y === 0 ? x : gcd(y, x % y);
 }
 
 // ============================================================================
