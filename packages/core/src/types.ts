@@ -110,6 +110,8 @@ export interface FieldAffordance {
   // --- Edit widget override ---
   /** Override the default edit widget type. */
   editWidget?: string;
+  /** The widget a filter panel draws for this field (e.g. `'range-slider'`), when it differs from `editWidget`. Renderers resolve `filterWidget ?? editWidget` in filter mode. */
+  filterWidget?: string;
   /** Placeholder text for edit widget. */
   editPlaceholder?: string;
   /** Help text shown below edit widget. */

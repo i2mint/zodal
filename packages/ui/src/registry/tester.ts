@@ -188,6 +188,16 @@ export function editWidgetIs(widget: string): RendererTester {
   };
 }
 
+/**
+ * Match fields whose filter widget is `widget`, in filter mode only: `filterWidget`, else
+ * `editWidget` (one field can be a `'slider'` in forms and a `'range-slider'` in filters).
+ * Returns OVERRIDE priority on match.
+ */
+export function filterWidgetIs(widget: string): RendererTester {
+  return (field, context) =>
+    context.mode === 'filter' && (field.filterWidget ?? field.editWidget) === widget ? PRIORITY.OVERRIDE : -1;
+}
+
 /** Match fields with a specific storage role. Returns LIBRARY priority on match. */
 export function storageRoleIs(role: 'metadata' | 'content'): RendererTester {
   return (field) =>

@@ -24,7 +24,8 @@ export type { OptionsFormField, OptionsFormConfigOptions } from './generators/op
 
 // Filter configuration generator
 export { toFilterConfig } from './generators/filter-config.js';
-export type { FilterFieldConfig } from './generators/filter-config.js';
+export { quantilesOf } from './stats.js';
+export type { FilterFieldConfig, FilterConfigOptions } from './generators/filter-config.js';
 
 // Collection view generator (list / grid / kanban, grouped and collapsible) and view ranking
 export {
@@ -118,6 +119,7 @@ export {
   fieldNameMatches,
   metaMatches,
   editWidgetIs,
+  filterWidgetIs,
   closedChoice,
   storageRoleIs,
   and,

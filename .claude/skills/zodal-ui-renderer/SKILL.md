@@ -387,9 +387,12 @@ interface FilterFieldConfig {
   filterType: FilterType;  // 'exact' | 'search' | 'select' | 'multiSelect' | 'range' | 'contains' | 'containsAll' | 'boolean' | 'fuzzy'
   options?: { label: string; value: string }[];
   bounds?: { min?: number; max?: number };
+  quantiles?: number[];    // range filters: the data's quantiles (quantiles[i] at percentile 100*i/(n-1)), from toFilterConfig(c, { data }) or the app
   zodType: string;
 }
 ```
+
+A range filter that should draw as a slider is declared with the `filterWidget` affordance (`.meta({ filterable: 'range', filterWidget: 'range-slider' })`), so the same field can be a `'slider'` in forms (`editWidget`) and a `'range-slider'` in filters. A filter tester matches it with `filterWidgetIs('range-slider')`, which reads `filterWidget ?? editWidget`. When `quantiles` is present, lay the track out by them (a percentile scale); otherwise use `bounds`.
 
 ## Package Structure
 
