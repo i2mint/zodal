@@ -483,7 +483,7 @@ describe('toCode serialization (#89)', () => {
   it('refuses a cycle with its path, and keeps a shared (acyclic) value', () => {
     const loop: Record<string, unknown> = { a: 1 };
     loop.self = loop;
-    expect(() => field(loop)).toThrow(/editWidgetOptions\.v\.self is circular/);
+    expect(() => field(loop)).toThrow(/config\.fields\.x\.editWidgetOptions\.v\.self is circular/);
     const shared = { k: 1 };
     expect(field({ a: shared, b: shared })).toContain('v: { a: { k: 1 }, b: { k: 1 } }');
   });

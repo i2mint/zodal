@@ -161,7 +161,7 @@ function buildFieldsObject(
         const resolved = (fa as any)[prop];
         if (resolved === undefined) continue;
         const baseline = prop === 'title' ? inferredTitle : (inferred as any)[prop];
-        if (!valueEqual(resolved, baseline)) {
+        if (!valueEqual(resolved, baseline, `config.fields.${key}.${prop}`)) {
           props[prop] = resolved;
         }
       }
@@ -279,13 +279,13 @@ function isValidIdentifier(s: string): boolean {
 // Utility helpers
 // ============================================================================
 
-function valueEqual(a: unknown, b: unknown): boolean {
+function valueEqual(a: unknown, b: unknown, path = 'value'): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a === b;
   if (typeof a !== typeof b) return false;
   if (typeof a !== 'object') return false;
   // The same walker that writes the code, with sorted keys: equal values write the same source.
-  const source = (v: unknown) => serialize(v, { depth: 0, indent: 0, path: 'value', sortKeys: true });
+  const source = (v: unknown) => serialize(v, { depth: 0, indent: 0, path, sortKeys: true });
   return source(a) === source(b);
 }
 
