@@ -377,6 +377,12 @@ describe('getNumericStep (#43)', () => {
     expect(getNumericStep(z.int().multipleOf(0.3))).toBe(3);
     expect(getNumericStep(z.number().multipleOf(0.01).pipe(z.int()))).toBe(1);
   });
+  it('reads every multipleOf of a chain (#94)', () => {
+    expect(getNumericStep(z.int().multipleOf(2).multipleOf(3))).toBe(6);
+    expect(getNumericStep(z.number().multipleOf(0.5).multipleOf(0.2))).toBe(1);
+    expect(getNumericStep(z.number().multipleOf(4).multipleOf(2))).toBe(4);
+    expect(getNumericStep(z.number().multipleOf(2).multipleOf(4))).toBe(4); // the bag keeps the first: 2
+  });
   it('ignores an unusable multipleOf, and gives no step when no exact one exists', () => {
     expect(getNumericStep(z.number().multipleOf(0).pipe(z.int()))).toBe(1);
     expect(getNumericStep(z.number().multipleOf(-4).pipe(z.number().multipleOf(6)))).toBe(12);
