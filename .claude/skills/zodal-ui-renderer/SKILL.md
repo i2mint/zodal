@@ -378,6 +378,7 @@ interface FormFieldConfig {
   step?: number;                            // numeric fields
   minLength?: number;                       // string fields: pass to the input, do not re-read the schema
   maxLength?: number;
+  widgetOptions?: Record<string, unknown>;  // the widget's own options (layout, heading, clear value...), from the widgetOptions affordance
   order: number;
   zodType: string;
 }

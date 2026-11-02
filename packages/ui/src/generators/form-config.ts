@@ -55,6 +55,8 @@ export interface FormFieldConfig {
   minLength?: number;
   /** A string field's most characters (`.max()`, `.length()`), for the input's `maxLength`. */
   maxLength?: number;
+  /** The field's `widgetOptions` affordance: the widget's own options, as declared. */
+  widgetOptions?: Record<string, unknown>;
 }
 
 const NUMERIC_TYPES = new Set(['number', 'int', 'float']);
@@ -210,6 +212,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       hidden: fa.hidden ?? false,
       placeholder: fa.editPlaceholder,
       helpText: fa.editHelp ?? fa.description,
+      ...(fa.widgetOptions ? { widgetOptions: fa.widgetOptions } : {}),
       options,
       ...(zodType === 'array' || zodType === 'set' ? { allowCreate: !enumValues } : {}),
       order: fa.order ?? orderCounter++,

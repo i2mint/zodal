@@ -116,6 +116,13 @@ export interface FieldAffordance {
   editPlaceholder?: string;
   /** Help text shown below edit widget. */
   editHelp?: string;
+  /**
+   * A widget's own options (a layout, a heading, a clear value...), passed through untouched to
+   * `FormFieldConfig.widgetOptions` for the renderer to read. Plain data: callbacks and anything
+   * known only at render time belong in the render context. A later inference layer replaces
+   * the whole object (no deep merge).
+   */
+  widgetOptions?: Record<string, unknown>;
   /** Increment for a numeric edit widget (a slider's or a number input's step). Inferred from `.multipleOf()`, else `1` for an integer. */
   step?: number;
 

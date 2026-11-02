@@ -45,7 +45,7 @@ const FIELD_PROP_ORDER: (keyof FieldAffordance)[] = [
   'visible', 'hidden', 'detailOnly', 'summaryField',
   'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
   'displayFormat', 'badge', 'copyable', 'truncate', 'tooltip',
-  'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'step',
+  'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'widgetOptions', 'step',
 ];
 
 const COMPUTED_PROPS = new Set(['zodType', 'zodDef']);

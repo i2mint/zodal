@@ -608,7 +608,7 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
     'immutableAfterCreate', 'visible', 'hidden', 'detailOnly', 'summaryField',
     'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
     'title', 'description', 'displayFormat', 'badge', 'copyable', 'truncate',
-    'tooltip', 'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'step',
+    'tooltip', 'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'widgetOptions', 'step',
     'storageRole',
   ];
 

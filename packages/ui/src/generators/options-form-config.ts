@@ -173,6 +173,7 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     hidden: meta.hidden === true,
     placeholder: meta.editPlaceholder,
     helpText: meta.editHelp ?? meta.description ?? (fieldSchema as any).description,
+    ...(meta.widgetOptions ? { widgetOptions: meta.widgetOptions } : {}),
     order: meta.order ?? index,
     zodType,
     ...(options ? { options } : {}),
