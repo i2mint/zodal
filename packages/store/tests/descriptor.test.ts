@@ -36,6 +36,19 @@ const s3Like = defineProviderDescriptor({
   },
 });
 
+/** A descriptor like `s3Like` with other options (a fixture: `s3Like`'s own types cover only its options). */
+function withOptions<O extends Record<string, unknown>>(
+  name: string,
+  options: z.ZodType<O>,
+  rest: Partial<ProviderDescriptor<O>> = {},
+): ProviderDescriptor<O> {
+  return defineProviderDescriptor<O>({ ...(s3Like as unknown as ProviderDescriptor<O>), name, options, ...rest });
+}
+
+/** The error a promise rejects with; fails the test when it resolves. */
+const rejectionOf = (promise: Promise<unknown>): Promise<Error> =>
+  promise.then(() => { throw new Error('expected a rejection'); }, (e: unknown) => e as Error);
+
 describe('provider descriptors', () => {
   it('rejects a malformed descriptor', () => {
     expect(() => defineProviderDescriptor({ ...s3Like, name: 'has space' })).toThrow(/identifier-like/);
@@ -49,7 +62,7 @@ describe('provider descriptors', () => {
   it('finds nested and name-only secrets as paths', () => {
     // `credentials` is a secret-looking container: it is opened, and its secret members are found.
     expect(secretOptionPaths(s3Like).map((p) => p.join('.')).sort()).toEqual(['credentials.accessKeyId', 'credentials.secretAccessKey', 'sessionPin']);
-    const nested = defineProviderDescriptor({ ...s3Like, name: 'nested', options: z.object({ account: z.object({ accessKeyId: z.string(), region: z.string() }) }) });
+    const nested = withOptions('nested', z.object({ account: z.object({ accessKeyId: z.string(), region: z.string() }) }));
     expect(secretOptionPaths(nested).map((p) => p.join('.'))).toEqual(['account.accessKeyId']);
     expect(secretOptionPaths(inMemoryDescriptor)).toEqual([]);
   });
@@ -65,40 +78,36 @@ describe('provider descriptors', () => {
 
   it('never puts a secret value in an error', async () => {
     const opts = { bucket: 'b', region: 'boom', credentials: { accessKeyId: 'AKIA9999', secretAccessKey: 'shh-very' } };
-    const err = await createFromDescriptor(s3Like, opts).catch((e) => e as Error);
+    const err = await rejectionOf(createFromDescriptor(s3Like, opts));
     expect(err.message).toMatch(/could not be created/);
     expect(err.message).not.toContain('shh-very');
-    const refined = defineProviderDescriptor({
-      ...s3Like,
-      name: 'refined',
-      options: z.object({ token: z.string().refine((v) => v.startsWith('ok'), { error: (i) => `bad ${i.input}` }) }),
-    });
-    const verr = await createFromDescriptor(refined, { token: 'LEAKME-123' }).catch((e) => e as Error);
+    const refined = withOptions('refined', z.object({ token: z.string().refine((v) => v.startsWith('ok'), { error: (i) => `bad ${i.input}` }) }));
+    const verr = await rejectionOf(createFromDescriptor(refined, { token: 'LEAKME-123' }));
     expect(verr.message).not.toContain('LEAKME-123');
   });
 
   it('refuses a secret with a default, a non-v4 schema, and an unknown runtime', () => {
-    expect(() => defineProviderDescriptor({ ...s3Like, options: z.object({ apiKey: z.string().default('sk-live') }) })).toThrow(/would be published/);
+    expect(() => withOptions('s3Like', z.object({ apiKey: z.string().default('sk-live') }))).toThrow(/would be published/);
     // a name-only match with a non-string default is not a secret leak (maxTokens is not a secret at all)
-    expect(() => defineProviderDescriptor({ ...s3Like, name: 'llm', options: z.object({ maxTokens: z.number().default(1000), pinCount: z.number().default(3) }) })).not.toThrow();
+    expect(() => withOptions('llm', z.object({ maxTokens: z.number().default(1000), pinCount: z.number().default(3) }))).not.toThrow();
     expect(() => defineProviderDescriptor({ ...s3Like, options: { safeParse: () => ({}) } as any })).toThrow(/Zod v4/);
     expect(() => defineProviderDescriptor({ ...s3Like, runtime: 'nodejs' as any })).toThrow(/runtime/);
   });
 
   it('regressions from the verification review: no leak paths', async () => {
     const mk = (name: string, options: any, create: any = () => createInMemoryProvider([])) =>
-      defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+      withOptions(name, options, { capabilities: undefined, create });
     // a transform that throws, with a secret in the options
     const tr = mk('tr', z.object({ apiKey: z.string(), url: z.string().transform((u) => { throw new Error(`bad key sk-LEAK-0001 for ${u}`); }) }));
-    const e1 = await createFromDescriptor(tr, { apiKey: 'sk-LEAK-0001', url: 'x' }).catch((e) => e as Error);
+    const e1 = await rejectionOf(createFromDescriptor(tr, { apiKey: 'sk-LEAK-0001', url: 'x' }));
     expect(e1.message).not.toContain('sk-LEAK-0001');
     // a short or numeric secret echoed by an object-level refine
     const ref = mk('ref', z.object({ pin: z.string(), n: z.number() }).refine(() => false, { error: (i: any) => `pin=${i.input.pin} n=${i.input.n}` }));
-    const e2 = await createFromDescriptor(ref, { pin: '123', n: 987654 }).catch((e) => e as Error);
+    const e2 = await rejectionOf(createFromDescriptor(ref, { pin: '123', n: 987654 }));
     expect(e2.message).not.toContain('123');
     // an encoded secret in a create() error
     const enc = mk('enc', z.object({ password: z.string() }), (o: any) => { throw new Error(`u:${encodeURIComponent(o.password)}@h ${JSON.stringify(o.password)}`); });
-    const e3 = await createFromDescriptor(enc, { password: 'p@ss"word/1' }).catch((e) => e as Error);
+    const e3 = await rejectionOf(createFromDescriptor(enc, { password: 'p@ss"word/1' }));
     expect(e3.message).not.toMatch(/p%40ss|p@ss/);
     // redact never writes into the caller's object, even through a class instance
     class Auth { constructor(public password: string) {} }
@@ -122,20 +131,20 @@ describe('provider descriptors', () => {
 
   it('round 2: record keys never printed; env-fallback secrets withheld; Map values; composites; intersections', async () => {
     const mk = (name: string, options: any, create: any = () => createInMemoryProvider([])) =>
-      defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+      withOptions(name, options, { capabilities: undefined, create });
     const S = 'sk-live-SECRET123';
     const rec = mk('rec', z.object({ apiKeys: z.record(z.string(), z.number()) }));
-    const e1 = await createFromDescriptor(rec, { apiKeys: { [S]: 'x' } }).catch((e) => e as Error);
+    const e1 = await rejectionOf(createFromDescriptor(rec, { apiKeys: { [S]: 'x' } }));
     expect(e1.message).not.toContain(S);
     expect(e1.message).toMatch(/apiKeys\.\*/);
     process.env.ZODAL_TEST_KEY = S;
     const env = mk('env', z.object({ apiKey: z.string().optional().transform((v) => v ?? process.env.ZODAL_TEST_KEY!) }),
       (o: any) => { throw new Error(`401 for key ${o.apiKey}`); });
-    const e2 = await createFromDescriptor(env, {}).catch((e) => e as Error);
+    const e2 = await rejectionOf(createFromDescriptor(env, {}));
     expect(e2.message).not.toContain(S);
     const mp = mk('mp', z.object({ headers: z.map(z.string(), z.string().meta({ sensitivity: 'secret' })) }),
       (o: any) => { throw new Error(`bad header ${[...o.headers.values()][0]}`); });
-    const e3 = await createFromDescriptor(mp, { headers: new Map([['Authorization', S]]) }).catch((e) => e as Error);
+    const e3 = await rejectionOf(createFromDescriptor(mp, { headers: new Map([['Authorization', S]]) }));
     expect(e3.message).not.toContain(S);
     const inter = mk('inter', z.object({ region: z.string() }).and(z.object({ client: z.custom<object>() })));
     expect(liveOptionPaths(inter)).toEqual([['client']]);
@@ -146,20 +155,20 @@ describe('provider descriptors', () => {
 
   it('round 3: keys never printed, object secrets withhold messages, overrides for name matches', async () => {
     const mk = (name: string, options: any, create: any = () => createInMemoryProvider([])) =>
-      defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+      withOptions(name, options, { capabilities: undefined, create });
     const S = 'SECRET1234';
     const strict = mk('strict', z.strictObject({ region: z.string() }));
-    const e1 = await createFromDescriptor(strict, { region: 'eu', [S]: 1 }).catch((e) => e as Error);
+    const e1 = await rejectionOf(createFromDescriptor(strict, { region: 'eu', [S]: 1 }));
     expect(e1.message).not.toContain(S);
     expect(e1.message).toMatch(/1 unrecognized key/);
     const url = mk('url', z.object({ databaseUrl: z.instanceof(URL) }), (o: any) => { throw new Error(`cannot connect to ${o.databaseUrl}`); });
-    const e2 = await createFromDescriptor(url, { databaseUrl: new URL('postgres://u:SECRETpw@h/db') }).catch((e) => e as Error);
+    const e2 = await rejectionOf(createFromDescriptor(url, { databaseUrl: new URL('postgres://u:SECRETpw@h/db') }));
     expect(e2.message).not.toContain('SECRETpw');
     const named = mk('named', z.object({ apiKey: z.string() }), (o: any) => { const err = new Error('x'); err.name = `Auth ${o.apiKey}`; throw err; });
-    const e3 = await createFromDescriptor(named, { apiKey: 'sk-NAME-LEAK' }).catch((e) => e as Error);
+    const e3 = await rejectionOf(createFromDescriptor(named, { apiKey: 'sk-NAME-LEAK' }));
     expect(e3.message).not.toContain('sk-NAME-LEAK');
     const mapKeys = mk('mapKeys', z.object({ m: z.map(z.number(), z.number()) }));
-    const e4 = await createFromDescriptor(mapKeys, { m: new Map([[123456789, 'x']]) }).catch((e) => e as Error);
+    const e4 = await rejectionOf(createFromDescriptor(mapKeys, { m: new Map([[123456789, 'x']]) }));
     expect(e4.message).not.toContain('123456789');
     // ordinary settings with secret-looking first words are fine, with defaults
     expect(() => mk('settings', z.object({ authMode: z.enum(['none', 'basic']).default('none'), tokenEndpoint: z.string().default('https://x/token'), storageKey: z.string().default('items') }))).not.toThrow();
@@ -169,12 +178,12 @@ describe('provider descriptors', () => {
   });
 
   it('round 4: a secret-named runtime key withholds messages', async () => {
-    const mk = (name: string, options: any, create: any) => defineProviderDescriptor({ ...s3Like, name, options, capabilities: undefined, create });
+    const mk = (name: string, options: any, create: any) => withOptions(name, options, { capabilities: undefined, create });
     const hdr = mk('hdr2', z.object({ headers: z.record(z.string(), z.string()) }), (o: any) => { throw new Error(`bad headers ${JSON.stringify(o.headers)}`); });
-    const e = await createFromDescriptor(hdr, { headers: { Authorization: 'Bearer SK-HDR' } }).catch((x) => x as Error);
+    const e = await rejectionOf(createFromDescriptor(hdr, { headers: { Authorization: 'Bearer SK-HDR' } }));
     expect(e.message).not.toContain('SK-HDR');
     const ok = mk('flag', z.object({ withCredentials: z.boolean() }), () => { throw new Error('network unreachable'); });
-    const e2 = await createFromDescriptor(ok, { withCredentials: false }).catch((x) => x as Error);
+    const e2 = await rejectionOf(createFromDescriptor(ok, { withCredentials: false }));
     expect(e2.message).toContain('network unreachable');
   });
 
@@ -327,10 +336,7 @@ describe('errors of a created provider (#27)', () => {
   });
 
   it('scrubs a secret found only by its key name (a loose object)', async () => {
-    const loose = defineProviderDescriptor({
-      ...s3Like,
-      name: 'loose',
-      options: z.looseObject({ host: z.string() }),
+    const loose = withOptions('loose', z.looseObject({ host: z.string() }), {
       create: (o: any) => ({
         ...createInMemoryProvider([]),
         getList: async () => {
