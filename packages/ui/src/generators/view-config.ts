@@ -31,8 +31,8 @@ import type {
   ResolvedFieldAffordance,
   ViewMode,
 } from '@zodal/core';
-import { getChoiceArity, getVocabularyEntries, getZodBaseType, unwrapZodSchema } from '@zodal/core';
-import { toOption, type VocabularyOption } from './form-config.js';
+import { getFieldChoices, getZodBaseType, unwrapZodSchema } from '@zodal/core';
+import { fieldOptions, type VocabularyOption } from './form-config.js';
 
 // ============================================================================
 // Types
@@ -378,7 +378,7 @@ const gridTester: ViewTester = (collection) => {
 const kanbanTester: ViewTester = (collection) => {
   const shape = collection.schema.shape as Record<string, z.ZodType>;
   const fa = collection.fieldAffordances;
-  const closed = (field: string) => getVocabularyEntries(shape[field]) !== null;
+  const closed = (field: string) => getFieldChoices(shape[field], fa[field]) !== null;
   const openGap = (field: string): ViewGap => ({
     code: 'closedVocabulary',
     reason: `'${field}' has no closed vocabulary: columns are the values present, and an empty column cannot be shown`,
@@ -649,8 +649,8 @@ function pickDefined<O extends object, K extends keyof O>(o: O, keys: K[]): Part
 
 function fieldConfig(name: string, fa: ResolvedFieldAffordance, schema: z.ZodType | undefined): ViewFieldConfig {
   const out: ViewFieldConfig = { name, label: fa.title, zodType: fa.zodType };
-  const vocabulary = schema ? getVocabularyEntries(schema) : null;
-  if (vocabulary) out.options = vocabulary.map(toOption);
+  const options = schema ? fieldOptions(schema, fa) : undefined;
+  if (options) out.options = options;
   if (fa.displayFormat !== undefined) out.displayFormat = fa.displayFormat;
   if (fa.badge !== undefined) out.badge = fa.badge;
   if (fa.truncate !== undefined) out.truncate = fa.truncate;
@@ -667,11 +667,11 @@ function isImageField(key: string, fa: ResolvedFieldAffordance): boolean {
   return IMAGE_NAME.test(key) && (fa.zodType === 'string' || fa.storageRole === 'content');
 }
 
-function isBadgeField(key: string, fa: ResolvedFieldAffordance, shape: Record<string, z.ZodType>): boolean {
+function isBadgeField(fa: ResolvedFieldAffordance): boolean {
   if (fa.badge) return true;
   if (BADGE_TYPES.has(fa.zodType)) return true;
-  // Any closed choice (enum, literal, union of literals) or tags with allowed values.
-  return getChoiceArity(shape[key]) !== null;
+  // Any closed choice (enum, literal, union of literals, curated choices) or tags with allowed values.
+  return fa.choice === 'single' || fa.choice === 'multi';
 }
 
 function resolveRoles(
@@ -703,7 +703,7 @@ function resolveRoles(
     .getVisibleFields()
     .filter((k) => !taken.has(k) && showable(fa[k]) && fa[k].storageRole !== 'content' && !isImageField(k, fa[k]));
 
-  const badgeLike = rest.filter((k) => isBadgeField(k, fa[k], shape));
+  const badgeLike = rest.filter((k) => isBadgeField(fa[k]));
   const badges = explicit.badges
     ? explicit.badges.map((k) => known(k, 'badge'))
     : badgeLike.slice(0, limits.maxBadges);
@@ -748,7 +748,7 @@ function resolveGroup(
     throw new Error(`toViewConfig: '${field}' holds several values and multiValue is 'forbid'; pick 'duplicate' or 'primary', or group by another field`);
   }
   const fieldSchema = (collection.schema.shape as Record<string, z.ZodType>)[field];
-  const vocabulary = getVocabularyEntries(fieldSchema);
+  const order = fieldOptions(fieldSchema, fa);
   const group: ViewGroupConfig = {
     field,
     label: fa.title,
@@ -758,7 +758,7 @@ function resolveGroup(
     multiValue: policy === 'primary' ? 'primary' : 'duplicate',
     valueType: getZodBaseType(multiValued ? elementOf(fieldSchema) : fieldSchema),
   };
-  if (vocabulary) group.order = vocabulary.map(toOption);
+  if (order) group.order = order;
   return group;
 }
 

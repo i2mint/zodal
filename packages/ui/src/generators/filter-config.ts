@@ -7,8 +7,8 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FilterType } from '@zodal/core';
-import { getVocabularyEntries, getNumericBounds } from '@zodal/core';
-import { toOption, type VocabularyOption } from './form-config.js';
+import { getNumericBounds } from '@zodal/core';
+import { fieldOptions, type VocabularyOption } from './form-config.js';
 import { quantilesOf } from '../stats.js';
 
 export interface FilterFieldConfig {
@@ -76,10 +76,9 @@ export function toFilterConfig<T extends z.ZodObject<any>>(
     // collection field (array/set: element membership); on a string, `contains`
     // is a substring match and exact-value choices would mislead.
     let options: VocabularyOption[] | undefined;
-    const vocabulary = getVocabularyEntries(fieldSchema);
     const isCollection = affordance.zodType === 'array' || affordance.zodType === 'set';
-    if (vocabulary && (filterType === 'select' || filterType === 'multiSelect' || ((filterType === 'contains' || filterType === 'containsAll') && isCollection))) {
-      options = vocabulary.map(toOption);
+    if (filterType === 'select' || filterType === 'multiSelect' || ((filterType === 'contains' || filterType === 'containsAll') && isCollection)) {
+      options = fieldOptions(fieldSchema, affordance);
     }
 
     let bounds: { min?: number; max?: number } | undefined;

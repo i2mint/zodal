@@ -45,7 +45,7 @@ const FIELD_PROP_ORDER: (keyof FieldAffordance)[] = [
   'visible', 'hidden', 'detailOnly', 'summaryField',
   'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
   'displayFormat', 'badge', 'copyable', 'truncate', 'tooltip',
-  'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'editWidgetOptions', 'step',
+  'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'editWidgetOptions', 'choices', 'step',
 ];
 
 /** Resolved by `defineCollection` from the schema, not declared: never written back (`choice` is not a `FieldAffordance` key). */

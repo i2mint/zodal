@@ -22,7 +22,6 @@
 import { z } from 'zod';
 import {
   getChoiceArity,
-  getVocabularyEntries,
   getZodMeta,
   humanizeFieldName,
   isPlainObject,
@@ -30,7 +29,7 @@ import {
   unwrapZodSchema,
 } from '@zodal/core';
 import type { SecretPath } from '@zodal/core';
-import { numericFieldProps, stringFieldProps, toOption, widgetTypeFor } from './form-config.js';
+import { fieldOptions, numericFieldProps, stringFieldProps, widgetTypeFor } from './form-config.js';
 import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /** One entry of an options form. */
@@ -152,8 +151,8 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
   const secret = ctx.secrets.covers(path) || (!asFieldset && ctx.secrets.below(path));
   const suppliedInCode =
     codeOnly || (!asFieldset && ctx.live.below(path)) || (secret && !asFieldset && !MASKABLE_TYPES.has(zodType));
-  const vocabulary = suppliedInCode || secret ? null : getVocabularyEntries(fieldSchema);
-  const options: VocabularyOption[] | undefined = vocabulary?.map(toOption);
+  // The schema's vocabulary only: an options object has no collection affordances to curate it.
+  const options: VocabularyOption[] | undefined = suppliedInCode || secret ? undefined : fieldOptions(fieldSchema, {});
   const isList = zodType === 'array' || zodType === 'set';
   // A secret's default would be shown in the form: leave it out.
   const defaultValue = secret ? undefined : defaultOf(fieldSchema);
@@ -182,7 +181,7 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     ...(suppliedInCode || secret ? {} : numericFieldProps(zodType, fieldSchema, typeof meta.step === 'number' ? meta.step : undefined)),
     // A secret keeps its length limits (a password input's maxLength reveals nothing), unlike numeric props.
     ...(suppliedInCode ? {} : stringFieldProps(fieldSchema, type)),
-    ...(isList && !suppliedInCode && !secret ? { allowCreate: !vocabulary } : {}),
+    ...(isList && !suppliedInCode && !secret ? { allowCreate: !options } : {}),
     ...(defaultValue !== undefined ? { defaultValue } : {}),
     ...(secret ? { secret } : {}),
     ...(suppliedInCode ? { suppliedInCode } : {}),

@@ -21,6 +21,7 @@ import {
   inferFieldAffordancesWithTrace,
   getZodBaseType,
   getChoiceArity,
+  checkChoices,
   humanizeFieldName,
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
@@ -288,15 +289,21 @@ function resolveAllFieldAffordances(
   const result: Record<string, ResolvedFieldAffordance> = {};
 
   for (const [key, fieldSchema] of Object.entries(shape)) {
-    // Layers 1-4: Infer defaults from type + name + meta
-    const inferred = inferFieldAffordances(key, fieldSchema);
-
     // Layer 5: Affordance registry (survives .optional()/.nullable() wrapping)
     const registryOverrides = defaultRegistry.get(fieldSchema) ?? {};
 
     // Layer 6: Explicit config overrides
     const explicitOverrides = explicit?.[key] ?? {};
-    const merged = { ...inferred, ...registryOverrides, ...explicitOverrides };
+
+    // Layers 1-4: Infer defaults from type + name + meta, then layer 5 and 6 on top.
+    const layered = (resolved?: Pick<FieldAffordance, 'choices'>) =>
+      ({ ...inferFieldAffordances(key, fieldSchema, resolved), ...registryOverrides, ...explicitOverrides });
+    const declared = layered();
+    // Curated choices (from any layer) are checked here, even on an enum: each must be a value
+    // the schema accepts. When they make the field a closed choice, its layer-1 defaults are a
+    // closed choice's (a select filter, not a range), still under .meta(), registry and config.
+    const choices = checkChoices(key, fieldSchema, declared.choices);
+    const merged = choices?.length ? layered({ choices }) : declared;
 
     // Build a fully-resolved affordance: title, zodType, and zodDef are always
     // populated; storageRole defaults to 'metadata' so testers like
@@ -307,7 +314,7 @@ function resolveAllFieldAffordances(
       ...merged,
       title: merged.title ?? humanizeFieldName(key),
       zodType: getZodBaseType(fieldSchema),
-      choice: getChoiceArity(fieldSchema),
+      choice: getChoiceArity(fieldSchema, merged),
       zodDef: (fieldSchema as { _zod?: { def?: unknown } })._zod?.def,
       storageRole: merged.storageRole ?? 'metadata',
     } as ResolvedFieldAffordance;
@@ -443,7 +450,7 @@ function generateExplanation(
     const explicitOverrides = config?.fields?.[key as keyof typeof config.fields] ?? {};
 
     // Get layer-by-layer traces from the inference engine (including registry)
-    const { traces } = inferFieldAffordancesWithTrace(key, fieldSchema, defaultRegistry);
+    const { traces } = inferFieldAffordancesWithTrace(key, fieldSchema, defaultRegistry, resolved[key]);
 
     // Augment with config override layer (Layer 6)
     for (const trace of traces) {

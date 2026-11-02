@@ -8,6 +8,8 @@ export type {
   AggregationFn,
   FieldAffordance,
   WidgetOptions,
+  ChoiceOption,
+  ChoiceData,
   FieldStorageRole,
   ContentRef,
   // Collection-level
@@ -63,6 +65,7 @@ export {
   getVocabulary,
   getVocabularyEntries,
   getChoiceArity,
+  getFieldChoices,
   getZodMeta,
   getNumericBounds,
   getNumericStep,
@@ -77,7 +80,7 @@ export type { PeelZodWrapperOptions } from './zod-unwrap.js';
 
 // Codec types
 export type { Codec } from './codec-types.js';
-export type { VocabularyEntry, NumericBounds, StringLength } from './inference.js';
+export type { VocabularyEntry, FieldChoice, NumericBounds, StringLength } from './inference.js';
 export {
   composeCodecs,
   identityCodec,
