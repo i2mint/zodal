@@ -342,11 +342,15 @@ export function getNumericStep(schema: z.ZodType): number | undefined {
  */
 type Step = number | undefined | null;
 
-/** The step one (unwrapped) schema declares: its `.multipleOf()` (a usable one), combined with `1` if it is an integer. */
+/**
+ * The step one (unwrapped) schema declares: every usable `.multipleOf()` it carries (Zod's
+ * bag keeps only one of a chain, so the checks are read), combined with `1` if it is an integer.
+ */
 function numericStepOf(unwrapped: any): Step {
-  const declared = unwrapped._zod?.bag?.multipleOf;
-  const multipleOf = typeof declared === 'number' && Number.isFinite(declared) && declared !== 0 ? Math.abs(declared) : undefined;
-  return commonStep(multipleOf, unwrapped.isInt === true ? 1 : undefined);
+  const checks: any[] = unwrapped._zod?.def?.checks ?? [];
+  const declared = checks.filter((c) => c?._zod?.def?.check === 'multiple_of').map((c) => c._zod.def.value);
+  const usable = declared.filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v !== 0).map(Math.abs);
+  return [...usable, unwrapped.isInt === true ? 1 : undefined].reduce<Step>(commonStep, undefined);
 }
 
 /**
