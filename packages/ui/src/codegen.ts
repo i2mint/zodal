@@ -48,7 +48,8 @@ const FIELD_PROP_ORDER: (keyof FieldAffordance)[] = [
   'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'editWidgetOptions', 'step',
 ];
 
-const COMPUTED_PROPS = new Set(['zodType', 'zodDef']);
+/** Resolved by `defineCollection` from the schema, not declared: never written back (`choice` is not a `FieldAffordance` key). */
+const COMPUTED_PROPS = new Set(['zodType', 'zodDef', 'choice']);
 
 // ============================================================================
 // Core: toCode
@@ -101,7 +102,7 @@ export function toCode(
 
   // Build and serialize the config object
   const configObj = buildConfigObject(collection, opts.diffOnly);
-  const serialized = serialize(configObj, 0, opts.indent);
+  const serialized = serialize(configObj, { depth: 0, indent: opts.indent, path: 'config' });
 
   sections.push(`export const ${opts.exportName}: CollectionConfig = ${serialized};`);
   sections.push('');
@@ -206,13 +207,26 @@ function buildOperationObject(op: OperationDefinition): Record<string, unknown> 
 // Serialization
 // ============================================================================
 
+/** How {@link serialize} lays a value out. */
+interface SerializeOptions {
+  depth: number;
+  indent: number;
+  /** Where the value sits, for error messages. */
+  path: string;
+  /** Sort object keys, so two equal values serialize the same whatever their key order (for diffs). */
+  sortKeys?: boolean;
+  /** The objects being written, outermost first (a cycle has no source form). */
+  seen?: ReadonlySet<object>;
+}
+
 /**
  * A value as TypeScript source. Plain data only: strings, numbers (`NaN`, `Infinity`, `-0`
  * included), booleans, bigints (`10n`), `null`, `undefined`, dates (`new Date('…')`), arrays and
- * plain objects. Anything else (a function, a symbol, a Map, a class instance) has no source
- * form, so it throws, naming where it was found, rather than emit code that does not compile.
+ * plain objects. Anything else (a function, a symbol, a Map, a class instance, a cycle) has no
+ * source form, so it throws, naming where it was found, rather than emit code that does not compile.
  */
-function serialize(value: unknown, depth: number, indent: number, path = 'config'): string {
+function serialize(value: unknown, opts: SerializeOptions): string {
+  const { path } = opts;
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
   if (typeof value === 'string') return quote(value);
@@ -223,39 +237,32 @@ function serialize(value: unknown, depth: number, indent: number, path = 'config
     if (Number.isNaN(value.getTime())) throw new Error(`toCode: ${path} is an invalid Date, which has no source form`);
     return `new Date(${quote(value.toISOString())})`;
   }
-  if (Array.isArray(value)) return serializeArray(value, depth, indent, path);
-  if (isPlainObject(value)) return serializeObject(value, depth, indent, path);
+  if (typeof value === 'object' && opts.seen?.has(value)) throw new Error(`toCode: ${path} is circular, which has no source form`);
+  const inner = (v: unknown, at: string): string =>
+    serialize(v, { ...opts, depth: opts.depth + 1, path: at, seen: new Set([...(opts.seen ?? []), value as object]) });
+  if (Array.isArray(value)) return layOut('[', ']', value.map((v, i) => inner(v, `${path}[${i}]`)), opts, ', ');
+  if (isPlainObject(value)) {
+    const keys = Object.keys(value).filter((k) => value[k] !== undefined);
+    if (opts.sortKeys) keys.sort();
+    return layOut('{', '}', keys.map((k) => `${objectKey(k)}: ${inner(value[k], `${path}.${k}`)}`), opts, ', ', ' ');
+  }
   const what = typeof value === 'object' ? `a ${value.constructor?.name ?? 'non-plain object'}` : `a ${typeof value}`;
   throw new Error(`toCode: ${path} is ${what}, which has no source form; affordance values must be plain data`);
 }
 
-function serializeArray(arr: unknown[], depth: number, indent: number, path: string): string {
-  if (arr.length === 0) return '[]';
-
-  const items = arr.map((v, i) => serialize(v, depth + 1, indent, `${path}[${i}]`));
-  const oneLine = `[${items.join(', ')}]`;
+/** Items between brackets: on one line when short, else one per line. */
+function layOut(open: string, close: string, items: string[], { depth, indent }: SerializeOptions, sep: string, pad = ''): string {
+  if (items.length === 0) return `${open}${close}`;
+  const oneLine = `${open}${pad}${items.join(sep)}${pad}${close}`;
   if (oneLine.length <= 60 && !oneLine.includes('\n')) return oneLine;
-
-  const pad = ' '.repeat((depth + 1) * indent);
-  const closePad = ' '.repeat(depth * indent);
-  return `[\n${items.map(item => `${pad}${item},`).join('\n')}\n${closePad}]`;
+  const itemPad = ' '.repeat((depth + 1) * indent);
+  return `${open}\n${items.map((item) => `${itemPad}${item},`).join('\n')}\n${' '.repeat(depth * indent)}${close}`;
 }
 
-function serializeObject(obj: Record<string, unknown>, depth: number, indent: number, path: string): string {
-  const entries = Object.entries(obj).filter(([_, v]) => v !== undefined);
-  if (entries.length === 0) return '{}';
-
-  const pairs = entries.map(([k, v]) => {
-    const key = isValidIdentifier(k) ? k : quote(k);
-    return [key, serialize(v, depth + 1, indent, `${path}.${k}`)] as const;
-  });
-
-  const oneLine = `{ ${pairs.map(([k, v]) => `${k}: ${v}`).join(', ')} }`;
-  if (oneLine.length <= 60 && !oneLine.includes('\n')) return oneLine;
-
-  const pad = ' '.repeat((depth + 1) * indent);
-  const closePad = ' '.repeat(depth * indent);
-  return `{\n${pairs.map(([k, v]) => `${pad}${k}: ${v},`).join('\n')}\n${closePad}}`;
+/** An object key as source: bare when an identifier, quoted otherwise; `__proto__` computed, so it stays a property. */
+function objectKey(k: string): string {
+  if (k === '__proto__') return `['__proto__']`;
+  return isValidIdentifier(k) ? k : quote(k);
 }
 
 /** A single-quoted string literal: JSON's escapes (newlines, tabs, control characters), with `'` escaped instead of `"`. */
@@ -276,20 +283,10 @@ function valueEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a === b;
   if (typeof a !== typeof b) return false;
-  if (typeof a === 'object') return canonical(a) === canonical(b);
-  return false;
-}
-
-/** A value as a string that two equal values share whatever their key order (bigints and dates included). */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value instanceof Date) return `Date(${value.getTime()})`;
-  if (typeof value === 'bigint') return `${value}n`;
-  if (value !== null && typeof value === 'object') {
-    const keys = Object.keys(value).filter((k) => (value as Record<string, unknown>)[k] !== undefined).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`).join(',')}}`;
-  }
-  return typeof value === 'string' ? JSON.stringify(value) : String(value);
+  if (typeof a !== 'object') return false;
+  // The same walker that writes the code, with sorted keys: equal values write the same source.
+  const source = (v: unknown) => serialize(v, { depth: 0, indent: 0, path: 'value', sortKeys: true });
+  return source(a) === source(b);
 }
 
 function filterUndefined(obj: Record<string, unknown>): Record<string, unknown> {

@@ -480,6 +480,30 @@ describe('toCode serialization (#89)', () => {
     expect(() => field(new Map())).toThrow(/is a Map/);
     expect(() => field(new Date(NaN))).toThrow(/invalid Date/);
   });
+  it('refuses a cycle with its path, and keeps a shared (acyclic) value', () => {
+    const loop: Record<string, unknown> = { a: 1 };
+    loop.self = loop;
+    expect(() => field(loop)).toThrow(/editWidgetOptions\.v\.self is circular/);
+    const shared = { k: 1 };
+    expect(field({ a: shared, b: shared })).toContain('v: { a: { k: 1 }, b: { k: 1 } }');
+  });
+  it('writes an own __proto__ key as a property, not a prototype', () => {
+    const code = field(JSON.parse('{"__proto__": {"x": 1}}'));
+    expect(code).toContain("['__proto__']: { x: 1 }");
+    const literal = "{ ['__proto__']: { x: 1 } }";
+    expect(code).toContain(`v: ${literal}`);
+    expect(Object.keys(new Function(`return ${literal}`)())).toEqual(['__proto__']);
+  });
+  it('the full listing is valid TS with no computed keys', async () => {
+    const ts = await import('typescript');
+    const c = defineCollection(z.object({ id: z.string(), mood: z.enum(['low', 'ok']), n: z.bigint() }), {
+      fields: { mood: { editWidgetOptions: { layout: 'tiles', note: "it's\nfine" } } },
+    });
+    const code = toCode(c);
+    expect(code).not.toMatch(/\bchoice:/);
+    const out = ts.transpileModule(code, { reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+    expect(out.diagnostics ?? []).toEqual([]);
+  });
   it('a diff ignores key order', () => {
     const schema = z.object({ x: z.string().meta({ editWidgetOptions: { a: 1, b: 2 } }) });
     const c = defineCollection(schema, { fields: { x: { editWidgetOptions: { b: 2, a: 1 } } } });
