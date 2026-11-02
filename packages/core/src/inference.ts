@@ -10,7 +10,7 @@
  */
 
 import { z } from 'zod';
-import { peelZodWrapper } from './zod-unwrap.js';
+import { peelZodWrapper, zodPipeKind } from './zod-unwrap.js';
 import type { ChoiceArity, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
 import type { AffordanceRegistry } from './registry.js';
 
@@ -47,6 +47,38 @@ export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
     current = next;
   }
   return current;
+}
+
+/**
+ * The schemas whose limits (bounds, length) a value must meet, through wrappers: the
+ * unwrapped schema, and across a plain `.pipe()`, which passes the value on unchanged,
+ * both of its sides (`z.string().max(10).pipe(z.string().trim())` keeps the `max(10)`).
+ * A codec or a `.transform()` changes the value, so there only the side `unwrapZodSchema`
+ * picks counts (a codec's input limits are in other units than the value a form edits),
+ * and a side feeding a plain pipe through a `.transform()` adds nothing: its limits are in other units.
+ */
+function limitSchemas(schema: z.ZodType, depth = 0, feedsPipe = false): z.ZodType[] {
+  if (!(schema as any)?._zod?.def || depth >= MAX_UNWRAP_DEPTH) return [schema];
+  if (feedsPipe && transformsValue(schema)) return [];
+  if (zodPipeKind(schema) === 'plain') {
+    const def = (schema as any)._zod.def;
+    return [...limitSchemas(def.in, depth + 1, true), ...limitSchemas(def.out, depth + 1, feedsPipe)];
+  }
+  const next = peelZodWrapper(schema) ?? soleNonEmptyMember(schema);
+  return next ? limitSchemas(next, depth + 1, feedsPipe) : [schema];
+}
+
+/** Does a `.transform()` change the value somewhere in `schema` (through wrappers and plain pipes)? */
+function transformsValue(schema: z.ZodType, depth = 0): boolean {
+  if (!(schema as any)?._zod?.def || depth >= MAX_UNWRAP_DEPTH) return false;
+  const kind = zodPipeKind(schema);
+  if (kind === 'transform') return true;
+  if (kind === 'plain') {
+    const def = (schema as any)._zod.def;
+    return transformsValue(def.in, depth + 1) || transformsValue(def.out, depth + 1);
+  }
+  const next = peelZodWrapper(schema) ?? soleNonEmptyMember(schema);
+  return next ? transformsValue(next, depth + 1) : false;
 }
 
 /** Is this union member only `null` / `undefined` (through wrappers, never resolving a union)? */
@@ -225,7 +257,11 @@ export interface NumericBounds {
  * infinite limit, and the ±`Number.MAX_SAFE_INTEGER` that `z.int()` sets, are not bounds.
  */
 export function getNumericBounds(schema: z.ZodType): NumericBounds {
-  const unwrapped = unwrapZodSchema(schema) as any;
+  return limitSchemas(schema).map(numericBoundsOf).reduce(tighterBounds, {});
+}
+
+/** The bounds one (unwrapped) schema declares. */
+function numericBoundsOf(unwrapped: any): NumericBounds {
   const bag = unwrapped._zod?.bag ?? {};
   const result: NumericBounds = {};
   const isBound = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) !== Number.MAX_SAFE_INTEGER;
@@ -242,6 +278,32 @@ export function getNumericBounds(schema: z.ZodType): NumericBounds {
   return result;
 }
 
+/** One side of a bound: its value and whether it is exclusive. */
+interface BoundSide {
+  value?: number;
+  exclusive?: boolean;
+}
+
+/** The tighter of two sides (`pick` is `Math.max` for a min, `Math.min` for a max); exclusive wins a tie. */
+function tighterSide(x: BoundSide, y: BoundSide, pick: (p: number, q: number) => number): BoundSide {
+  if (x.value === undefined) return y;
+  if (y.value === undefined) return x;
+  const value = pick(x.value, y.value);
+  return { value, exclusive: (x.value === value && x.exclusive) || (y.value === value && y.exclusive) };
+}
+
+/** The bounds a value meets when it must meet both `a` and `b`. */
+function tighterBounds(a: NumericBounds, b: NumericBounds): NumericBounds {
+  const min = tighterSide({ value: a.min, exclusive: a.exclusiveMin }, { value: b.min, exclusive: b.exclusiveMin }, Math.max);
+  const max = tighterSide({ value: a.max, exclusive: a.exclusiveMax }, { value: b.max, exclusive: b.exclusiveMax }, Math.min);
+  return {
+    ...(min.value !== undefined ? { min: min.value } : {}),
+    ...(min.exclusive ? { exclusiveMin: true } : {}),
+    ...(max.value !== undefined ? { max: max.value } : {}),
+    ...(max.exclusive ? { exclusiveMax: true } : {}),
+  };
+}
+
 /** A string schema's length limits (see {@link getStringLength}). */
 export interface StringLength {
   minLength?: number;
@@ -254,11 +316,13 @@ export interface StringLength {
  * absent; a non-string schema has none.
  */
 export function getStringLength(schema: z.ZodType): StringLength {
-  const unwrapped = unwrapZodSchema(schema) as any;
   const result: StringLength = {};
-  if (unwrapped?._zod?.def?.type !== 'string') return result;
-  if (typeof unwrapped.minLength === 'number') result.minLength = unwrapped.minLength;
-  if (typeof unwrapped.maxLength === 'number') result.maxLength = unwrapped.maxLength;
+  if (getZodBaseType(schema) !== 'string') return result; // a string coerced to a number or a date is not a string field
+  for (const side of limitSchemas(schema) as any[]) {
+    if (side?._zod?.def?.type !== 'string') continue;
+    if (typeof side.minLength === 'number') result.minLength = Math.max(result.minLength ?? 0, side.minLength);
+    if (typeof side.maxLength === 'number') result.maxLength = Math.min(result.maxLength ?? Infinity, side.maxLength);
+  }
   return result;
 }
 

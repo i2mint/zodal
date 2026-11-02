@@ -72,7 +72,7 @@ export {
 } from './inference.js';
 
 // Zod wrapper peeling (one wrapper list for inference, secrets and descriptors)
-export { ZOD_WRAPPER_TYPES, peelZodWrapper } from './zod-unwrap.js';
+export { ZOD_WRAPPER_TYPES, peelZodWrapper, zodPipeKind } from './zod-unwrap.js';
 export type { PeelZodWrapperOptions } from './zod-unwrap.js';
 
 // Codec types
