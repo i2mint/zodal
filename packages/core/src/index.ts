@@ -65,6 +65,7 @@ export {
   getZodMeta,
   getNumericBounds,
   getNumericStep,
+  getStringLength,
   humanizeFieldName,
 } from './inference.js';
 
@@ -74,7 +75,7 @@ export type { PeelZodWrapperOptions } from './zod-unwrap.js';
 
 // Codec types
 export type { Codec } from './codec-types.js';
-export type { VocabularyEntry, NumericBounds } from './inference.js';
+export type { VocabularyEntry, NumericBounds, StringLength } from './inference.js';
 export {
   composeCodecs,
   identityCodec,

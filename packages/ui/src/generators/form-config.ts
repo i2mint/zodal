@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { CollectionDefinition, FieldAffordance, NumericBounds } from '@zodal/core';
-import { getChoiceArity, getNumericBounds, getNumericStep, getVocabularyEntries } from '@zodal/core';
+import { getChoiceArity, getNumericBounds, getNumericStep, getStringLength, getVocabularyEntries } from '@zodal/core';
 import type { ChoiceArity, VocabularyEntry } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -51,6 +51,10 @@ export interface FormFieldConfig {
   bounds?: NumericBounds;
   /** A numeric field's increment: a declared `step` affordance, else `.multipleOf()`, else `1` for an integer. */
   step?: number;
+  /** A string field's fewest characters (`.min()`, `.length()`, `.nonempty()`), for the input's `minLength`. */
+  minLength?: number;
+  /** A string field's most characters (`.max()`, `.length()`), for the input's `maxLength`. */
+  maxLength?: number;
 }
 
 const NUMERIC_TYPES = new Set(['number', 'int', 'float']);
@@ -202,6 +206,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       order: fa.order ?? orderCounter++,
       zodType,
       ...numericFieldProps(zodType, fieldSchema, fa.step),
+      ...getStringLength(fieldSchema),
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
     });
   }

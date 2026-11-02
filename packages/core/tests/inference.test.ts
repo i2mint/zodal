@@ -8,6 +8,7 @@ import {
   getEnumValues,
   humanizeFieldName,
   getNumericStep,
+  getStringLength,
   getNumericBounds,
   getVocabulary,
 } from '../src/inference.js';
@@ -392,5 +393,20 @@ describe('union with an empty member, more cases (#63)', () => {
     const pick = (f: any) => ({ zodType: f.zodType, editable: f.editable, filterable: f.filterable, searchable: f.searchable, sortable: f.sortable, groupable: f.groupable });
     expect(pick(c.fieldAffordances.a)).toEqual(pick(c.fieldAffordances.b));
     expect(c.fieldAffordances.a.zodType).toBe('string');
+  });
+});
+
+describe('getStringLength (#78)', () => {
+  it('reads min, max, length and nonempty, through wrappers and on string formats', () => {
+    expect(getStringLength(z.string().min(2).max(10))).toEqual({ minLength: 2, maxLength: 10 });
+    expect(getStringLength(z.string().length(5))).toEqual({ minLength: 5, maxLength: 5 });
+    expect(getStringLength(z.string().nonempty())).toEqual({ minLength: 1 });
+    expect(getStringLength(z.string().max(3).optional().nullable())).toEqual({ maxLength: 3 });
+    expect(getStringLength(z.email().max(50))).toEqual({ maxLength: 50 });
+  });
+  it('is empty for an unlimited string and for non-strings', () => {
+    expect(getStringLength(z.string())).toEqual({});
+    expect(getStringLength(z.array(z.string()).min(1).max(3))).toEqual({});
+    expect(getStringLength(z.number().min(1))).toEqual({});
   });
 });

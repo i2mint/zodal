@@ -237,6 +237,22 @@ describe('toFormConfig', () => {
 // toFilterConfig
 // ============================================================================
 
+describe('toFormConfig string length (#78)', () => {
+  it('carries minLength and maxLength for strings only', () => {
+    const c = defineCollection(z.object({
+      name: z.string().min(1).max(200),
+      code: z.string().length(4).optional(),
+      notes: z.string(),
+      count: z.number().max(9),
+    }));
+    const f = Object.fromEntries(toFormConfig(c).map((x) => [x.name, x]));
+    expect([f.name.minLength, f.name.maxLength]).toEqual([1, 200]);
+    expect([f.code.minLength, f.code.maxLength]).toEqual([4, 4]);
+    expect(f.notes).not.toHaveProperty('maxLength');
+    expect(f.count).not.toHaveProperty('maxLength');
+  });
+});
+
 describe('toFilterConfig', () => {
   const collection = defineCollection(ProjectSchema);
 

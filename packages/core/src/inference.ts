@@ -242,6 +242,25 @@ export function getNumericBounds(schema: z.ZodType): NumericBounds {
   return result;
 }
 
+/** A string schema's length limits (see {@link getStringLength}). */
+export interface StringLength {
+  minLength?: number;
+  maxLength?: number;
+}
+
+/**
+ * The length limits of a string schema (through wrappers): `.min()`, `.max()`, `.length()`,
+ * `.nonempty()`, on any string format (`z.email()`, `z.url()`, ...). Unlimited sides are
+ * absent; a non-string schema has none.
+ */
+export function getStringLength(schema: z.ZodType): StringLength {
+  const unwrapped = unwrapZodSchema(schema) as any;
+  const result: StringLength = {};
+  if (typeof unwrapped.minLength === 'number') result.minLength = unwrapped.minLength;
+  if (typeof unwrapped.maxLength === 'number') result.maxLength = unwrapped.maxLength;
+  return result;
+}
+
 /**
  * The increment a numeric input should step by: the schema's `.multipleOf()`, else `1`
  * for an integer (`z.int()`, `.int()`), else `undefined` (any number).

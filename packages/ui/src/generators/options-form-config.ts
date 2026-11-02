@@ -23,6 +23,7 @@ import { z } from 'zod';
 import {
   getChoiceArity,
   getVocabularyEntries,
+  getStringLength,
   getZodMeta,
   humanizeFieldName,
   secretPaths as schemaSecretPaths,
@@ -177,6 +178,7 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     zodType,
     ...(options ? { options } : {}),
     ...(suppliedInCode || secret ? {} : numericFieldProps(zodType, fieldSchema, typeof meta.step === 'number' ? meta.step : undefined)),
+    ...(suppliedInCode ? {} : getStringLength(fieldSchema)),
     ...(isList && !suppliedInCode && !secret ? { allowCreate: !vocabulary } : {}),
     ...(defaultValue !== undefined ? { defaultValue } : {}),
     ...(secret ? { secret } : {}),
