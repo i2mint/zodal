@@ -59,7 +59,8 @@ export interface FormFieldConfig {
   editWidgetOptions?: Readonly<WidgetOptions>;
 }
 
-const NUMERIC_TYPES = new Set(['number', 'int', 'float']);
+/** The Zod types whose values are plain numbers (a bigint is not: `Number()` would round it). */
+export const NUMERIC_TYPES: ReadonlySet<string> = new Set(['number', 'int', 'float']);
 
 /** The `bounds` and `step` of a numeric field (none for any other type); `step` overrides the inferred step. */
 export function numericFieldProps(
