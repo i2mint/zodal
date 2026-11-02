@@ -456,3 +456,33 @@ describe('toCode serialization', () => {
     expect(code).toContain("message: 'Are you sure?'");
   });
 });
+
+describe('toCode serialization (#89)', () => {
+  const field = (value: unknown) =>
+    toCode(defineCollection(z.object({ x: z.string() }), { fields: { x: { editWidgetOptions: { v: value } as any } } }), { diffOnly: true });
+
+  it('writes strings with escapes that keep the literal on one line', () => {
+    const code = field("line 1\nline 2\t'quoted' \"double\" back\\slash");
+    expect(code).toContain(String.raw`v: 'line 1\nline 2\t\'quoted\' "double" back\\slash'`);
+    // The emitted literal evaluates back to the original string.
+    const literal = code.match(/v: ('(?:[^'\\]|\\.)*')/)![1];
+    expect(new Function(`return ${literal}`)()).toBe("line 1\nline 2\t'quoted' \"double\" back\\slash");
+  });
+  it('writes bigints, special numbers and dates as source', () => {
+    expect(field(10n)).toContain('v: 10n');
+    expect(field(-0)).toContain('v: -0');
+    expect(field(Number.POSITIVE_INFINITY)).toContain('v: Infinity');
+    expect(field(new Date(0))).toContain("v: new Date('1970-01-01T00:00:00.000Z')");
+  });
+  it('refuses a value with no source form, naming where it is', () => {
+    expect(() => field(() => 1)).toThrow(/editWidgetOptions\.v is a function/);
+    expect(() => field(Symbol('s'))).toThrow(/is a symbol/);
+    expect(() => field(new Map())).toThrow(/is a Map/);
+    expect(() => field(new Date(NaN))).toThrow(/invalid Date/);
+  });
+  it('a diff ignores key order', () => {
+    const schema = z.object({ x: z.string().meta({ editWidgetOptions: { a: 1, b: 2 } }) });
+    const c = defineCollection(schema, { fields: { x: { editWidgetOptions: { b: 2, a: 1 } } } });
+    expect(toCode(c, { diffOnly: true })).not.toContain('editWidgetOptions');
+  });
+});

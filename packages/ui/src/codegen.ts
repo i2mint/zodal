@@ -3,7 +3,7 @@
  */
 
 import type { CollectionDefinition, FieldAffordance, OperationDefinition } from '@zodal/core';
-import { inferFieldAffordances, humanizeFieldName } from '@zodal/core';
+import { inferFieldAffordances, humanizeFieldName, isPlainObject } from '@zodal/core';
 
 // ============================================================================
 // Types
@@ -206,27 +206,33 @@ function buildOperationObject(op: OperationDefinition): Record<string, unknown> 
 // Serialization
 // ============================================================================
 
-function serialize(value: unknown, depth: number, indent: number): string {
+/**
+ * A value as TypeScript source. Plain data only: strings, numbers (`NaN`, `Infinity`, `-0`
+ * included), booleans, bigints (`10n`), `null`, `undefined`, dates (`new Date('…')`), arrays and
+ * plain objects. Anything else (a function, a symbol, a Map, a class instance) has no source
+ * form, so it throws, naming where it was found, rather than emit code that does not compile.
+ */
+function serialize(value: unknown, depth: number, indent: number, path = 'config'): string {
   if (value === undefined) return 'undefined';
   if (value === null) return 'null';
   if (typeof value === 'string') return quote(value);
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-
-  if (Array.isArray(value)) {
-    return serializeArray(value, depth, indent);
+  if (typeof value === 'number') return Object.is(value, -0) ? '-0' : String(value);
+  if (typeof value === 'boolean') return String(value);
+  if (typeof value === 'bigint') return `${value}n`;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new Error(`toCode: ${path} is an invalid Date, which has no source form`);
+    return `new Date(${quote(value.toISOString())})`;
   }
-
-  if (typeof value === 'object') {
-    return serializeObject(value as Record<string, unknown>, depth, indent);
-  }
-
-  return String(value);
+  if (Array.isArray(value)) return serializeArray(value, depth, indent, path);
+  if (isPlainObject(value)) return serializeObject(value, depth, indent, path);
+  const what = typeof value === 'object' ? `a ${value.constructor?.name ?? 'non-plain object'}` : `a ${typeof value}`;
+  throw new Error(`toCode: ${path} is ${what}, which has no source form; affordance values must be plain data`);
 }
 
-function serializeArray(arr: unknown[], depth: number, indent: number): string {
+function serializeArray(arr: unknown[], depth: number, indent: number, path: string): string {
   if (arr.length === 0) return '[]';
 
-  const items = arr.map(v => serialize(v, depth + 1, indent));
+  const items = arr.map((v, i) => serialize(v, depth + 1, indent, `${path}[${i}]`));
   const oneLine = `[${items.join(', ')}]`;
   if (oneLine.length <= 60 && !oneLine.includes('\n')) return oneLine;
 
@@ -235,13 +241,13 @@ function serializeArray(arr: unknown[], depth: number, indent: number): string {
   return `[\n${items.map(item => `${pad}${item},`).join('\n')}\n${closePad}]`;
 }
 
-function serializeObject(obj: Record<string, unknown>, depth: number, indent: number): string {
+function serializeObject(obj: Record<string, unknown>, depth: number, indent: number, path: string): string {
   const entries = Object.entries(obj).filter(([_, v]) => v !== undefined);
   if (entries.length === 0) return '{}';
 
   const pairs = entries.map(([k, v]) => {
     const key = isValidIdentifier(k) ? k : quote(k);
-    return [key, serialize(v, depth + 1, indent)] as const;
+    return [key, serialize(v, depth + 1, indent, `${path}.${k}`)] as const;
   });
 
   const oneLine = `{ ${pairs.map(([k, v]) => `${k}: ${v}`).join(', ')} }`;
@@ -252,8 +258,9 @@ function serializeObject(obj: Record<string, unknown>, depth: number, indent: nu
   return `{\n${pairs.map(([k, v]) => `${pad}${k}: ${v},`).join('\n')}\n${closePad}}`;
 }
 
+/** A single-quoted string literal: JSON's escapes (newlines, tabs, control characters), with `'` escaped instead of `"`. */
 function quote(s: string): string {
-  const escaped = s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const escaped = JSON.stringify(s).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'");
   return `'${escaped}'`;
 }
 
@@ -269,10 +276,20 @@ function valueEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a === b;
   if (typeof a !== typeof b) return false;
-  if (typeof a === 'object') {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
+  if (typeof a === 'object') return canonical(a) === canonical(b);
   return false;
+}
+
+/** A value as a string that two equal values share whatever their key order (bigints and dates included). */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value instanceof Date) return `Date(${value.getTime()})`;
+  if (typeof value === 'bigint') return `${value}n`;
+  if (value !== null && typeof value === 'object') {
+    const keys = Object.keys(value).filter((k) => (value as Record<string, unknown>)[k] !== undefined).sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`).join(',')}}`;
+  }
+  return typeof value === 'string' ? JSON.stringify(value) : String(value);
 }
 
 function filterUndefined(obj: Record<string, unknown>): Record<string, unknown> {
