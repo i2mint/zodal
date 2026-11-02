@@ -16,7 +16,7 @@ export { toColumnDefs } from './generators/column-defs.js';
 export type { ColumnConfig } from './generators/column-defs.js';
 
 // Form configuration generator
-export { toFormConfig } from './generators/form-config.js';
+export { toFormConfig, fieldOptions, choiceToOption } from './generators/form-config.js';
 export type { FormFieldConfig, VocabularyOption } from './generators/form-config.js';
 export { formFieldAffordance, selectedValue, optionKey } from './generators/form-bridge.js';
 export { toOptionsFormConfig } from './generators/options-form-config.js';

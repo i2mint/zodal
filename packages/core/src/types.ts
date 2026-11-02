@@ -37,6 +37,21 @@ export type FilterType =
 export type AggregationFn = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'median' | 'uniqueCount';
 
 /**
+ * One curated choice for a field (see `FieldAffordance.choices`): a value the schema accepts,
+ * with what a widget shows for it.
+ */
+export interface ChoiceOption {
+  /** The value written to the field (for an array or set field: one element). */
+  value: string | number | boolean | bigint;
+  /** What the widget shows. Default: the value as text, capitalised. */
+  label?: string;
+  /** A line of explanation under the label. */
+  hint?: string;
+  /** Anything else the widget reads for this choice (a tone, an icon). Plain data. */
+  data?: Readonly<Record<string, unknown>>;
+}
+
+/**
  * A widget's own options: plain data a renderer reads (see `FieldAffordance.editWidgetOptions`).
  * Untyped by default; an app or a renderer package types its keys by declaration merging:
  * `declare module '@zodal/core' { interface WidgetOptions { layout?: string } }`.
@@ -132,6 +147,14 @@ export interface FieldAffordance {
    * replaces the whole object (no deep merge); from `.meta()`, only a plain object is taken.
    */
   editWidgetOptions?: Readonly<WidgetOptions>;
+  /**
+   * Curated choices: the values a widget offers, each with a label, a hint and data, without
+   * changing the storage schema (a bounded number offering "Every hour" = 60). Each value must
+   * be one the field's schema accepts (checked by `defineCollection`). The field then becomes a
+   * closed choice (`choice: 'single'`, or `'multi'` for an array or set field) whose options
+   * are these, in this order; on an enum they replace the vocabulary's options.
+   */
+  choices?: readonly ChoiceOption[];
   /** Increment for a numeric edit widget (a slider's or a number input's step). Inferred from `.multipleOf()`, else `1` for an integer. */
   step?: number;
 

@@ -8,6 +8,7 @@ export type {
   AggregationFn,
   FieldAffordance,
   WidgetOptions,
+  ChoiceOption,
   FieldStorageRole,
   ContentRef,
   // Collection-level

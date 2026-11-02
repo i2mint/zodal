@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import type { CollectionDefinition, FieldAffordance, NumericBounds, WidgetOptions } from '@zodal/core';
+import type { ChoiceOption, CollectionDefinition, FieldAffordance, NumericBounds, WidgetOptions } from '@zodal/core';
 import { getChoiceArity, getNumericBounds, getNumericStep, getStringLength, getVocabularyEntries } from '@zodal/core';
 import type { ChoiceArity, VocabularyEntry } from '@zodal/core';
 
@@ -143,6 +143,10 @@ export interface VocabularyOption {
   raw?: string | number | boolean;
   /** Set when the choice is a bigint (not JSON-safe, so it has no `raw`): coerce `value` with `BigInt`. */
   kind?: 'bigint';
+  /** A curated choice's line of explanation (see `FieldAffordance.choices`). */
+  hint?: string;
+  /** A curated choice's own data (a tone, an icon). */
+  data?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -165,6 +169,26 @@ export function toOption(e: VocabularyEntry): VocabularyOption {
 export function optionRaw(option: Pick<VocabularyOption, 'value'> & Partial<VocabularyOption>): string | number | boolean | bigint {
   if (option.kind === 'bigint') return BigInt(option.value);
   return option.raw !== undefined ? option.raw : option.value;
+}
+
+/** A curated choice as a widget option: its label as given (else the capitalised value), hint and data. */
+export function choiceToOption(choice: ChoiceOption): VocabularyOption {
+  const base = toOption({ value: String(choice.value), raw: choice.value, label: String(choice.value) });
+  return {
+    ...base,
+    ...(choice.label !== undefined ? { label: choice.label } : {}),
+    ...(choice.hint !== undefined ? { hint: choice.hint } : {}),
+    ...(choice.data ? { data: choice.data } : {}),
+  };
+}
+
+/**
+ * A field's choices as widget options: its curated `choices` when declared, else its closed
+ * vocabulary's (an enum, literals, or an array of them); `undefined` when the field is open.
+ */
+export function fieldOptions(schema: z.ZodType, affordance: Pick<FieldAffordance, 'choices'>): VocabularyOption[] | undefined {
+  if (affordance.choices?.length) return affordance.choices.map(choiceToOption);
+  return getVocabularyEntries(schema)?.map(toOption);
 }
 
 /**
@@ -195,13 +219,10 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       ? (fa.requiredOnCreate ?? false)
       : (fa.requiredOnUpdate ?? false);
 
-    // Closed vocabulary (an enum, literals, or an array of them: a 'tags' widget
-    // with allowed values). Open array fields accept new values (allowCreate).
-    let options: VocabularyOption[] | undefined;
-    const vocabulary = getVocabularyEntries(fieldSchema);
-    const enumValues = vocabulary?.map((e) => e.value) ?? null;
-    if (vocabulary) options = vocabulary.map(toOption);
-    const type = inferFormWidgetType(zodType, fa, getChoiceArity(fieldSchema));
+    // Closed choices (curated, or a vocabulary: an enum, literals, or an array of them,
+    // a 'tags' widget with allowed values). Open array fields accept new values (allowCreate).
+    const options = fieldOptions(fieldSchema, fa);
+    const type = inferFormWidgetType(zodType, fa, fa.choice ?? getChoiceArity(fieldSchema));
 
     fields.push({
       name: key,
@@ -214,7 +235,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       helpText: fa.editHelp ?? fa.description,
       ...(fa.editWidgetOptions ? { editWidgetOptions: { ...fa.editWidgetOptions } } : {}),
       options,
-      ...(zodType === 'array' || zodType === 'set' ? { allowCreate: !enumValues } : {}),
+      ...(zodType === 'array' || zodType === 'set' ? { allowCreate: !options } : {}),
       order: fa.order ?? orderCounter++,
       zodType,
       ...numericFieldProps(zodType, fieldSchema, fa.step),
