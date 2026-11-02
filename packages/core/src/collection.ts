@@ -25,6 +25,7 @@ import {
   humanizeFieldName,
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
+import { checkUndoable } from './operations.js';
 import { affordanceRegistry as defaultRegistry } from './registry.js';
 
 // ============================================================================
@@ -182,7 +183,13 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
 
   // 4. Operations
   const operations = config?.operations ?? [];
-  operations.forEach(checkUndoable);
+  for (const op of operations) {
+    try {
+      checkUndoable(op);
+    } catch (err) {
+      throw new Error(`defineCollection: ${(err as Error).message}`);
+    }
+  }
 
   // 5. Build the collection definition
   const definition: CollectionDefinition<TSchema> = {
@@ -324,15 +331,6 @@ function resolveAllFieldAffordances(
   return result;
 }
 
-/** An `undoable` that says how long must say it usefully: refused where it is declared. */
-function checkUndoable({ name, undoable }: OperationDefinition): void {
-  if (undoable === undefined || typeof undoable === 'boolean') return;
-  const seconds = (undoable as { seconds?: unknown })?.seconds;
-  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
-    throw new Error(`defineCollection: operation "${name}" has undoable ${JSON.stringify(undoable)}; use true, false or { seconds: <a positive number> }.`);
-  }
-}
-
 /** Detect the ID field from schema. */
 function detectIdField(schema: z.ZodObject<any>): string {
   const shape = schema.shape as Record<string, z.ZodType>;
@@ -435,7 +433,7 @@ function generateDescription(def: CollectionDefinition<any>): string {
     lines.push('');
     lines.push('Custom Operations:');
     for (const op of def.operations) {
-      lines.push(`  ${op.name} [${op.scope}]: ${op.label}`);
+      lines.push(`  ${op.name} [${op.scope}]: ${op.label}${op.undoable ? ' (undoable)' : ''}`);
     }
   }
 

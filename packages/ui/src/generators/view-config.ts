@@ -123,6 +123,8 @@ export interface ViewOperationConfig {
   variant?: OperationDefinition['variant'];
   /** Confirm before running it. */
   confirm?: boolean | OperationConfirmation;
+  /** Can be undone after it runs (see `OperationDefinition.undoable`; `undoSeconds` resolves it). */
+  undoable?: OperationDefinition['undoable'];
   /** Keyboard shortcut. */
   keyboardShortcut?: string;
   /** Derived from a CRUD affordance (`update`, `delete`, `create`, `bulkDelete`), not declared. */
@@ -772,6 +774,7 @@ function fromDefinition(op: OperationDefinition): ViewOperationConfig {
   if (op.icon !== undefined) out.icon = op.icon;
   if (op.variant !== undefined) out.variant = op.variant;
   if (op.confirm !== undefined) out.confirm = op.confirm;
+  if (op.undoable !== undefined) out.undoable = op.undoable;
   if (op.keyboardShortcut !== undefined) out.keyboardShortcut = op.keyboardShortcut;
   return out;
 }

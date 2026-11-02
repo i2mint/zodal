@@ -92,6 +92,9 @@ export {
   jsonCodec,
 } from './codec-types.js';
 
+// Operation semantics (how long to offer Undo)
+export { undoSeconds } from './operations.js';
+
 // Operations as commands (acture-shaped, no acture dependency)
 export { toCommandRecord, ok, fail, operationCommandId, operationDispatcher, normalizeKeybinding } from './commands.js';
 export type {
