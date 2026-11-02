@@ -456,3 +456,57 @@ describe('toCode serialization', () => {
     expect(code).toContain("message: 'Are you sure?'");
   });
 });
+
+describe('toCode serialization (#89)', () => {
+  const field = (value: unknown) =>
+    toCode(defineCollection(z.object({ x: z.string() }), { fields: { x: { editWidgetOptions: { v: value } as any } } }), { diffOnly: true });
+
+  it('writes strings with escapes that keep the literal on one line', () => {
+    const code = field("line 1\nline 2\t'quoted' \"double\" back\\slash");
+    expect(code).toContain(String.raw`v: 'line 1\nline 2\t\'quoted\' "double" back\\slash'`);
+    // The emitted literal evaluates back to the original string.
+    const literal = code.match(/v: ('(?:[^'\\]|\\.)*')/)![1];
+    expect(new Function(`return ${literal}`)()).toBe("line 1\nline 2\t'quoted' \"double\" back\\slash");
+  });
+  it('writes bigints, special numbers and dates as source', () => {
+    expect(field(10n)).toContain('v: 10n');
+    expect(field(-0)).toContain('v: -0');
+    expect(field(Number.POSITIVE_INFINITY)).toContain('v: Infinity');
+    expect(field(new Date(0))).toContain("v: new Date('1970-01-01T00:00:00.000Z')");
+  });
+  it('refuses a value with no source form, naming where it is', () => {
+    expect(() => field(() => 1)).toThrow(/editWidgetOptions\.v is a function/);
+    expect(() => field(Symbol('s'))).toThrow(/is a symbol/);
+    expect(() => field(new Map())).toThrow(/is a Map/);
+    expect(() => field(new Date(NaN))).toThrow(/invalid Date/);
+  });
+  it('refuses a cycle with its path, and keeps a shared (acyclic) value', () => {
+    const loop: Record<string, unknown> = { a: 1 };
+    loop.self = loop;
+    expect(() => field(loop)).toThrow(/config\.fields\.x\.editWidgetOptions\.v\.self is circular/);
+    const shared = { k: 1 };
+    expect(field({ a: shared, b: shared })).toContain('v: { a: { k: 1 }, b: { k: 1 } }');
+  });
+  it('writes an own __proto__ key as a property, not a prototype', () => {
+    const code = field(JSON.parse('{"__proto__": {"x": 1}}'));
+    expect(code).toContain("['__proto__']: { x: 1 }");
+    const literal = "{ ['__proto__']: { x: 1 } }";
+    expect(code).toContain(`v: ${literal}`);
+    expect(Object.keys(new Function(`return ${literal}`)())).toEqual(['__proto__']);
+  });
+  it('the full listing is valid TS with no computed keys', async () => {
+    const ts = await import('typescript');
+    const c = defineCollection(z.object({ id: z.string(), mood: z.enum(['low', 'ok']), n: z.bigint() }), {
+      fields: { mood: { editWidgetOptions: { layout: 'tiles', note: "it's\nfine" } } },
+    });
+    const code = toCode(c);
+    expect(code).not.toMatch(/\bchoice:/);
+    const out = ts.transpileModule(code, { reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ES2022 } });
+    expect(out.diagnostics ?? []).toEqual([]);
+  });
+  it('a diff ignores key order', () => {
+    const schema = z.object({ x: z.string().meta({ editWidgetOptions: { a: 1, b: 2 } }) });
+    const c = defineCollection(schema, { fields: { x: { editWidgetOptions: { b: 2, a: 1 } } } });
+    expect(toCode(c, { diffOnly: true })).not.toContain('editWidgetOptions');
+  });
+});
