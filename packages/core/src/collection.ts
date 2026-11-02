@@ -182,6 +182,7 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
 
   // 4. Operations
   const operations = config?.operations ?? [];
+  operations.forEach(checkUndoable);
 
   // 5. Build the collection definition
   const definition: CollectionDefinition<TSchema> = {
@@ -321,6 +322,15 @@ function resolveAllFieldAffordances(
   }
 
   return result;
+}
+
+/** An `undoable` that says how long must say it usefully: refused where it is declared. */
+function checkUndoable({ name, undoable }: OperationDefinition): void {
+  if (undoable === undefined || typeof undoable === 'boolean') return;
+  const seconds = (undoable as { seconds?: unknown })?.seconds;
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error(`defineCollection: operation "${name}" has undoable ${JSON.stringify(undoable)}; use true, false or { seconds: <a positive number> }.`);
+  }
 }
 
 /** Detect the ID field from schema. */

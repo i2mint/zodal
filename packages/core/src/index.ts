@@ -23,6 +23,7 @@ export type {
   // Operations
   OperationScope,
   OperationConfirmation,
+  OperationUndo,
   OperationDefinition,
   // Config
   CollectionConfig,

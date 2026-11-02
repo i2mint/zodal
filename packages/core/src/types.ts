@@ -352,8 +352,22 @@ export interface OperationDefinition<TParams = unknown> {
   variant?: 'default' | 'destructive' | 'secondary' | 'ghost';
   /** Confirmation dialog before execution. */
   confirm?: boolean | OperationConfirmation;
+  /**
+   * The operation can be undone after it runs: a renderer may offer Undo (an undo bar) instead
+   * of, or after, a confirmation, which for some users is the safer of the two. `true` leaves
+   * how long to offer it to the host; `{ seconds }` says. The command must make that true: its
+   * `execute` changes state through a patch-capable state adapter, or returns `effects` whose
+   * undo the host knows (what acture-undo records; see `toCommandRecord`).
+   */
+  undoable?: boolean | OperationUndo;
   /** Keyboard shortcut (e.g., "ctrl+d", "delete"). */
   keyboardShortcut?: string;
+}
+
+/** How long an undoable operation's Undo is offered (see `OperationDefinition.undoable`). */
+export interface OperationUndo {
+  /** Seconds the Undo stays on offer after the operation runs: finite and positive. */
+  seconds: number;
 }
 
 // ============================================================================

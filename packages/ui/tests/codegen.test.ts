@@ -510,3 +510,12 @@ describe('toCode serialization (#89)', () => {
     expect(toCode(c, { diffOnly: true })).not.toContain('editWidgetOptions');
   });
 });
+
+describe('toCode operations (#82)', () => {
+  it('writes an operation\'s undoable', () => {
+    const c = defineCollection(z.object({ id: z.string() }), {
+      operations: [{ name: 'archive', label: 'Archive', scope: 'item', undoable: { seconds: 15 } }],
+    });
+    expect(toCode(c)).toContain('undoable: { seconds: 15 }');
+  });
+});

@@ -430,3 +430,18 @@ describe('defineCollection - real-world schema', () => {
     expect(desc).toContain('publish [item]');
   });
 });
+
+describe('undoable operations (#82)', () => {
+  const schema = z.object({ id: z.string() });
+  const op = (undoable: unknown) => ({ name: 'archive', label: 'Archive', scope: 'item' as const, undoable: undoable as any });
+  it('accepts true, false and a positive number of seconds', () => {
+    for (const u of [true, false, { seconds: 15 }, undefined]) {
+      expect(defineCollection(schema, { operations: [op(u)] }).operations[0].undoable).toEqual(u);
+    }
+  });
+  it('refuses an undo window that is not a positive number, naming the operation', () => {
+    for (const u of [{ seconds: 0 }, { seconds: -1 }, { seconds: Infinity }, {}, 'soon', 15]) {
+      expect(() => defineCollection(schema, { operations: [op(u)] })).toThrow(/operation "archive" has undoable/);
+    }
+  });
+});

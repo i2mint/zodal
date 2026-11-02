@@ -199,6 +199,7 @@ function buildOperationObject(op: OperationDefinition): Record<string, unknown> 
   if (op.icon !== undefined) result.icon = op.icon;
   if (op.variant !== undefined) result.variant = op.variant;
   if (op.confirm !== undefined) result.confirm = op.confirm;
+  if (op.undoable !== undefined) result.undoable = op.undoable;
   if (op.keyboardShortcut !== undefined) result.keyboardShortcut = op.keyboardShortcut;
   return result;
 }
