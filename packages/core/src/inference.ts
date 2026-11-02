@@ -332,28 +332,44 @@ export function getStringLength(schema: z.ZodType): StringLength {
  * the step that meets both sides (see `commonStep`).
  */
 export function getNumericStep(schema: z.ZodType): number | undefined {
-  return limitSchemas(schema).map(numericStepOf).reduce(commonStep, undefined);
-}
-
-/** The step one (unwrapped) schema declares: its `.multipleOf()`, and `1` if it is an integer. */
-function numericStepOf(unwrapped: any): number | undefined {
-  const multipleOf = unwrapped._zod?.bag?.multipleOf;
-  return commonStep(typeof multipleOf === 'number' ? multipleOf : undefined, unwrapped.isInt === true ? 1 : undefined);
+  return limitSchemas(schema).map(numericStepOf).reduce(commonStep, undefined) ?? undefined;
 }
 
 /**
- * The step a value meeting both steps moves by: the larger when it is a multiple of the
- * smaller (an integer's 1 and a multipleOf(5): 5; 0.5 and 1: 1), the least common multiple of
- * two whole numbers (4 and 6: 12), else the larger, as the closest hint.
+ * A step: `undefined` when nothing constrains it, `null` when the constraints have no exact
+ * common step (a wrong step is worse than none: it would turn an exclusive bound into a wrong
+ * inclusive one).
  */
-function commonStep(a: number | undefined, b: number | undefined): number | undefined {
+type Step = number | undefined | null;
+
+/** The step one (unwrapped) schema declares: its `.multipleOf()` (a usable one), combined with `1` if it is an integer. */
+function numericStepOf(unwrapped: any): Step {
+  const declared = unwrapped._zod?.bag?.multipleOf;
+  const multipleOf = typeof declared === 'number' && Number.isFinite(declared) && declared !== 0 ? Math.abs(declared) : undefined;
+  return commonStep(multipleOf, unwrapped.isInt === true ? 1 : undefined);
+}
+
+/**
+ * The step a value meeting both steps moves by: their least common multiple, computed exactly
+ * on the decimal digits (0.1 and 0.25: 0.5; 1 and 2.5: 5; 4 and 6: 12). `null` when it has no
+ * exact safe form.
+ */
+function commonStep(a: Step, b: Step): Step {
+  if (a === null || b === null) return null;
   if (a === undefined) return b;
   if (b === undefined) return a;
-  const [small, large] = a <= b ? [a, b] : [b, a];
-  const ratio = large / small;
-  if (Math.abs(ratio - Math.round(ratio)) < 1e-9) return large;
-  if (Number.isInteger(small) && Number.isInteger(large)) return (small * large) / gcd(small, large);
-  return large;
+  const scale = 10 ** Math.max(decimalsOf(a), decimalsOf(b));
+  const x = Math.round(a * scale);
+  const y = Math.round(b * scale);
+  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y)) return null;
+  const lcm = (x / gcd(x, y)) * y;
+  return Number.isSafeInteger(lcm) ? lcm / scale : null;
+}
+
+/** How many decimal places `x` is written with (0.25: 2, 1e-7: 7, 100: 0). */
+function decimalsOf(x: number): number {
+  const [mantissa, exponent] = x.toExponential().split('e');
+  return Math.max(0, (mantissa.split('.')[1] ?? '').length - Number(exponent));
 }
 
 function gcd(x: number, y: number): number {

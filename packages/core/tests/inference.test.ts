@@ -372,6 +372,19 @@ describe('getNumericStep (#43)', () => {
     expect(getNumericStep(z.number().multipleOf(4).pipe(z.number().multipleOf(6)))).toBe(12);
     expect(getNumericStep(z.number().multipleOf(0.5).pipe(z.int()))).toBe(1);
     expect(getNumericStep(z.number().multipleOf(0.25).pipe(z.number().multipleOf(0.5)))).toBe(0.5);
+    expect(getNumericStep(z.number().multipleOf(0.1).pipe(z.number().multipleOf(0.25)))).toBe(0.5);
+    expect(getNumericStep(z.int().multipleOf(2.5))).toBe(5);
+    expect(getNumericStep(z.int().multipleOf(0.3))).toBe(3);
+    expect(getNumericStep(z.number().multipleOf(0.01).pipe(z.int()))).toBe(1);
+  });
+  it('ignores an unusable multipleOf, and gives no step when no exact one exists', () => {
+    expect(getNumericStep(z.number().multipleOf(0).pipe(z.int()))).toBe(1);
+    expect(getNumericStep(z.number().multipleOf(-4).pipe(z.number().multipleOf(6)))).toBe(12);
+    expect(getNumericStep(z.number().multipleOf(NaN).pipe(z.int()))).toBe(1);
+    expect(getNumericStep(z.number().multipleOf(Infinity).pipe(z.int()))).toBe(1);
+    expect(getNumericStep(z.number().multipleOf(1e308).pipe(z.number().multipleOf(3)))).toBeUndefined();
+    // No exact step on one side stays no step, even when a later side has one.
+    expect(getNumericStep(z.number().multipleOf(1e308).pipe(z.number().multipleOf(3)).pipe(z.int()))).toBeUndefined();
   });
   it('a codec or a transform keeps one side', () => {
     const cents = z.codec(z.int(), z.number().multipleOf(0.01), { decode: (c) => c / 100, encode: (d) => Math.round(d * 100) });

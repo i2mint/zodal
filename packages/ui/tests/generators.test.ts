@@ -244,6 +244,11 @@ describe('toFormConfig numeric props across a pipe (#90)', () => {
     expect(f.step).toBe(1);
     expect(f.bounds).toEqual({ max: 4 });
   });
+  it('a negative multipleOf moves an exclusive bound the right way', () => {
+    const [f] = toFormConfig(defineCollection(z.object({ n: z.number().multipleOf(-5).pipe(z.int().lt(10)) })));
+    expect(f.step).toBe(5);
+    expect(f.bounds).toEqual({ max: 5 });
+  });
 });
 
 describe('toFormConfig string length (#78)', () => {
