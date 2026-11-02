@@ -55,18 +55,30 @@ export function unwrapZodSchema(schema: z.ZodType): z.ZodType {
  * both of its sides (`z.string().max(10).pipe(z.string().trim())` keeps the `max(10)`).
  * A codec or a `.transform()` changes the value, so there only the side `unwrapZodSchema`
  * picks counts (a codec's input limits are in other units than the value a form edits),
- * and a `.transform()` feeding a plain pipe adds nothing: its input is in other units too.
+ * and a side feeding a plain pipe through a `.transform()` adds nothing: its limits are in other units.
  */
 function limitSchemas(schema: z.ZodType, depth = 0, feedsPipe = false): z.ZodType[] {
   if (!(schema as any)?._zod?.def || depth >= MAX_UNWRAP_DEPTH) return [schema];
-  const kind = zodPipeKind(schema);
-  if (kind === 'plain') {
+  if (feedsPipe && transformsValue(schema)) return [];
+  if (zodPipeKind(schema) === 'plain') {
     const def = (schema as any)._zod.def;
     return [...limitSchemas(def.in, depth + 1, true), ...limitSchemas(def.out, depth + 1, feedsPipe)];
   }
-  if (kind === 'transform' && feedsPipe) return [];
   const next = peelZodWrapper(schema) ?? soleNonEmptyMember(schema);
   return next ? limitSchemas(next, depth + 1, feedsPipe) : [schema];
+}
+
+/** Does a `.transform()` change the value somewhere in `schema` (through wrappers and plain pipes)? */
+function transformsValue(schema: z.ZodType, depth = 0): boolean {
+  if (!(schema as any)?._zod?.def || depth >= MAX_UNWRAP_DEPTH) return false;
+  const kind = zodPipeKind(schema);
+  if (kind === 'transform') return true;
+  if (kind === 'plain') {
+    const def = (schema as any)._zod.def;
+    return transformsValue(def.in, depth + 1) || transformsValue(def.out, depth + 1);
+  }
+  const next = peelZodWrapper(schema) ?? soleNonEmptyMember(schema);
+  return next ? transformsValue(next, depth + 1) : false;
 }
 
 /** Is this union member only `null` / `undefined` (through wrappers, never resolving a union)? */

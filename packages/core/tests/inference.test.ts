@@ -431,6 +431,7 @@ describe('limits across a pipe (#86)', () => {
     expect(getStringLength(z.string().max(3).transform((s) => s.length))).toEqual({ maxLength: 3 });
     // A transform feeding a plain pipe: its input (before x100) is in other units than the pipe's output.
     expect(getNumericBounds(z.number().max(100).transform((x) => x * 100).pipe(z.number().max(5000)))).toEqual({ max: 5000 });
+    expect(getNumericBounds(z.number().max(100).pipe(z.number().transform((x) => x * 100)).pipe(z.number().max(5000)))).toEqual({ max: 5000 });
   });
   it('no pipe: unchanged', () => {
     expect(getNumericBounds(z.number().positive().max(5))).toEqual({ min: 0, exclusiveMin: true, max: 5 });
