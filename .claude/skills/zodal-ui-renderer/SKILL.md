@@ -294,7 +294,7 @@ export function createShadcnRegistry() {
 }
 ```
 
-**A renderer set with options.** Behaviour shared by every control of the set (a minimum target size, a tap guard, a lockout after an action, a default Undo window) belongs to the set, not to each screen: make the factory `createXRegistry(options?)` with keyword options that all have defaults, using `defineRendererSet({ defaults, entries: (options) => [...] })` from `@zodal/ui`. The renderers close over the resolved options, an unknown option is refused, and the registry exposes `registry.options`. What changes per render (the app's state, a suggestion source, the selection) stays in `RendererContext`; do not put set-wide policy there, and do not make hosts provide it through a framework context.
+**A renderer set with options.** Behaviour shared by every control of the set (a minimum target size, a tap guard, a lockout after an action, a default Undo window) belongs to the set, not to each screen: make the factory `createXRegistry(options?)` with keyword options that all have defaults, using `defineRendererSet({ defaults, entries: (options) => [...] })` from `@zodal/ui`. The renderers close over the resolved options, an unknown option is refused, and the registry exposes `registry.options`. What changes per render (the app's state, a suggestion source, the selection) stays in `RendererContext`; do not put set-wide policy there, and do not make hosts provide it through a framework context. Options are flat values (numbers, strings, functions such as an injected clock). Build the registry once, at module scope or memoised, never inside a render: its renderers are made per call, so a new registry remounts every control.
 
 ```typescript
 export const createTremorRegistry = defineRendererSet({

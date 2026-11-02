@@ -14,7 +14,11 @@ import type { RendererEntry } from './tester.js';
 
 /** What {@link defineRendererSet} builds a set from. */
 export interface RendererSetDefinition<O extends object, C, S = ResolvedFieldAffordance> {
-  /** Every option, with its default: a set works with no options at all. */
+  /**
+   * Every option, with its default: a set works with no options at all. Options are flat
+   * values (numbers, strings, functions such as an injected clock): they are frozen one level
+   * deep, so a nested object would be shared by every registry and must not be mutated.
+   */
   defaults: Readonly<O>;
   /** The set's entries, built with the resolved options (renderers close over them). */
   entries: (options: Readonly<O>) => readonly RendererEntry<C, S>[];
@@ -31,6 +35,11 @@ export type RendererSet<O extends object, C, S = ResolvedFieldAffordance> = Rend
  * returns the registry, which also exposes the resolved `options`. An option the set does not
  * define is refused, naming it, so a misspelt option fails where it is passed.
  *
+ * Build the registry once (at module scope, or memoised), not inside a render: its renderers
+ * are made per call, so a new registry means new component identities, which remounts them.
+ * When the renderers have different props, annotate `entries` so the component type is the
+ * registry's, not the first renderer's: `entries: (o): RendererEntry<ComponentType<any>>[] => [...]`.
+ *
  * @example
  * ```ts
  * export const createTremorRegistry = defineRendererSet({
@@ -44,13 +53,14 @@ export function defineRendererSet<O extends object, C, S = ResolvedFieldAffordan
   definition: RendererSetDefinition<O, C, S>,
 ): (options?: Partial<O>) => RendererSet<O, C, S> {
   const known = new Set(Object.keys(definition.defaults));
-  return (options = {}) => {
+  return (given = {}) => {
+    const options = given ?? {}; // a plain-JS caller may pass null
     const unknown = Object.keys(options).filter((k) => !known.has(k));
     if (unknown.length) {
       throw new Error(`Unknown renderer-set option(s) ${unknown.join(', ')}; this set takes: ${[...known].join(', ') || 'none'}.`);
     }
-    const given = Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined));
-    const resolved = Object.freeze({ ...definition.defaults, ...given }) as Readonly<O>;
+    const set = Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined));
+    const resolved = Object.freeze({ ...definition.defaults, ...set }) as Readonly<O>;
     const registry = createRendererRegistry<C, S>();
     for (const entry of definition.entries(resolved)) registry.register(entry);
     return Object.assign(registry, { options: resolved });
