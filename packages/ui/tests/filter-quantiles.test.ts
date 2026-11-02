@@ -79,6 +79,19 @@ describe('toFilterConfig with data', () => {
     expect(f.at.quantiles).toEqual([0, 2 * day, 4 * day]);
     expect(new Date(f.at.quantiles![1]).toISOString()).toBe('1970-01-03T00:00:00.000Z');
   });
+  it('one field, one unit: a number field ignores dates, a date field ignores numbers', () => {
+    const c = defineCollection(z.object({ n: z.number().meta({ filterable: 'range' }), at: z.date().meta({ filterable: 'range' }) }));
+    const f = byName(toFilterConfig(c, { data: [{ n: 3, at: 5 }, { n: new Date(7), at: new Date(10) }, { n: 5, at: new Date(20) }], quantileCount: 2 }));
+    expect(f.n.quantiles).toEqual([3, 4, 5]);
+    expect(f.at.quantiles).toEqual([10, 15, 20]);
+  });
+  it('a date from another realm counts', async () => {
+    const { runInNewContext } = await import('node:vm');
+    const foreign = runInNewContext('new Date(86400000)') as Date;
+    expect(foreign instanceof Date).toBe(false);
+    const c = defineCollection(z.object({ at: z.date().meta({ filterable: 'range' }) }));
+    expect(byName(toFilterConfig(c, { data: [{ at: foreign }], quantileCount: 1 })).at.quantiles).toEqual([86400000, 86400000]);
+  });
   it('bigints and unparsed strings give no quantiles', () => {
     const c = defineCollection(z.object({ n: z.bigint().meta({ filterable: 'range' }), at: z.date().meta({ filterable: 'range' }) }));
     const f = byName(toFilterConfig(c, { data: [{ n: 1n, at: '2020-01-01' }, { n: 2n, at: '2021-01-01' }] }));
