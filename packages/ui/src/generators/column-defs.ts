@@ -6,8 +6,8 @@
  */
 
 import { z } from 'zod';
-import type { CollectionDefinition, FieldAffordance, FilterType } from '@zodal/core';
-import { getVocabulary, getNumericBounds } from '@zodal/core';
+import type { CollectionDefinition, FilterType, ResolvedFieldAffordance, VocabularyEntry } from '@zodal/core';
+import { getVocabularyEntries, getNumericBounds } from '@zodal/core';
 
 /**
  * A framework-agnostic column definition.
@@ -62,8 +62,14 @@ export interface ColumnConfig {
   };
 }
 
-/** Map Zod type to the appropriate TanStack Table sort function name. */
-function inferSortFnName(zodType: string, affordance: FieldAffordance): string {
+/**
+ * Map a field to the appropriate TanStack Table sort function name.
+ *
+ * A closed single choice sorts by what its values are, however the schema spells it
+ * (an enum, a union of literals, a numeric enum); see {@link choiceSortFnName}.
+ */
+function inferSortFnName(zodType: string, fa: ResolvedFieldAffordance, choices: VocabularyEntry[] | null): string {
+  if (fa.choice === 'single' && choices) return choiceSortFnName(choices);
   switch (zodType) {
     case 'string': return 'text';
     case 'number':
@@ -72,9 +78,19 @@ function inferSortFnName(zodType: string, affordance: FieldAffordance): string {
     case 'bigint': return 'basic';
     case 'date': return 'datetime';
     case 'boolean': return 'basic';
-    case 'enum': return 'text';
     default: return 'basic';
   }
+}
+
+/**
+ * The sort of a closed choice: `text` when every value is a string, `basic` when none is
+ * (numbers, bigints, booleans: 2 before 10), `alphanumeric` for a mix, where `basic`'s
+ * comparison of a string with a number is inconsistent (the order would depend on the input's).
+ */
+function choiceSortFnName(choices: VocabularyEntry[]): string {
+  const strings = choices.filter((e) => typeof e.raw === 'string').length;
+  if (strings === choices.length) return 'text';
+  return strings === 0 ? 'basic' : 'alphanumeric';
 }
 
 /** Map filter type + Zod type to the appropriate TanStack Table filter function name. */
@@ -137,6 +153,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
     if (!fieldSchema) continue;
 
     const zodType = fa.zodType;
+    const choices = getVocabularyEntries(fieldSchema);
 
     columns.push({
       id: key,
@@ -151,7 +168,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
       size: fa.columnWidth,
       minSize: fa.minWidth,
       maxSize: fa.maxWidth,
-      sortingFn: inferSortFnName(zodType, fa),
+      sortingFn: inferSortFnName(zodType, fa, choices),
       sortDescFirst: fa.sortable === 'desc',
       filterFn: fa.filterable ? inferFilterFnName(fa.filterable, zodType) : undefined,
       meta: {
@@ -164,7 +181,7 @@ export function toColumnDefs<T extends z.ZodObject<any>>(
         copyable: fa.copyable,
         truncate: fa.truncate,
         tooltip: fa.tooltip,
-        enumValues: fieldSchema ? getVocabulary(fieldSchema) ?? undefined : undefined,
+        enumValues: choices?.map((e) => e.value),
         numericBounds: fieldSchema ? getNumericBounds(fieldSchema) : undefined,
         pinned: fa.pinned,
         storageRole: fa.storageRole === 'content' ? 'content' : undefined,
