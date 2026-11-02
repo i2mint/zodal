@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '../src/collection.js';
+import { undoSeconds } from '../src/operations.js';
 
 // ============================================================================
 // Test Schemas
@@ -428,5 +429,33 @@ describe('defineCollection - real-world schema', () => {
     const desc = collection.describe();
     expect(desc).toContain('Collection with');
     expect(desc).toContain('publish [item]');
+  });
+});
+
+describe('undoable operations (#82)', () => {
+  const schema = z.object({ id: z.string() });
+  const op = (undoable: unknown) => ({ name: 'archive', label: 'Archive', scope: 'item' as const, undoable: undoable as any });
+  it('accepts true, false and a positive number of seconds', () => {
+    for (const u of [true, false, { seconds: 15 }, undefined]) {
+      expect(defineCollection(schema, { operations: [op(u)] }).operations[0].undoable).toEqual(u);
+    }
+  });
+  it('refuses an undo window that is not a positive number, or has other keys, naming the operation', () => {
+    for (const u of [{ seconds: 0 }, { seconds: -1 }, {}, 'soon', 15, null]) {
+      expect(() => defineCollection(schema, { operations: [op(u)] })).toThrow(/defineCollection: operation "archive" has an invalid undoable/);
+    }
+    expect(() => defineCollection(schema, { operations: [op({ seconds: Infinity })] })).toThrow(/seconds Infinity/);
+    expect(() => defineCollection(schema, { operations: [op({ seconds: 5, extra: 1 })] })).toThrow(/unknown key\(s\) extra/);
+  });
+  it('undoSeconds resolves true to the renderer set\'s default, and checks any operation', () => {
+    expect(undoSeconds(op({ seconds: 15 }), { defaultSeconds: 10 })).toBe(15);
+    expect(undoSeconds(op(true), { defaultSeconds: 10 })).toBe(10);
+    expect(undoSeconds(op(false), { defaultSeconds: 10 })).toBeUndefined();
+    expect(undoSeconds(op(undefined), { defaultSeconds: 10 })).toBeUndefined();
+    expect(() => undoSeconds(op({ seconds: NaN }), { defaultSeconds: 10 })).toThrow(/seconds NaN/);
+    expect(() => undoSeconds(op(true), { defaultSeconds: 0 })).toThrow(/defaultSeconds must be a positive number, got 0/);
+  });
+  it('describe() marks an undoable operation', () => {
+    expect(defineCollection(schema, { operations: [op(true)] }).describe()).toMatch(/archive \[item\]: Archive \(undoable\)/);
   });
 });

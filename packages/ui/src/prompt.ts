@@ -105,12 +105,12 @@ export function toPrompt(collection: CollectionDefinition<any>): string {
   if (collection.operations.length > 0) {
     sections.push('## Custom Operations');
     sections.push('');
-    sections.push('| Name | Label | Scope | Confirm | Variant |');
-    sections.push('|------|-------|-------|---------|---------|');
+    sections.push('| Name | Label | Scope | Confirm | Undoable | Variant |');
+    sections.push('|------|-------|-------|---------|----------|---------|');
 
     for (const op of collection.operations) {
       sections.push(
-        `| \`${op.name}\` | ${op.label} | ${op.scope} | ${op.confirm ? 'yes' : 'no'} | ${op.variant ?? 'default'} |`,
+        `| \`${op.name}\` | ${op.label} | ${op.scope} | ${op.confirm ? 'yes' : 'no'} | ${op.undoable ? 'yes' : 'no'} | ${op.variant ?? 'default'} |`,
       );
     }
     sections.push('');

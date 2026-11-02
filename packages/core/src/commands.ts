@@ -20,7 +20,8 @@
  * confirm-guarded operation without prompting. Gate such commands with `when`, or
  * keep the confirmation inside `execute`. Undo in acture-undo is recorded from
  * state patches made through a patch-capable state adapter (or from `effects`),
- * not from a provider call inside `execute`.
+ * not from a provider call inside `execute`. An operation declared `undoable` promises
+ * exactly that: its command's `execute` goes through such an adapter or returns `effects`.
  */
 
 import type { ZodType } from 'zod';

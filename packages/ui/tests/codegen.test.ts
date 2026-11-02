@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
 import { toCode } from '../src/codegen.js';
+import { toViewConfig, toPrompt } from '../src/index.js';
 import { writeIfChanged, generateAndWrite } from '../src/node.js';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -508,5 +509,21 @@ describe('toCode serialization (#89)', () => {
     const schema = z.object({ x: z.string().meta({ editWidgetOptions: { a: 1, b: 2 } }) });
     const c = defineCollection(schema, { fields: { x: { editWidgetOptions: { b: 2, a: 1 } } } });
     expect(toCode(c, { diffOnly: true })).not.toContain('editWidgetOptions');
+  });
+});
+
+describe('toCode operations (#82)', () => {
+  it('writes an operation\'s undoable', () => {
+    const c = defineCollection(z.object({ id: z.string() }), {
+      operations: [{ name: 'archive', label: 'Archive', scope: 'item', undoable: { seconds: 15 } }],
+    });
+    expect(toCode(c)).toContain('undoable: { seconds: 15 }');
+  });
+  it('view configs and the prompt carry it', () => {
+    const c = defineCollection(z.object({ id: z.string(), title: z.string() }), {
+      operations: [{ name: 'archive', label: 'Archive', scope: 'item', undoable: true }],
+    });
+    expect(toViewConfig(c, 'list').operations.item.find((o) => o.name === 'archive')?.undoable).toBe(true);
+    expect(toPrompt(c)).toMatch(/\| `archive` \| Archive \| item \| no \| yes \| default \|/);
   });
 });

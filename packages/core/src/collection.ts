@@ -25,6 +25,7 @@ import {
   humanizeFieldName,
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
+import { checkUndoable } from './operations.js';
 import { affordanceRegistry as defaultRegistry } from './registry.js';
 
 // ============================================================================
@@ -182,6 +183,13 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
 
   // 4. Operations
   const operations = config?.operations ?? [];
+  for (const op of operations) {
+    try {
+      checkUndoable(op);
+    } catch (err) {
+      throw new Error(`defineCollection: ${(err as Error).message}`);
+    }
+  }
 
   // 5. Build the collection definition
   const definition: CollectionDefinition<TSchema> = {
@@ -425,7 +433,7 @@ function generateDescription(def: CollectionDefinition<any>): string {
     lines.push('');
     lines.push('Custom Operations:');
     for (const op of def.operations) {
-      lines.push(`  ${op.name} [${op.scope}]: ${op.label}`);
+      lines.push(`  ${op.name} [${op.scope}]: ${op.label}${op.undoable ? ' (undoable)' : ''}`);
     }
   }
 
