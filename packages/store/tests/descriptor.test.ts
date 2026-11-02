@@ -36,13 +36,14 @@ const s3Like = defineProviderDescriptor({
   },
 });
 
-/** A descriptor like `s3Like` with other options (a fixture: `s3Like`'s own types cover only its options). */
+/** A descriptor like `s3Like` (its label, source and runtime) with other options and an in-memory provider. */
 function withOptions<O extends Record<string, unknown>>(
   name: string,
   options: z.ZodType<O>,
   rest: Partial<ProviderDescriptor<O>> = {},
 ): ProviderDescriptor<O> {
-  return defineProviderDescriptor<O>({ ...(s3Like as unknown as ProviderDescriptor<O>), name, options, ...rest });
+  const { label, source, runtime } = s3Like;
+  return defineProviderDescriptor<O>({ name, label, source, runtime, options, create: () => createInMemoryProvider([]), ...rest });
 }
 
 /** The error a promise rejects with; fails the test when it resolves. */
