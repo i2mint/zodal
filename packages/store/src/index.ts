@@ -26,6 +26,10 @@ export type { InMemoryProviderOptions } from './in-memory.js';
 // Provider wrapping
 export { wrapProvider } from './wrap-provider.js';
 
+// Tiered provider (bounded local cache over a remote source)
+export { createTieredProvider } from './tiered-provider.js';
+export type { TieredProvider, TieredProviderOptions, AccessRecord } from './tiered-provider.js';
+
 // Bifurcated provider (content-metadata split)
 export { createBifurcatedProvider, splitFields } from './bifurcated-provider.js';
 export type { BifurcatedProviderOptions } from './bifurcated-provider.js';
