@@ -41,7 +41,7 @@ caps.serverSort;  // false (in-memory is client-side)
 - **FilterExpression** -- structured, serializable filters with AND/OR/NOT composition
 - **createInMemoryProvider()** -- full-featured client-side adapter for prototyping/testing
 - **wrapProvider()** -- apply encode/decode codecs to any DataProvider
-- **createTieredProvider()** -- a bounded local cache (hot tier, e.g. localStorage) over a remote source of truth (cold tier, e.g. HTTP or S3): fresh cached reads, write-through, LRU eviction past `maxItems`, recency kept in its own `accessLog` provider, and offline reads answered from the cache
+- **createTieredProvider()** -- a bounded local cache (hot tier, e.g. localStorage) over a remote source of truth (cold tier, e.g. HTTP or S3): fresh cached reads, write-through, LRU eviction past `maxItems`, recency kept in its own `residency` provider, offline reads answered from the cache, best-effort caching (a cache failure never fails a remote success), admission and eviction as policies
 - **filterToFunction()** -- compile FilterExpression to a predicate for client-side evaluation
 
 ## Tiered provider: recent items cached on the device
@@ -54,7 +54,7 @@ import { createLocalStorageProvider } from '@zodal/store-localstorage';
 const songs = createTieredProvider({
   cold: createHttpProvider({ baseUrl: '/api/songs' }),                         // source of truth
   hot: createLocalStorageProvider({ storageKey: 'songs:recent' }),           // bounded cache
-  accessLog: createLocalStorageProvider({ storageKey: 'songs:recent:at' }),  // LRU survives reloads
+  residency: createLocalStorageProvider({ storageKey: 'songs:recent:at' }),  // LRU survives reloads
   maxItems: 100,
   isFresh: (song) => song.status === 'complete',  // re-read items still changing remotely
 });
@@ -63,4 +63,4 @@ await songs.getOne('abc');   // cold on first read, hot afterwards
 await songs.cached();        // what is on this device, most recently used first
 ```
 
-Writes go to the cold tier first and are cached only once it accepted them. When the cold tier is unreachable, `getList` and `getOne` answer from the cache. Content (`getContent`, `getUrl`) stays with the cold tier for now; byte budgets, pins and blob tiering are the next slices of [zodal#115](https://github.com/i2mint/zodal/issues/115).
+Writes go to the cold tier first and are cached only once it accepted them (a created item is cached; an updated one is refreshed only if it was cached). When the cold tier is unreachable (no HTTP status, or a 5xx; `fallbackOn` to change it), `getList` and `getOne` answer from the cache and `onFallback` is told, so the UI can say it is offline; a 404 drops the cached copy. A failing cache (a full quota) is reported to `onCacheError` and never fails an operation the cold tier completed. `admit` (which items are cached) and `selectEvictions` (which leave; least recently used by default) are the policy seams. Content (`getContent`, `getUrl`) stays with the cold tier for now; byte budgets, pins and blob tiering are the next slices of [zodal#115](https://github.com/i2mint/zodal/issues/115).
