@@ -40,6 +40,18 @@ export function resolveFieldHistory(key: string, history: unknown): ResolvedFiel
 }
 
 /**
+ * Refuse history on a field that is not free text: a number, a list or a closed choice is a
+ * setting (sticky instead), and history remembers typed text. Throws an error naming `key`.
+ */
+export function checkHistoryText(key: string, zodType: string, isClosedChoice: boolean): void {
+  if (zodType !== 'string' || isClosedChoice) {
+    throw new Error(
+      `field "${key}" is not free text (${isClosedChoice ? 'a closed choice' : zodType}), so it cannot have history; history is for text fields (make it sticky instead).`,
+    );
+  }
+}
+
+/**
  * The inferred `sticky` default: free text (a string that is not a closed choice) starts over
  * with each new item; every other value (a number, a boolean, a closed choice, a date) is a
  * setting and carries over.

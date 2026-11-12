@@ -229,3 +229,14 @@ describe('createFieldHistory: a provider that pages', () => {
     expect(await history.list('s')).toEqual([]);
   });
 });
+
+describe('createFieldHistory: a provider that ignores page', () => {
+  it('stops when a page adds nothing new, without duplicates', async () => {
+    const inner = createInMemoryProvider<HistoryEntry>([]);
+    const provider = { ...inner, getList: (params: any) => inner.getList({ ...params, pagination: { page: 1, pageSize: 2 } }) };
+    const history = createFieldHistory({ provider });
+    for (const v of ['a', 'b', 'c']) await history.record('s', v);
+    const ids = (await history.list('s')).map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});

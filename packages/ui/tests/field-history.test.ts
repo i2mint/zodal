@@ -191,3 +191,24 @@ describe('renderer helpers', () => {
     await expect(pickHistoryEntry(fakeHistory(true).store, { scope: 's' }, 'x', { value: 'y' })).rejects.toThrow();
   });
 });
+
+describe('startNewItem reads a values function after the history writes', () => {
+  it('keeps what was typed while history was being written', async () => {
+    let form: Record<string, unknown> = { lyrics: 'first', styles: 'pop' };
+    const slow: FieldHistoryStore = { ...fakeHistory().store, async record() { form = { ...form, lyrics: 'first, then more' }; } };
+    const fields = [
+      { name: 'lyrics', sticky: false, history: { max: 5, scope: 'lyrics' } },
+      { name: 'styles', sticky: true },
+    ];
+    const { values, previous } = await startNewItem(fields, () => form, { history: slow });
+    expect(values).toEqual({ lyrics: undefined, styles: 'pop' });
+    expect(previous).toEqual({ lyrics: 'first, then more' });
+  });
+  it('never puts a default holding a secret in a form config', () => {
+    const c = defineCollection(z.object({ creds: z.object({ token: z.string() }).default({ token: 't0p' }) }));
+    expect(toFormConfig(c)[0].defaultValue).toBeUndefined();
+  });
+  it('toOptionsFormConfig refuses history on a non-text field', () => {
+    expect(() => toOptionsFormConfig(z.object({ n: z.number().meta({ history: true }) }))).toThrow(/"n".*not free text/);
+  });
+});

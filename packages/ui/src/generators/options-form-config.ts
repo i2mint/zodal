@@ -21,6 +21,7 @@
 
 import { z } from 'zod';
 import {
+  checkHistoryText,
   getChoiceArity,
   getZodMeta,
   humanizeFieldName,
@@ -164,6 +165,13 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     throw new Error(`toOptionsFormConfig: field "${path.join('.')}" is or holds a secret, so it cannot have history (it would store the secret). Remove its history setting.`);
   }
   const choice = getChoiceArity(fieldSchema);
+  if (declaresHistory && !secret) {
+    try {
+      checkHistoryText(path.join('.'), zodType, choice !== null);
+    } catch (err) {
+      throw new Error(`toOptionsFormConfig: ${(err as Error).message}`, { cause: err });
+    }
+  }
 
   let type: string;
   if (suppliedInCode) type = 'code';

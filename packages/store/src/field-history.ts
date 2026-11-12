@@ -111,13 +111,16 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
    */
   async function entriesOf(scope?: string): Promise<HistoryEntry[]> {
     const filter = scope === undefined ? undefined : { field: 'scope', operator: 'eq' as const, value: scope };
-    const all: HistoryEntry[] = [];
+    const byId = new Map<string, HistoryEntry>();
     for (let page = 1; ; page++) {
       const { data, total } = await provider.getList({ ...(filter ? { filter } : {}), pagination: { page, pageSize: PAGE_SIZE } });
-      all.push(...data);
-      // `total` decides, not the page length: a server may cap pages below the size asked for.
-      if (data.length === 0 || !(all.length < total)) break;
+      const before = byId.size;
+      for (const entry of data) byId.set(entry.id, entry);
+      // `total` decides, not the page length (a server may cap pages below the size asked for);
+      // a page that adds nothing new (a provider that ignores `page`) ends it too.
+      if (byId.size === before || !(byId.size < total)) break;
     }
+    const all = [...byId.values()];
     return scope === undefined ? all : all.filter((e) => e.scope === scope);
   }
 

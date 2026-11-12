@@ -26,7 +26,7 @@ import {
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
 import { checkUndoable } from './operations.js';
-import { resolveFieldHistory } from './field-history.js';
+import { checkHistoryText, resolveFieldHistory } from './field-history.js';
 import { secretPaths } from './sensitivity.js';
 import type { SecretPath } from './sensitivity.js';
 import { affordanceRegistry as defaultRegistry } from './registry.js';
@@ -357,11 +357,10 @@ function checkFieldHistory(schema: z.ZodObject<any>, fieldAffordances: Record<st
     } catch (err) {
       throw new Error(`defineCollection: ${(err as Error).message}`, { cause: err });
     }
-    // History remembers typed text: a number, a list or a closed choice is a setting (sticky instead).
-    if (fa.zodType !== 'string' || fa.choice === 'single' || fa.choice === 'multi') {
-      throw new Error(
-        `defineCollection: field "${key}" is not free text (${fa.choice ? 'a closed choice' : fa.zodType}), so it cannot have history; history is for text fields (make it sticky instead).`,
-      );
+    try {
+      checkHistoryText(key, String(fa.zodType), fa.choice === 'single' || fa.choice === 'multi');
+    } catch (err) {
+      throw new Error(`defineCollection: ${(err as Error).message}`, { cause: err });
     }
     if (paths.some((p) => p.length === 0 || String(p[0]) === key)) {
       throw new Error(

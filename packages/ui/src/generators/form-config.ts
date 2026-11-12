@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, ResolvedFieldHistory, WidgetOptions } from '@zodal/core';
-import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength, inferSticky, isMarkedSecret, isSecretName, resolveFieldHistory } from '@zodal/core';
+import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength, inferSticky, isMarkedSecret, isSecretName, resolveFieldHistory, secretPaths } from '@zodal/core';
 import type { ChoiceArity } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -262,7 +262,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
 /** A field's `defaultValue`, as a spread: none without a `.default()`, and none for a secret. */
 function defaultProps(key: string, schema: z.ZodType): Pick<FormFieldConfig, 'defaultValue'> {
   const value = defaultOf(schema);
-  if (value === undefined || isSecretName(key) || isMarkedSecret(schema)) return {};
+  if (value === undefined || isSecretName(key) || isMarkedSecret(schema) || secretPaths(schema).length > 0) return {};
   return { defaultValue: value };
 }
 

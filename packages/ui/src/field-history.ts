@@ -63,15 +63,14 @@ function freshDefault(value: unknown): unknown {
 export interface NewItemValues {
   /** The next item's values: one key per field (sticky ones kept, the others at their default). */
   values: Record<string, unknown>;
-  /**
-   * Only the reset fields, at their defaults: apply it over the form's values as they are when
-   * the promise resolves (`{ ...current, ...reset }`), so text typed while history was being
-   * written is not overwritten by the snapshot `values` was built from.
-   */
+  /** Only the reset fields, at their defaults (for a store that keeps more than the form's fields). */
   reset: Record<string, unknown>;
   /** The reset fields' values before the reset (only those): `{ ...current, ...previous }` is the Undo. */
   previous: Record<string, unknown>;
 }
+
+/** A form's values, or a function returning them as they are when called. */
+export type FormValuesSource = Readonly<Record<string, unknown>> | (() => Readonly<Record<string, unknown>>);
 
 /**
  * The values a form starts its next item with: sticky fields keep theirs; the others go back to
@@ -81,22 +80,26 @@ export interface NewItemValues {
  * if recording fails the promise rejects and nothing should be cleared.
  *
  * `values` holds the form's fields only: keys of the old item that are not form fields (its id,
- * its timestamps) are left out, so a new item never inherits the old one's identity.
+ * its timestamps) are left out, so a new item never inherits the old one's identity. Pass the
+ * form's values as a function (`() => form.getValues()`) and they are read again once history
+ * is written, so `values` and `previous` include anything typed meanwhile.
  *
  * @example
  * ```typescript
- * const { reset, previous } = await startNewItem(fields, form.getValues(), { history });
- * form.reset({ ...form.getValues(), ...reset });
+ * const { values, previous } = await startNewItem(fields, () => form.getValues(), { history });
+ * form.reset(values);
  * showUndo('Started a new piece', () => form.reset({ ...form.getValues(), ...previous }));
  * ```
  */
 export async function startNewItem(
   fields: readonly HistoryFieldConfig[],
-  values: Readonly<Record<string, unknown>>,
+  source: FormValuesSource,
   options: { history?: FieldHistoryStore } = {},
 ): Promise<NewItemValues> {
+  const read = () => (typeof source === 'function' ? source() : source);
   const resetFields = fields.filter((f) => !f.sticky);
-  if (options.history) await recordFields(resetFields, values, options.history, 'reset');
+  if (options.history) await recordFields(resetFields, read(), options.history, 'reset');
+  const values = read(); // as they are now, after the history writes
   const next: Record<string, unknown> = {};
   const reset: Record<string, unknown> = {};
   const previous: Record<string, unknown> = {};
