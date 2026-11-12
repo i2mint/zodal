@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { peelZodWrapper, zodPipeKind } from './zod-unwrap.js';
 import type { ChoiceArity, ChoiceData, ChoiceOption, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
 import type { AffordanceRegistry } from './registry.js';
+import { inferSticky } from './field-history.js';
 
 // ============================================================================
 // Schema Introspection Helpers
@@ -639,8 +640,16 @@ function defaultsType(schema: z.ZodType, baseType: string, affordance: ChoicesOf
   return getChoiceArity(schema, affordance) === 'single' ? 'enum' : baseType;
 }
 
-/** Map Zod base type to default affordances. */
+/**
+ * Map Zod base type to default affordances, with the inferred `sticky` (free text starts over
+ * with a new item, anything else carries over). A closed choice arrives here as `'enum'`
+ * (see {@link defaultsType}), so only open strings are not sticky.
+ */
 function getTypeDefaults(zodType: string): FieldAffordance {
+  return { ...baseTypeDefaults(zodType), sticky: inferSticky(zodType, false) };
+}
+
+function baseTypeDefaults(zodType: string): FieldAffordance {
   switch (zodType) {
     case 'string':
       return { ...STRING_FIELD_DEFAULTS };
@@ -889,7 +898,7 @@ function extractAffordancesFromMeta(meta: Record<string, unknown>): Partial<Fiel
     'columnWidth', 'minWidth', 'maxWidth', 'resizable', 'pinned', 'order',
     'title', 'description', 'displayFormat', 'badge', 'copyable', 'truncate',
     'tooltip', 'editWidget', 'filterWidget', 'editPlaceholder', 'editHelp', 'editWidgetOptions', 'choices', 'step',
-    'storageRole',
+    'storageRole', 'sticky', 'history',
   ];
 
   for (const key of affordanceKeys) {
@@ -933,7 +942,7 @@ const TRACED_PROPS: (keyof FieldAffordance)[] = [
   'sortable', 'filterable', 'searchable', 'groupable', 'aggregatable',
   'editable', 'visible', 'hidden', 'detailOnly', 'summaryField',
   'readable', 'inlineEditable', 'editWidget', 'filterWidget', 'editWidgetOptions', 'choices', 'truncate', 'tooltip',
-  'storageRole',
+  'storageRole', 'sticky', 'history',
 ];
 
 /**

@@ -21,15 +21,17 @@
 
 import { z } from 'zod';
 import {
+  checkHistoryText,
   getChoiceArity,
   getZodMeta,
   humanizeFieldName,
+  inferSticky,
   isPlainObject,
   secretPaths as schemaSecretPaths,
   unwrapZodSchema,
 } from '@zodal/core';
 import type { SecretPath } from '@zodal/core';
-import { fieldOptions, numericFieldProps, stringFieldProps, widgetTypeFor } from './form-config.js';
+import { defaultOf, fieldOptions, historyProps, numericFieldProps, stringFieldProps, widgetTypeFor } from './form-config.js';
 import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /** One entry of an options form. */
@@ -157,11 +159,25 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
   // A secret's default would be shown in the form: leave it out.
   const defaultValue = secret ? undefined : defaultOf(fieldSchema);
 
+  // History stores what people typed: refused on a secret (whoever marked it), as defineCollection does.
+  const declaresHistory = meta.history !== undefined && meta.history !== false;
+  if (declaresHistory && secret) {
+    throw new Error(`toOptionsFormConfig: field "${path.join('.')}" is or holds a secret, so it cannot have history (it would store the secret). Remove its history setting.`);
+  }
+  const choice = getChoiceArity(fieldSchema);
+  if (declaresHistory && !secret) {
+    try {
+      checkHistoryText(path.join('.'), zodType, choice !== null);
+    } catch (err) {
+      throw new Error(`toOptionsFormConfig: ${(err as Error).message}`, { cause: err });
+    }
+  }
+
   let type: string;
   if (suppliedInCode) type = 'code';
   else if (asFieldset) type = 'fieldset';
   else if (secret) type = 'password'; // never meta.editWidget: it could unmask the value
-  else type = meta.editWidget ?? widgetTypeFor(zodType, getChoiceArity(fieldSchema));
+  else type = meta.editWidget ?? widgetTypeFor(zodType, choice);
 
   const field: OptionsFormField = {
     name: path.join('.'),
@@ -185,6 +201,8 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     ...(defaultValue !== undefined ? { defaultValue } : {}),
     ...(secret ? { secret } : {}),
     ...(suppliedInCode ? { suppliedInCode } : {}),
+    sticky: typeof meta.sticky === 'boolean' ? meta.sticky : inferSticky(zodType, choice !== null),
+    ...(suppliedInCode || asFieldset ? {} : historyProps(path.join('.'), meta.history)),
   };
   if (asFieldset) field.fields = fieldsOf(base, path, ctx);
   return field;
@@ -202,17 +220,4 @@ function metaOf(schema: z.ZodType): Record<string, any> {
   }
   layers.push(getZodMeta(unwrapZodSchema(schema)) ?? {});
   return Object.assign({}, ...layers.reverse());
-}
-
-/** The value a `.default()` / `.prefault()` on the way down gives this field, if any. */
-function defaultOf(schema: z.ZodType): unknown {
-  let current: any = schema;
-  for (let depth = 0; current && depth < 16; depth++) {
-    const def = current._zod?.def;
-    if (!def) return undefined;
-    if (def.type === 'default' || def.type === 'prefault') return def.defaultValue;
-    if (!('innerType' in def)) return undefined;
-    current = def.innerType;
-  }
-  return undefined;
 }

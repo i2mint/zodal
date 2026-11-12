@@ -6,6 +6,7 @@
  */
 
 import type { ChoiceArity, OperationCommandResult, OperationDefinition, OperationScope, ResolvedFieldAffordance } from '@zodal/core';
+import type { FieldHistoryStore } from '../field-history.js';
 
 // ============================================================================
 // Priority Bands
@@ -45,6 +46,12 @@ export interface RendererContext {
    * component receives it through {@link FieldRenderProps.context}.
    */
   suggest?: SuggestionSource;
+  /**
+   * Where a field with `config.history` reads and writes its past values (a
+   * `createFieldHistory()` from `@zodal/store`, or anything of that shape). Injected by
+   * the app, like `suggest`, so no renderer imports a store. Absent: no history UI.
+   */
+  history?: FieldHistoryStore;
   /** Additional context from the consumer. */
   [key: string]: unknown;
 }

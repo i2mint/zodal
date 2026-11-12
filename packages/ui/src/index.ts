@@ -9,6 +9,8 @@ export type {
   CollectionConfig,
   FieldAffordance,
   ResolvedFieldAffordance,
+  FieldHistorySpec,
+  ResolvedFieldHistory,
 } from '@zodal/core';
 
 // Column definition generator
@@ -21,6 +23,10 @@ export type { FormFieldConfig, VocabularyOption } from './generators/form-config
 export { formFieldAffordance, selectedValue, optionKey } from './generators/form-bridge.js';
 export { toOptionsFormConfig } from './generators/options-form-config.js';
 export type { OptionsFormField, OptionsFormConfigOptions } from './generators/options-form-config.js';
+
+// Field input history and sticky fields: what a form does when it is used and when it starts over
+export { startNewItem, recordUse, pickHistoryEntry, historyLine, relativeTime, HISTORY_FILTER_THRESHOLD, HISTORY_UNDO_MS } from './field-history.js';
+export type { FieldHistoryStore, HistoryEntry, HistoryReason, HistoryFieldConfig, NewItemValues, FormValuesSource } from './field-history.js';
 
 // Filter configuration generator
 export { toFilterConfig } from './generators/filter-config.js';

@@ -37,6 +37,10 @@ export type {
   FallbackInfo,
 } from './tiered-provider.js';
 
+// Field input history (a field's past values, offered back)
+export { createFieldHistory } from './field-history.js';
+export type { HistoryEntry, HistoryReason, FieldHistoryStore, CreateFieldHistoryOptions } from './field-history.js';
+
 // Bifurcated provider (content-metadata split)
 export { createBifurcatedProvider, splitFields } from './bifurcated-provider.js';
 export type { BifurcatedProviderOptions } from './bifurcated-provider.js';

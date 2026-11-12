@@ -183,6 +183,38 @@ export interface FieldAffordance {
    * Default: 'metadata' (inferred from type + name).
    */
   storageRole?: FieldStorageRole;
+
+  // --- Value lifecycle ---
+  /**
+   * Does the field keep its value when the form starts a new item (an explicit New, a new
+   * source item)? Default: false for free text (a string field that is not a closed choice),
+   * true for everything else (numbers, booleans, closed choices, dates). Ordinary edits ignore it.
+   */
+  sticky?: boolean;
+  /**
+   * Remember the field's past values and offer them back (a history button, Alt+ArrowDown).
+   * `true` takes the defaults. Default: false (never inferred: it stores what people typed).
+   * Refused on a secret field, whatever layer set it: `defineCollection` throws.
+   */
+  history?: boolean | FieldHistorySpec;
+}
+
+/** A field's history settings (see `FieldAffordance.history`). */
+export interface FieldHistorySpec {
+  /** Most unpinned entries kept. Default: {@link DEFAULT_HISTORY_MAX}. */
+  max?: number;
+  /**
+   * The history this field reads and writes. Default: the field's key. Fields given the same
+   * scope share one list (a style field and an exclude-style field may want to); two forms
+   * that both have a `title` field share it unless one sets a scope.
+   */
+  scope?: string;
+}
+
+/** A field's history once resolved (`FormFieldConfig.history`): every setting filled in. */
+export interface ResolvedFieldHistory {
+  max: number;
+  scope: string;
 }
 
 // ============================================================================
