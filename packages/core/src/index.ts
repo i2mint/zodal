@@ -12,6 +12,8 @@ export type {
   ChoiceData,
   FieldStorageRole,
   ContentRef,
+  FieldHistorySpec,
+  ResolvedFieldHistory,
   // Collection-level
   PaginationConfig,
   SearchConfig,
@@ -92,6 +94,9 @@ export {
   dateEpochMsCodec,
   jsonCodec,
 } from './codec-types.js';
+
+// Field input history and sticky fields (the shared defaults and checks)
+export { DEFAULT_HISTORY_MAX, resolveFieldHistory, inferSticky } from './field-history.js';
 
 // Operation semantics (how long to offer Undo)
 export { undoSeconds } from './operations.js';

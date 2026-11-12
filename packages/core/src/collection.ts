@@ -26,6 +26,9 @@ import {
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
 import { checkUndoable } from './operations.js';
+import { resolveFieldHistory } from './field-history.js';
+import { secretPaths } from './sensitivity.js';
+import type { SecretPath } from './sensitivity.js';
 import { affordanceRegistry as defaultRegistry } from './registry.js';
 
 // ============================================================================
@@ -176,6 +179,9 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
 
   // 2. Resolve per-field affordances
   const fieldAffordances = resolveAllFieldAffordances(schema, config?.fields);
+
+  // 2b. History stores what people typed: never on a secret, whatever layer set it.
+  checkFieldHistory(schema, fieldAffordances);
 
   // 3. Resolve identity fields
   const idField = config?.idField ?? detectIdField(schema);
@@ -329,6 +335,34 @@ function resolveAllFieldAffordances(
   }
 
   return result;
+}
+
+/**
+ * Check every declared `history` (its shape, via `resolveFieldHistory`) and refuse it on a field
+ * that is, or holds, a secret (`secretPaths`). Secrets are inspected only when some field asks
+ * for history, so a collection without history never pays for (or fails on) the inspection.
+ */
+function checkFieldHistory(schema: z.ZodObject<any>, fieldAffordances: Record<string, ResolvedFieldAffordance>): void {
+  const withHistory = Object.entries(fieldAffordances).filter(([, fa]) => fa.history !== undefined && fa.history !== false);
+  if (!withHistory.length) return;
+  let paths: SecretPath[];
+  try {
+    paths = secretPaths(schema);
+  } catch (err) {
+    throw new Error(`defineCollection: cannot check history fields against secrets: ${(err as Error).message}`, { cause: err });
+  }
+  for (const [key, fa] of withHistory) {
+    try {
+      resolveFieldHistory(key, fa.history);
+    } catch (err) {
+      throw new Error(`defineCollection: ${(err as Error).message}`, { cause: err });
+    }
+    if (paths.some((p) => p.length === 0 || String(p[0]) === key)) {
+      throw new Error(
+        `defineCollection: field "${key}" is or holds a secret, so it cannot have history (it would store the secret). Remove its history setting.`,
+      );
+    }
+  }
 }
 
 /** Detect the ID field from schema. */

@@ -42,6 +42,7 @@ caps.serverSort;  // false (in-memory is client-side)
 - **createInMemoryProvider()** -- full-featured client-side adapter for prototyping/testing
 - **wrapProvider()** -- apply encode/decode codecs to any DataProvider
 - **createTieredProvider()** -- a bounded local cache (hot tier, e.g. localStorage) over a remote source of truth (cold tier, e.g. HTTP or S3): fresh cached reads, write-through, LRU eviction past `maxItems`, recency kept in its own `residency` provider, offline reads answered from the cache, best-effort caching (a cache failure never fails a remote success), admission and eviction as policies
+- **createFieldHistory()** -- a field's past values, offered back (input history): dedupe moves a repeated value to the top, a cap per scope that never evicts pinned entries, pinned then most recent first, a query filter, `clear`/`restore` for an Undo; entries live in any `DataProvider<HistoryEntry>` (in memory by default, localStorage on one device, a tiered provider across devices). See `docs/research/field-input-history.md`
 - **filterToFunction()** -- compile FilterExpression to a predicate for client-side evaluation
 
 ## Tiered provider: recent items cached on the device

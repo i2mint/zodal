@@ -6,8 +6,8 @@
  */
 
 import { z } from 'zod';
-import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, WidgetOptions } from '@zodal/core';
-import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength } from '@zodal/core';
+import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, ResolvedFieldHistory, WidgetOptions } from '@zodal/core';
+import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength, inferSticky, resolveFieldHistory } from '@zodal/core';
 import type { ChoiceArity } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -58,6 +58,10 @@ export interface FormFieldConfig {
   maxLength?: number;
   /** The field's `editWidgetOptions` affordance: the widget's own options, a shallow copy per config. */
   editWidgetOptions?: Readonly<WidgetOptions>;
+  /** Keeps its value when the form starts a new item (the resolved `sticky` affordance; see `startNewItem`). */
+  sticky: boolean;
+  /** The resolved history settings, or absent when the field has no history (see `RendererContext.history`). */
+  history?: ResolvedFieldHistory;
 }
 
 /** The Zod types whose values are plain numbers (a bigint is not: `Number()` would round it). */
@@ -99,6 +103,12 @@ export function numericFieldProps(
  */
 export function stringFieldProps(schema: z.ZodType, widget: string): Pick<FormFieldConfig, 'minLength' | 'maxLength'> {
   return widget === 'json' ? {} : getStringLength(schema);
+}
+
+/** A field's resolved `history`, as a spread: none when the field has no history. */
+export function historyProps(name: string, history: unknown): Pick<FormFieldConfig, 'history'> {
+  const resolved = resolveFieldHistory(name, history);
+  return resolved ? { history: resolved } : {};
 }
 
 /** Zod types a form has no dedicated widget for: edited as JSON text. */
@@ -239,6 +249,8 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       ...numericFieldProps(zodType, fieldSchema, fa.step),
       ...stringFieldProps(fieldSchema, type),
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
+      sticky: fa.sticky ?? inferSticky(zodType, fa.choice === 'single' || fa.choice === 'multi'),
+      ...historyProps(key, fa.history),
     });
   }
 
