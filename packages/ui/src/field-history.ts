@@ -48,6 +48,12 @@ export interface FieldHistoryStore {
   clear(scope?: string): Promise<HistoryEntry[]>;
   /** Put entries back (the Undo of `clear` or `remove`). */
   restore(entries: readonly HistoryEntry[]): Promise<void>;
+  /**
+   * Be told when a scope changes (`undefined`: any scope may have), so a history button can appear
+   * after a `recordUse` made elsewhere. Returns the unsubscribe. Optional: a store without it is
+   * read again only when its UI writes to it.
+   */
+  subscribe?(listener: (scope: string | undefined) => void): () => void;
 }
 
 /** The fields {@link startNewItem} and {@link recordUse} read from a form field config. */

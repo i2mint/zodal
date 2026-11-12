@@ -184,3 +184,32 @@ describe('createFieldHistory: pin, remove, clear, restore', () => {
     expect(await history.list('s')).toEqual(entries);
   });
 });
+
+describe('createFieldHistory: subscribe', () => {
+  it('tells listeners which scope changed, until unsubscribed', async () => {
+    const { history } = setup();
+    const heard: (string | undefined)[] = [];
+    const off = history.subscribe!((scope) => heard.push(scope));
+    await history.record('lyrics', 'a');
+    await history.record('lyrics', '   '); // nothing recorded, nothing heard
+    const [a] = await history.list('lyrics');
+    await history.pin(a.id);
+    await history.clear('lyrics');
+    off();
+    await history.record('title', 'x');
+    expect(heard).toEqual(['lyrics', undefined, 'lyrics']);
+  });
+
+  it('a throwing listener never fails the write', async () => {
+    const { history, values } = setup();
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      history.subscribe!(() => { throw new Error('boom'); });
+      await history.record('s', 'a');
+    } finally {
+      console.warn = warn;
+    }
+    expect(await values('s')).toEqual(['a']);
+  });
+});

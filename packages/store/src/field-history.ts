@@ -50,6 +50,12 @@ export interface FieldHistoryStore {
   clear(scope?: string): Promise<HistoryEntry[]>;
   /** Put entries back (the Undo of `clear` or `remove`). */
   restore(entries: readonly HistoryEntry[]): Promise<void>;
+  /**
+   * Be told when a scope changes (`undefined`: any scope may have), so a history button can appear
+   * after a `recordUse` made elsewhere. Returns the unsubscribe. Optional: a store without it is
+   * read again only when its UI writes to it.
+   */
+  subscribe?(listener: (scope: string | undefined) => void): () => void;
 }
 
 export interface CreateFieldHistoryOptions {
@@ -100,6 +106,25 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
     return run;
   }
 
+  // Listeners hear of every change made through this store (a listener's error never fails the write).
+  const listeners = new Set<(scope: string | undefined) => void>();
+  function changed(scope: string | undefined): void {
+    for (const listener of [...listeners]) {
+      try {
+        listener(scope);
+      } catch (error) {
+        console.warn('zodal field history: a subscriber threw', error);
+      }
+    }
+  }
+  /** A serial write that, once done, tells the listeners which scope changed. */
+  function write<R>(scope: string | undefined, job: () => Promise<R>): Promise<R> {
+    return serial(job).then((result) => {
+      changed(scope);
+      return result;
+    });
+  }
+
   /** Every entry of a scope (filtered by the provider when it can, and again here in case it cannot). */
   async function entriesOf(scope?: string): Promise<HistoryEntry[]> {
     const { data } = await provider.getList(scope === undefined ? {} : { filter: { field: 'scope', operator: 'eq', value: scope } });
@@ -114,6 +139,11 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
   }
 
   return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+
     record(scope, value, { max } = {}) {
       const text = typeof value === 'string' ? value.trim() : '';
       if (!text) return Promise.resolve();
@@ -123,7 +153,7 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
       } catch (error) {
         return Promise.reject(error);
       }
-      return serial(async () => {
+      return write(scope, async () => {
         const existing = (await entriesOf(scope)).find((e) => e.value === text);
         const at = now();
         if (existing) await provider.update(existing.id, { at, uses: existing.uses + 1 });
@@ -141,17 +171,17 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
     },
 
     remove(id) {
-      return serial(() => provider.deleteMany([id]));
+      return write(undefined, () => provider.deleteMany([id]));
     },
 
     pin(id, pinned = true) {
-      return serial(async () => {
+      return write(undefined, async () => {
         await provider.update(id, { pinned });
       });
     },
 
     clear(scope) {
-      return serial(async () => {
+      return write(scope, async () => {
         const removed = (await entriesOf(scope)).sort(historyOrder);
         await provider.deleteMany(removed.map((e) => e.id));
         return removed;
@@ -159,7 +189,8 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
     },
 
     restore(entries) {
-      return serial(async () => {
+      const scopes = new Set(entries.map((e) => e.scope));
+      return write(scopes.size === 1 ? [...scopes][0] : undefined, async () => {
         const present = new Map((await entriesOf()).map((e) => [e.id, e]));
         for (const entry of entries) {
           if (present.has(entry.id)) continue; // never removed: nothing to put back
