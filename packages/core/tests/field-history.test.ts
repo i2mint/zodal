@@ -76,6 +76,14 @@ describe('history: declared', () => {
   });
 });
 
+describe('history: only on free text', () => {
+  it('throws on a number, a list or a closed choice, naming the field', () => {
+    expect(() => defineCollection(z.object({ n: z.number() }), { fields: { n: { history: true } } })).toThrow(/"n".*not free text/);
+    expect(() => defineCollection(z.object({ t: z.array(z.string()) }), { fields: { t: { history: true } } })).toThrow(/"t"/);
+    expect(() => defineCollection(z.object({ m: z.enum(['a', 'b']) }), { fields: { m: { history: true } } })).toThrow(/"m".*closed choice/);
+  });
+});
+
 describe('history: refused on secrets', () => {
   it('throws on a field with a secret-looking name', () => {
     expect(() => defineCollection(z.object({ apiKey: z.string() }), { fields: { apiKey: { history: true } } }))
@@ -86,8 +94,8 @@ describe('history: refused on secrets', () => {
       .toThrow(/"pass"/);
   });
   it('throws on a structured field that holds a secret', () => {
-    expect(() => defineCollection(z.object({ auth: z.object({ token: z.string() }) }), { fields: { auth: { history: true } } }))
-      .toThrow(/"auth"/);
+    expect(() => defineCollection(z.object({ auth: z.string(), token: z.string() }).meta({}), { fields: { token: { history: true } } }))
+      .toThrow(/"token"/);
   });
   it('leaves a secret alone when no field asks for history', () => {
     expect(() => defineCollection(z.object({ apiKey: z.string(), lyrics: z.string() }))).not.toThrow();

@@ -47,3 +47,43 @@ export function resolveFieldHistory(key: string, history: unknown): ResolvedFiel
 export function inferSticky(zodType: string, isClosedChoice: boolean): boolean {
   return !(zodType === 'string' && !isClosedChoice);
 }
+
+/** One remembered value of one history scope. */
+export interface HistoryEntry {
+  id: string;
+  /** The history it belongs to (`FieldHistorySpec.scope`). */
+  scope: string;
+  value: string;
+  /** When it was last recorded or picked, ms since the epoch. */
+  at: number;
+  /** How many times it was recorded or picked. */
+  uses: number;
+  pinned?: boolean;
+}
+
+/** Why a value is recorded: it was used, it was saved before a reset, or a pick replaced it. */
+export type HistoryReason = 'submit' | 'reset' | 'pick';
+
+/**
+ * What forms and renderers need from a history. `@zodal/store`'s `createFieldHistory` returns one;
+ * declared here, in core, so `@zodal/store` and `@zodal/ui` share one declaration and `@zodal/ui`
+ * and renderers never import the store.
+ */
+export interface FieldHistoryStore {
+  /** Remember `value` (trimmed; empty is ignored). An equal value moves to the top instead of repeating. */
+  record(scope: string, value: string, options?: { reason?: HistoryReason; max?: number }): Promise<void>;
+  /** Pinned first, then most recent first. `query` keeps entries containing it, ignoring case. */
+  list(scope: string, options?: { query?: string; limit?: number }): Promise<HistoryEntry[]>;
+  remove(id: string): Promise<void>;
+  pin(id: string, pinned?: boolean): Promise<void>;
+  /** Forget one scope, or every scope; resolves with what was removed, for an Undo. */
+  clear(scope?: string): Promise<HistoryEntry[]>;
+  /** Put entries back (the Undo of `clear` or `remove`). */
+  restore(entries: readonly HistoryEntry[]): Promise<void>;
+  /**
+   * Be told when a scope changes through this store (`undefined`: any scope may have), so a
+   * history button can appear after a `recordUse` made elsewhere. Returns the unsubscribe.
+   * Optional: a store without it is read again only when its UI writes to it.
+   */
+  subscribe?(listener: (scope: string | undefined) => void): () => void;
+}

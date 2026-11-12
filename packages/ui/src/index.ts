@@ -25,8 +25,8 @@ export { toOptionsFormConfig } from './generators/options-form-config.js';
 export type { OptionsFormField, OptionsFormConfigOptions } from './generators/options-form-config.js';
 
 // Field input history and sticky fields: what a form does when it is used and when it starts over
-export { startNewItem, recordUse } from './field-history.js';
-export type { FieldHistoryStore, HistoryEntry, HistoryReason, HistoryFieldConfig } from './field-history.js';
+export { startNewItem, recordUse, pickHistoryEntry, historyLine, relativeTime, HISTORY_FILTER_THRESHOLD, HISTORY_UNDO_MS } from './field-history.js';
+export type { FieldHistoryStore, HistoryEntry, HistoryReason, HistoryFieldConfig, NewItemValues } from './field-history.js';
 
 // Filter configuration generator
 export { toFilterConfig } from './generators/filter-config.js';

@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, ResolvedFieldHistory, WidgetOptions } from '@zodal/core';
-import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength, inferSticky, resolveFieldHistory } from '@zodal/core';
+import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength, inferSticky, isMarkedSecret, isSecretName, resolveFieldHistory } from '@zodal/core';
 import type { ChoiceArity } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -249,10 +249,32 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       ...numericFieldProps(zodType, fieldSchema, fa.step),
       ...stringFieldProps(fieldSchema, type),
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
+      // The schema's `.default()`: what a new item starts with (never a secret's: it would be shown).
+      ...defaultProps(key, fieldSchema),
       sticky: fa.sticky ?? inferSticky(zodType, fa.choice === 'single' || fa.choice === 'multi'),
       ...historyProps(key, fa.history),
     });
   }
 
   return fields.sort((a, b) => a.order - b.order);
+}
+
+/** A field's `defaultValue`, as a spread: none without a `.default()`, and none for a secret. */
+function defaultProps(key: string, schema: z.ZodType): Pick<FormFieldConfig, 'defaultValue'> {
+  const value = defaultOf(schema);
+  if (value === undefined || isSecretName(key) || isMarkedSecret(schema)) return {};
+  return { defaultValue: value };
+}
+
+/** The value a `.default()` / `.prefault()` on the way down gives this field, if any. */
+export function defaultOf(schema: z.ZodType): unknown {
+  let current: any = schema;
+  for (let depth = 0; current && depth < 16; depth++) {
+    const def = current._zod?.def;
+    if (!def) return undefined;
+    if (def.type === 'default' || def.type === 'prefault') return def.defaultValue;
+    if (!('innerType' in def)) return undefined;
+    current = def.innerType;
+  }
+  return undefined;
 }

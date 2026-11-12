@@ -30,7 +30,7 @@ import {
   unwrapZodSchema,
 } from '@zodal/core';
 import type { SecretPath } from '@zodal/core';
-import { fieldOptions, historyProps, numericFieldProps, stringFieldProps, widgetTypeFor } from './form-config.js';
+import { defaultOf, fieldOptions, historyProps, numericFieldProps, stringFieldProps, widgetTypeFor } from './form-config.js';
 import type { FormFieldConfig, VocabularyOption } from './form-config.js';
 
 /** One entry of an options form. */
@@ -212,17 +212,4 @@ function metaOf(schema: z.ZodType): Record<string, any> {
   }
   layers.push(getZodMeta(unwrapZodSchema(schema)) ?? {});
   return Object.assign({}, ...layers.reverse());
-}
-
-/** The value a `.default()` / `.prefault()` on the way down gives this field, if any. */
-function defaultOf(schema: z.ZodType): unknown {
-  let current: any = schema;
-  for (let depth = 0; current && depth < 16; depth++) {
-    const def = current._zod?.def;
-    if (!def) return undefined;
-    if (def.type === 'default' || def.type === 'prefault') return def.defaultValue;
-    if (!('innerType' in def)) return undefined;
-    current = def.innerType;
-  }
-  return undefined;
 }

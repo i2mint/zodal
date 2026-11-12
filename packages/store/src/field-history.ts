@@ -6,6 +6,16 @@
  * (local hot, HTTP cold) to sync it across devices. One provider holds every scope; the app picks
  * its storage key, so two apps on one origin never share a history.
  *
+ * Privacy: a history holds what people typed, in plain text, for as long as the provider keeps it.
+ * - It is never shared across users only if the app makes it so: on a browser shared by several
+ *   signed-in people, put the user in the storage key (`'my-app.field-history.' + userId`) and call
+ *   `clear()` on sign-out.
+ * - Secret fields are refused upstream (`defineCollection`, `toOptionsFormConfig`); other
+ *   sensitive values (card numbers, one-time codes, national ids) are the host's to keep out, by
+ *   not declaring history on those fields. Cover stored input in the app's privacy notice.
+ * - Offline: a tiered provider whose writes go to the remote tier first makes `record` reject
+ *   while offline (and `startNewItem` with it, which then clears nothing).
+ *
  * The rules (`docs/research/field-input-history.md` §4.6, §6.3):
  * - values are trimmed, and an empty value is never recorded;
  * - recording a value already in the scope moves it to the top (its `at` and `uses` go up);
@@ -13,50 +23,17 @@
  *   never count and are never evicted;
  * - lists are pinned first, then most recent first.
  *
- * `@zodal/ui` and renderer packages type against {@link FieldHistoryStore} structurally, so none
- * of them imports this package.
+ * The types (`FieldHistoryStore`, `HistoryEntry`, `HistoryReason`) are declared in `@zodal/core`
+ * and re-exported here, so `@zodal/ui` and renderer packages use them without importing this one.
  */
 
 import { DEFAULT_HISTORY_MAX } from '@zodal/core';
+import type { FieldHistoryStore, HistoryEntry } from '@zodal/core';
 import type { DataProvider } from './data-provider.js';
 import { createInMemoryProvider } from './in-memory.js';
 import { leastRecentlyUsed } from './tiered-provider.js';
 
-/** One remembered value of one history scope. */
-export interface HistoryEntry {
-  id: string;
-  /** The history it belongs to (`FieldHistorySpec.scope`). */
-  scope: string;
-  value: string;
-  /** When it was last recorded or picked, ms since the epoch. */
-  at: number;
-  /** How many times it was recorded or picked (kept for a later frecency order). */
-  uses: number;
-  pinned?: boolean;
-}
-
-/** Why a value is recorded: it was used, it was saved before a reset, or a pick replaced it. */
-export type HistoryReason = 'submit' | 'reset' | 'pick';
-
-/** What forms and renderers need from a history (structural: `@zodal/ui` and renderers declare the same shape). */
-export interface FieldHistoryStore {
-  /** Remember `value` (trimmed; empty is ignored). An equal value moves to the top instead of repeating. */
-  record(scope: string, value: string, options?: { reason?: HistoryReason; max?: number }): Promise<void>;
-  /** Pinned first, then most recent first. `query` keeps entries containing it, ignoring case. */
-  list(scope: string, options?: { query?: string; limit?: number }): Promise<HistoryEntry[]>;
-  remove(id: string): Promise<void>;
-  pin(id: string, pinned?: boolean): Promise<void>;
-  /** Forget one scope, or every scope; resolves with what was removed, for an Undo. */
-  clear(scope?: string): Promise<HistoryEntry[]>;
-  /** Put entries back (the Undo of `clear` or `remove`). */
-  restore(entries: readonly HistoryEntry[]): Promise<void>;
-  /**
-   * Be told when a scope changes (`undefined`: any scope may have), so a history button can appear
-   * after a `recordUse` made elsewhere. Returns the unsubscribe. Optional: a store without it is
-   * read again only when its UI writes to it.
-   */
-  subscribe?(listener: (scope: string | undefined) => void): () => void;
-}
+export type { FieldHistoryStore, HistoryEntry, HistoryReason } from '@zodal/core';
 
 export interface CreateFieldHistoryOptions {
   /**
@@ -74,6 +51,9 @@ export interface CreateFieldHistoryOptions {
 function historyOrder(a: HistoryEntry, b: HistoryEntry): number {
   return Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.at - a.at || b.uses - a.uses || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
+
+/** Entries read per `getList` page. */
+const PAGE_SIZE = 1000;
 
 function checkMax(max: number, where: string): number {
   if (!Number.isInteger(max) || max < 1) throw new RangeError(`${where}: max must be a positive integer, got ${JSON.stringify(max)}`);
@@ -125,10 +105,29 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
     });
   }
 
-  /** Every entry of a scope (filtered by the provider when it can, and again here in case it cannot). */
+  /**
+   * Every entry of a scope (filtered by the provider when it can, and again here in case it
+   * cannot), page by page until `total`, so a provider that paginates by default still gives all.
+   */
   async function entriesOf(scope?: string): Promise<HistoryEntry[]> {
-    const { data } = await provider.getList(scope === undefined ? {} : { filter: { field: 'scope', operator: 'eq', value: scope } });
-    return scope === undefined ? data : data.filter((e) => e.scope === scope);
+    const filter = scope === undefined ? undefined : { field: 'scope', operator: 'eq' as const, value: scope };
+    const all: HistoryEntry[] = [];
+    for (let page = 1; ; page++) {
+      const { data, total } = await provider.getList({ ...(filter ? { filter } : {}), pagination: { page, pageSize: PAGE_SIZE } });
+      all.push(...data);
+      // `total` decides, not the page length: a server may cap pages below the size asked for.
+      if (data.length === 0 || !(all.length < total)) break;
+    }
+    return scope === undefined ? all : all.filter((e) => e.scope === scope);
+  }
+
+  /** The scope of an entry, for listeners (`undefined` when it is already gone). */
+  async function scopeOf(id: string): Promise<string | undefined> {
+    try {
+      return (await provider.getOne(id)).scope;
+    } catch {
+      return undefined;
+    }
   }
 
   async function evict(scope: string, max: number): Promise<void> {
@@ -171,13 +170,15 @@ export function createFieldHistory(options: CreateFieldHistoryOptions = {}): Fie
     },
 
     remove(id) {
-      return write(undefined, () => provider.deleteMany([id]));
+      return serial(async () => {
+        const scope = await scopeOf(id);
+        await provider.deleteMany([id]);
+        return scope;
+      }).then((scope) => changed(scope));
     },
 
     pin(id, pinned = true) {
-      return write(undefined, async () => {
-        await provider.update(id, { pinned });
-      });
+      return serial(async () => (await provider.update(id, { pinned })).scope).then((scope) => changed(scope));
     },
 
     clear(scope) {

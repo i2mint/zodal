@@ -357,6 +357,12 @@ function checkFieldHistory(schema: z.ZodObject<any>, fieldAffordances: Record<st
     } catch (err) {
       throw new Error(`defineCollection: ${(err as Error).message}`, { cause: err });
     }
+    // History remembers typed text: a number, a list or a closed choice is a setting (sticky instead).
+    if (fa.zodType !== 'string' || fa.choice === 'single' || fa.choice === 'multi') {
+      throw new Error(
+        `defineCollection: field "${key}" is not free text (${fa.choice ? 'a closed choice' : fa.zodType}), so it cannot have history; history is for text fields (make it sticky instead).`,
+      );
+    }
     if (paths.some((p) => p.length === 0 || String(p[0]) === key)) {
       throw new Error(
         `defineCollection: field "${key}" is or holds a secret, so it cannot have history (it would store the secret). Remove its history setting.`,

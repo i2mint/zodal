@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { recordUse, startNewItem, toFormConfig, toOptionsFormConfig } from '../src/index.js';
+import { historyLine, pickHistoryEntry, recordUse, relativeTime, startNewItem, toFormConfig, toOptionsFormConfig } from '../src/index.js';
 import type { FieldHistoryStore, FormFieldConfig, HistoryEntry, RendererContext } from '../src/index.js';
 
 /** A minimal store recording calls, so ui is tested without @zodal/store. */
@@ -106,16 +106,38 @@ describe('startNewItem', () => {
   const fields = toFormConfig(collection);
   const values = { id: 'x1', title: 'Song', lyrics: 'la la', styles: 'synthwave', excludeStyles: 'metal', model: 'v5', duration: 30, extra: 'kept' };
 
-  it('keeps sticky fields and clears the others', async () => {
+  it('keeps sticky fields, clears the others, and leaves out keys that are not fields (the old id)', async () => {
     const { values: next } = await startNewItem(fields, values);
-    expect(next).toEqual({ id: 'x1', title: undefined, lyrics: undefined, styles: 'synthwave', excludeStyles: undefined, model: 'v5', duration: 30, extra: 'kept' });
+    expect(next).toEqual({ title: undefined, lyrics: undefined, styles: 'synthwave', excludeStyles: undefined, model: 'v5', duration: 30 });
     expect('title' in next).toBe(true);
   });
 
+  it('returns the reset as a patch, to apply over values typed meanwhile', async () => {
+    const { reset } = await startNewItem(fields, values);
+    expect(reset).toEqual({ title: undefined, lyrics: undefined, excludeStyles: undefined });
+  });
+
+  it('starts from the schema default (.default())', async () => {
+    const c = defineCollection(z.object({ title: z.string().default('Untitled'), tags: z.array(z.string()).default([]).meta({ sticky: false }) }));
+    const f = toFormConfig(c);
+    expect(f.find((x) => x.name === 'title')!.defaultValue).toBe('Untitled');
+    const { values: next } = await startNewItem(f, { title: 'Mine', tags: ['a'] });
+    expect(next).toEqual({ title: 'Untitled', tags: [] });
+    (next.tags as string[]).push('x');
+    expect(f.find((x) => x.name === 'tags')!.defaultValue).toEqual([]); // a fresh copy each time
+  });
+
+  it('never records a secret or password field, even from a hand-built config', async () => {
+    const { store, calls } = fakeHistory();
+    const h = { max: 5, scope: 'p' };
+    await recordUse([{ name: 'p', sticky: false, history: h, type: 'password' }, { name: 'q', sticky: false, history: h, secret: true }], { p: 'hunter2', q: 'x' }, { history: store });
+    expect(calls).toEqual([]);
+  });
+
   it('returns the reset fields previous values, for an Undo', async () => {
-    const { values: next, previous } = await startNewItem(fields, values);
+    const { reset, previous } = await startNewItem(fields, values);
     expect(previous).toEqual({ title: 'Song', lyrics: 'la la', excludeStyles: 'metal' });
-    expect({ ...next, ...previous }).toEqual(values);
+    expect({ ...values, ...reset, ...previous }).toEqual(values);
   });
 
   it('records each cleared history value first (reason reset), never the sticky ones', async () => {
@@ -144,5 +166,28 @@ describe('RendererContext.history', () => {
     const { store } = fakeHistory();
     const ctx: RendererContext = { mode: 'form', history: store };
     expect(ctx.history).toBe(store);
+  });
+});
+
+describe('renderer helpers', () => {
+  it('historyLine: the first non-empty line and how many more', () => {
+    expect(historyLine('one')).toEqual({ first: 'one', extraLines: 0 });
+    expect(historyLine('\n  Verse\ntwo\nthree')).toEqual({ first: 'Verse', extraLines: 3 });
+  });
+  it('relativeTime: compact', () => {
+    const now = 10_000_000_000;
+    expect(relativeTime(now - 1000, now)).toBe('just now');
+    expect(relativeTime(now - 2 * 3_600_000, now)).toBe('2 h ago');
+  });
+  it('pickHistoryEntry records the current value, then the picked one', async () => {
+    const { store, calls } = fakeHistory();
+    expect(await pickHistoryEntry(store, { scope: 's', max: 9 }, ' typed ', { value: 'old' })).toBe('old');
+    expect(calls).toEqual([['s', 'typed', { reason: 'pick', max: 9 }], ['s', 'old', { reason: 'pick', max: 9 }]]);
+    calls.length = 0;
+    await pickHistoryEntry(store, { scope: 's' }, 'old', { value: 'old' });
+    expect(calls).toEqual([['s', 'old', { reason: 'pick' }]]);
+  });
+  it('pickHistoryEntry rejects when recording fails', async () => {
+    await expect(pickHistoryEntry(fakeHistory(true).store, { scope: 's' }, 'x', { value: 'y' })).rejects.toThrow();
   });
 });

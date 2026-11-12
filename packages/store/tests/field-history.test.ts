@@ -197,7 +197,7 @@ describe('createFieldHistory: subscribe', () => {
     await history.clear('lyrics');
     off();
     await history.record('title', 'x');
-    expect(heard).toEqual(['lyrics', undefined, 'lyrics']);
+    expect(heard).toEqual(['lyrics', 'lyrics', 'lyrics']);
   });
 
   it('a throwing listener never fails the write', async () => {
@@ -211,5 +211,21 @@ describe('createFieldHistory: subscribe', () => {
       console.warn = warn;
     }
     expect(await values('s')).toEqual(['a']);
+  });
+});
+
+describe('createFieldHistory: a provider that pages', () => {
+  it('reads every page, so dedupe, the cap and clear see every entry', async () => {
+    const inner = createInMemoryProvider<HistoryEntry>([]);
+    // A server that never returns more than 3 items a page, whatever was asked.
+    const provider = { ...inner, getList: (params: any) => inner.getList({ ...params, pagination: { page: params.pagination?.page ?? 1, pageSize: 3 } }) };
+    let t = 0;
+    const history = createFieldHistory({ provider, now: () => ++t, max: 5 });
+    for (const v of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) await history.record('s', v);
+    await history.record('s', 'a'); // evicted before: comes back as new
+    const values = (await history.list('s')).map((e) => e.value);
+    expect(values).toEqual(['a', 'g', 'f', 'e', 'd']);
+    expect((await history.clear('s')).length).toBe(5);
+    expect(await history.list('s')).toEqual([]);
   });
 });

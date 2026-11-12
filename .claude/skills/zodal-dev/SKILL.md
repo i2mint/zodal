@@ -95,6 +95,7 @@ Fields named `attachment`, `file`, `blob`, `upload`, `media`, `raw_data`, `paylo
 - Composable predicates: `zodTypeIs()`, `hasRefinement()`, `fieldNameMatches()`, `metaMatches()`, `and()`, `or()`
 - Registry is user-supplied (not global singleton)
 - Always include `explain()` for debugging
+- App-injected services reach components through `RendererContext` slots (`suggest`, `history`), never through a renderer importing `@zodal/store`. Shared interface types live in `@zodal/core` (e.g. `FieldHistoryStore`), so store and ui re-export one declaration; renderer satellites that build against an older npm `@zodal/ui` declare them structurally until it is published
 
 ## Codec Pattern
 
