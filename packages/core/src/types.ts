@@ -413,8 +413,13 @@ export interface CollectionConfig<TShape extends Record<string, unknown> = Recor
   fields?: Partial<Record<keyof TShape, Partial<FieldAffordance>>>;
   /** Custom operations beyond CRUD. */
   operations?: OperationDefinition[];
-  /** Which field uniquely identifies items. Default: 'id'. */
-  idField?: string;
+  /**
+   * What uniquely identifies items: a field name, a nested path (`'meta.uuid'`), an
+   * ordered list of paths (a composite key), or a function of the item. Default:
+   * inferred by `resolveKey` (an identifier-like name, then a nested one, then the
+   * first field, flagged as a fallback in `explain()`).
+   */
+  idField?: string | readonly string[] | ((item: unknown) => unknown);
   /** Which field is the human-readable label. Default: first string field. */
   labelField?: string;
   /** Configuration for content-metadata bifurcation. */

@@ -75,3 +75,12 @@ Also since 0.2.1, `create` with an id that already exists rejects (it used to ad
 - **Errors of a created provider** are scrubbed of the secret option values, raw and URL-encoded, when the options hold secrets. A value the adapter transforms another way (hashed, base64, truncated) before putting it in a message is not recognised: adapters keep option values out of their messages.
 
 **Status**: By design; the overrides above are the escape hatch.
+
+## idField inference: nested and composite keys, and the recorded fallback (zodal#128)
+
+**Change**: `defineCollection` resolves its key with `resolveKey` (`@zodal/core`). `config.idField` also accepts a nested path (`'meta.uuid'`), an ordered list of paths (a composite key) or a function; `collection.key` exposes the spec, its source, `keyOf(item)` and `check(samples)`.
+
+**Behaviour fixes** (patch, per `docs/versioning.md`):
+- A schema whose only identifier is nested (`{ meta: { uuid }, name }`) used to get `idField = 'meta'` (an object). It now keys on `meta.uuid` and `idField` is `'id'`, where a nested or composite key is materialised (`key.keyOf(item)`) before an item is stored.
+- The `*Id` name rule no longer matches lowercase words ending in `id` (`paid`, `valid`, `userid`); it matches `userId`, `user_id`, `ID` suffixes and short `xid`-style names.
+- The first-field fallback (`{ artist, title }` → `'artist'`) is still applied, but `explain()` and `collection.key.warnings` now say it is a fallback. `resolveKey(schema, { strict: true })` refuses it.
