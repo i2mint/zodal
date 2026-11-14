@@ -36,6 +36,25 @@ describe('the contract kit itself', () => {
     await expect(search.run()).rejects.toBeInstanceOf(ContractViolation);
   });
 
+  it('catches a provider where a slash id escapes the listing (zodal#131)', async () => {
+    const escaping = await providerContract({
+      make: (seed) => {
+        const p = createInMemoryProvider(seed);
+        return {
+          ...p,
+          // A path-joining adapter writes `a/b` into a subfolder its listing never reads.
+          getList: (params) =>
+            p.getList(params).then((r) => {
+              const data = r.data.filter((x) => !x.id.includes('/'));
+              return { data, total: data.length };
+            }),
+        } as DataProvider<ContractRow>;
+      },
+    });
+    const slash = escaping.find((c) => c.name === 'hostile id (slash) is stored as given or refused')!;
+    await expect(slash.run()).rejects.toThrow(/not listed|total/);
+  });
+
   it('skips writes a provider declares it cannot do, and checks they are refused', async () => {
     const readOnly = (seed: ContractRow[]): DataProvider<ContractRow> => {
       const p = createInMemoryProvider(seed);
