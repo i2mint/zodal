@@ -18,6 +18,7 @@
 import type { CollectionDefinition } from '@zodal/core';
 import type { DataProvider, GetListParams } from '@zodal/store';
 import { createCollectionStore, type CollectionState, type CollectionStore } from './store.js';
+import { createMutations, type MutationCallOptions, type MutationOptions } from './mutations.js';
 
 /** The bound actions interface — actions don't take state as first arg. */
 export interface BoundCollectionActions<T> {
@@ -40,6 +41,17 @@ export interface BoundCollectionActions<T> {
   setContentLoading(itemId: string, field: string, loading: boolean): void;
   /** Fetch data from the provider with current state. Only available when provider is supplied. */
   fetchData?(params?: Partial<GetListParams>): Promise<void>;
+  /**
+   * Create, update or delete through the provider in the slice's mutation mode (zodal#110):
+   * pessimistic by default, or optimistic / undoable (see `createMutations`). Only with a provider.
+   */
+  createItem?(data: Partial<T>, options?: MutationCallOptions): Promise<T | undefined>;
+  updateItem?(id: string, data: Partial<T>, options?: MutationCallOptions): Promise<T | undefined>;
+  deleteItem?(id: string, options?: MutationCallOptions): Promise<void>;
+  /** Send mutations still waiting out their Undo window (call on `pagehide`). */
+  flushMutations?(): Promise<void>;
+  /** Forget a failed mutation once it was shown. */
+  dismissMutation?(mutationId: string): void;
 }
 
 export type ZustandCollectionState<T> = CollectionState<T> & BoundCollectionActions<T>;
@@ -58,10 +70,15 @@ export type ZustandCollectionState<T> = CollectionState<T> & BoundCollectionActi
 export function createZustandStoreSlice<T>(
   collection: CollectionDefinition<any>,
   provider?: DataProvider<T>,
+  /** How mutations show before the provider answers (zodal#110). Default: pessimistic. */
+  mutations: Omit<MutationOptions, 'idField'> = {},
 ): (set: (fn: (state: any) => any) => void, get: () => any) => ZustandCollectionState<T> {
   const store = createCollectionStore<T>(collection);
 
-  return (set, get) => ({
+  return (set, get) => {
+  // Mutations in the slice's mode (zodal#110); their overlays survive a refetch.
+  const m = provider ? createMutations<any>(provider as DataProvider<any>, get, set, { ...mutations, idField: collection.idField }) : undefined;
+  return {
     ...store.initialState,
 
     setItems(items: T[], total?: number) {
@@ -107,11 +124,21 @@ export function createZustandStoreSlice<T>(
       set((s: CollectionState<T>) => store.actions.selectAll(s));
     },
     reset() {
+      m?.cancelAll(); // scheduled (undoable) mutations are dropped, not sent after a reset
       set((s: CollectionState<T>) => store.actions.reset(s));
     },
     setContentLoading(itemId: string, field: string, loading: boolean) {
       set((s: CollectionState<T>) => store.actions.setContentLoading(s, itemId, field, loading));
     },
+
+    // Mutations in the slice's mode (only when provider is supplied)
+    ...(m ? {
+      createItem: (data: Partial<T>, options?: MutationCallOptions) => m.create(data as any, options),
+      updateItem: (id: string, data: Partial<T>, options?: MutationCallOptions) => m.update(id, data as any, options),
+      deleteItem: (id: string, options?: MutationCallOptions) => m.delete(id, options),
+      flushMutations: () => m.flush(),
+      dismissMutation: (mutationId: string) => m.dismiss(mutationId),
+    } : {}),
 
     // Data fetching (only when provider is supplied)
     ...(provider ? {
@@ -129,7 +156,9 @@ export function createZustandStoreSlice<T>(
             ...params,
           });
           set((s: CollectionState<T>) => {
-            let next = store.actions.setItems(s, data, total);
+            // Unsettled mutations stay visible over the fresh list.
+            const shown = m ? (m.overlay(data as any[]) as T[]) : data;
+            let next = store.actions.setItems(s, shown, total + (shown.length - data.length));
             next = store.actions.setLoading(next, false);
             next = store.actions.setError(next, null);
             return next;
@@ -143,5 +172,6 @@ export function createZustandStoreSlice<T>(
         }
       },
     } : {}),
-  });
+  };
+  };
 }

@@ -109,6 +109,16 @@ export type {
 
 // Zustand adapter
 export { createZustandStoreSlice } from './state/zustand.js';
+export { createMutations } from './state/mutations.js';
+export type {
+  MutationMode,
+  MutationKind,
+  PendingMutation,
+  MutationFeedback,
+  MutationOptions,
+  MutationCallOptions,
+  Mutations,
+} from './state/mutations.js';
 export type { BoundCollectionActions, ZustandCollectionState } from './state/zustand.js';
 
 // State slices

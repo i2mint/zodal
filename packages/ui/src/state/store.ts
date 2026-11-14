@@ -82,6 +82,12 @@ export interface CollectionState<T> {
    */
   activeView: ViewMode;
 
+  /**
+   * Mutations not yet confirmed, by mutation id (zodal#110): scheduled (in an Undo window), pending
+   * (sent) or failed (rolled back). Optional, so a host building its own state still type-checks.
+   */
+  pending?: Record<string, import('./mutations.js').PendingMutation>;
+
   /** Per-item, per-field content loading status. For bifurcated providers. */
   contentLoading: Record<string, Record<string, boolean>>;
 }
