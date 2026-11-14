@@ -51,13 +51,35 @@ export function checkHistoryText(key: string, zodType: string, isClosedChoice: b
   }
 }
 
+/** ISO string formats that hold a date or time: a setting, so sticky like a `z.date()`. */
+export const ISO_DATE_FORMATS: ReadonlySet<string> = new Set(['date', 'datetime', 'time']);
+
+/** What else, beside the base type, decides the inferred `sticky`. */
+export interface StickyContext {
+  /** A content field (a file, an upload) is about the item: it starts over. */
+  storageRole?: 'metadata' | 'content';
+  /** A string's format (`'date'`, `'datetime'`, `'email'`...): an ISO date or time is sticky. */
+  stringFormat?: string;
+}
+
 /**
- * The inferred `sticky` default: free text (a string that is not a closed choice) starts over
- * with each new item; every other value (a number, a boolean, a closed choice, a date) is a
- * setting and carries over.
+ * The inferred `sticky` default: free text (a string that is not a closed choice) and content
+ * (a file or upload) start over with each new item; every other value (a number, a boolean, a
+ * closed choice, a date, including an ISO date string) is a setting and carries over.
  */
-export function inferSticky(zodType: string, isClosedChoice: boolean): boolean {
+export function inferSticky(zodType: string, isClosedChoice: boolean, context: StickyContext = {}): boolean {
+  if (context.storageRole === 'content') return false;
+  if (zodType === 'string' && context.stringFormat !== undefined && ISO_DATE_FORMATS.has(context.stringFormat)) return true;
   return !(zodType === 'string' && !isClosedChoice);
+}
+
+/**
+ * A layer's affordances, with `sticky: false` added when the layer makes the field content
+ * and says nothing about `sticky` (so a content field set by `.meta()`, the registry or the
+ * config starts over, while an explicit `sticky` still wins).
+ */
+export function contentStartsOver<A extends { storageRole?: string; sticky?: boolean }>(layer: A): A {
+  return layer.storageRole === 'content' && !('sticky' in layer) ? { ...layer, sticky: false } : layer;
 }
 
 /** One remembered value of one history scope. */

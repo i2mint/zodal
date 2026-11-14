@@ -26,6 +26,7 @@ import {
   getZodMeta,
   humanizeFieldName,
   inferSticky,
+  getStringFormat,
   isPlainObject,
   secretPaths as schemaSecretPaths,
   unwrapZodSchema,
@@ -201,7 +202,13 @@ function fieldOf(key: string, fieldSchema: z.ZodType, path: string[], index: num
     ...(defaultValue !== undefined ? { defaultValue } : {}),
     ...(secret ? { secret } : {}),
     ...(suppliedInCode ? { suppliedInCode } : {}),
-    sticky: typeof meta.sticky === 'boolean' ? meta.sticky : inferSticky(zodType, choice !== null),
+    sticky:
+      typeof meta.sticky === 'boolean'
+        ? meta.sticky
+        : inferSticky(zodType, choice !== null, {
+            storageRole: meta.storageRole === 'content' ? 'content' : undefined,
+            stringFormat: getStringFormat(fieldSchema),
+          }),
     ...(suppliedInCode || asFieldset ? {} : historyProps(path.join('.'), meta.history)),
   };
   if (asFieldset) field.fields = fieldsOf(base, path, ctx);
