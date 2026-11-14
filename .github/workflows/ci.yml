@@ -48,6 +48,10 @@ jobs:
       - name: Integration tests
         run: pnpm test:integration
 
+      # Every publishable package declares a licence and ships a LICENSE file (zodal#119).
+      - name: Licences
+        run: node scripts/check-licences.mjs
+
       # Would releasing these versions break a published satellite's peer range?
       # Fails only on a NEW exclusion; satellites that already exclude the published
       # version are reported as warnings (--strict makes them errors).
