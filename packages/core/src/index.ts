@@ -52,6 +52,23 @@ export type { ChoiceArity } from './types.js';
 export { defineCollection } from './collection.js';
 export type { CollectionDefinition } from './collection.js';
 
+// Hand order (moves as data, for a collection the user orders by hand)
+export {
+  moveItem,
+  moveUp,
+  moveDown,
+  canMoveUp,
+  canMoveDown,
+  insertItem,
+  removeItem,
+  undoRemove,
+  restoreOrder,
+  orderOf,
+  withPositions,
+  changedPositions,
+} from './order.js';
+export type { IdOf, Removal } from './order.js';
+
 // Item keys (which field identifies an item; canonical serialization; detection on samples)
 export {
   resolveKey,

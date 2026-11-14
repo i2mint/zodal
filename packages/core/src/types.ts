@@ -320,6 +320,12 @@ export interface CollectionAffordances {
 
   // --- Sorting ---
   defaultSort?: { field: string; direction: 'asc' | 'desc' };
+  /**
+   * The user orders items by hand (a playlist, a reading list): the operations are in
+   * `@zodal/core`'s `order` helpers, and UI packages offer a Reorder mode. `{ field }` names the
+   * field storing each item's position (default `'position'`).
+   */
+  manualOrder?: boolean | { field?: string };
   multiSort?: boolean | MultiSortConfig;
 
   // --- Filtering ---
