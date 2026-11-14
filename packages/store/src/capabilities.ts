@@ -43,6 +43,14 @@ export interface ProviderCapabilities {
 
   /** Content fields managed by this provider (when bifurcated). */
   contentFields?: string[];
+
+  /**
+   * `'atomic'` or `'best-effort'` when `setContent` honours `init.ifAbsent`
+   * (`'best-effort'`: checked then written, so concurrent writers may race).
+   * Absent: the provider predates `ContentWriteInit` and may ignore it, so callers
+   * that need if-absent semantics must check `headContent` themselves.
+   */
+  contentIfAbsent?: 'atomic' | 'best-effort';
 }
 
 /** Default capabilities (when getCapabilities is not implemented). */

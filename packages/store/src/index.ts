@@ -3,6 +3,7 @@
 // DataProvider
 export type {
   DataProvider,
+  ContentWriteInit,
   GetListParams,
   GetListResult,
   DataChangeEvent,
@@ -35,6 +36,15 @@ export type { ApplyQueryOptions } from './query.js';
 // In-memory adapter
 export { createInMemoryProvider } from './in-memory.js';
 export type { InMemoryProviderOptions } from './in-memory.js';
+
+// In-memory blob provider (records + content, no backend)
+export { createInMemoryBlobProvider } from './in-memory-blob.js';
+export type {
+  InMemoryBlobProvider,
+  InMemoryBlobProviderOptions,
+  BlobUrlStrategy,
+  StoredBlob,
+} from './in-memory-blob.js';
 
 // Provider wrapping
 export { wrapProvider } from './wrap-provider.js';

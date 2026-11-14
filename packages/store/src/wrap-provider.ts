@@ -85,5 +85,11 @@ export function wrapProvider<TStored extends Record<string, any>, TApp extends R
     ...(provider.subscribe ? {
       subscribe: (callback: any) => provider.subscribe!(callback),
     } : {}),
+
+    // Content methods address bytes, not items, so the item codec does not apply.
+    ...(provider.getContent ? { getContent: provider.getContent.bind(provider) } : {}),
+    ...(provider.setContent ? { setContent: provider.setContent.bind(provider) } : {}),
+    ...(provider.getUrl ? { getUrl: provider.getUrl.bind(provider) } : {}),
+    ...(provider.headContent ? { headContent: provider.headContent.bind(provider) } : {}),
   };
 }
