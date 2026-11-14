@@ -479,6 +479,11 @@ export async function providerContract(options: ProviderContractOptions): Promis
   // nest a key, or alias another item: so a stored hostile id must come back from
   // getOne *and* be listed by getList under the same id, and delete must remove it.
 
+  /** A refusal is any error but a programming error (a TypeError is a crash, not a refusal). */
+  const isRefusal = (err: unknown) =>
+    !(err instanceof TypeError || err instanceof ReferenceError || err instanceof SyntaxError);
+  const seedIds = ['1', '2', '3', '4', '5'];
+
   for (const [label, id] of HOSTILE_IDS) {
     add(
       `hostile id (${label}) is stored as given or refused`,
@@ -486,8 +491,9 @@ export async function providerContract(options: ProviderContractOptions): Promis
         const row = { id, name: 'Hostile', status: 'draft' as const, priority: 0, tags: [] };
         try {
           await p.create(row);
-        } catch {
-          equal(sortedIds((await p.getList({})).data), ['1', '2', '3', '4', '5'], 'ids after the refused create');
+        } catch (err) {
+          if (!isRefusal(err)) fail(`create(${show(id)}) crashed instead of refusing: ${String(err)}`);
+          equal(sortedIds((await p.getList({})).data), seedIds, 'ids after the refused create');
           return;
         }
         hasFields(await p.getOne(id), { id, name: 'Hostile' }, `getOne(${show(id)})`);
@@ -497,9 +503,31 @@ export async function providerContract(options: ProviderContractOptions): Promis
           fail(`getList: the stored id ${show(id)} is not listed (listed: ${show(ids(listed.data))}); it escaped or was renamed`);
         }
         await p.delete(id);
-        equal(sortedIds((await p.getList({})).data), ['1', '2', '3', '4', '5'], 'ids after delete');
+        equal(sortedIds((await p.getList({})).data), seedIds, 'ids after delete');
       },
       can('canCreate', 'create'),
+    );
+
+    add(`hostile id (${label}): reads and updates of a missing item reject`, async (p, caps) => {
+      await rejects(() => p.getOne(id), `getOne(${show(id)})`);
+      if (caps.canUpdate) await rejects(() => p.update(id, { name: 'x' }), `update(${show(id)})`);
+      equal(sortedIds((await p.getList({})).data), seedIds, 'ids after the refused calls');
+    });
+
+    add(
+      `hostile id (${label}) upserts as given or is refused`,
+      async (p) => {
+        try {
+          await p.upsert!({ id, name: 'Up', status: 'draft', priority: 0, tags: [] });
+        } catch (err) {
+          if (!isRefusal(err)) fail(`upsert(${show(id)}) crashed instead of refusing: ${String(err)}`);
+          equal(sortedIds((await p.getList({})).data), seedIds, 'ids after the refused upsert');
+          return;
+        }
+        hasFields(await p.getOne(id), { id, name: 'Up' }, `getOne(${show(id)}) after upsert`);
+        if (!ids((await p.getList({})).data).includes(id)) fail(`getList: the upserted id ${show(id)} is not listed`);
+      },
+      can('canUpsert', 'upsert'),
     );
   }
 

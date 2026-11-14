@@ -48,3 +48,40 @@ describe('encodeId / decodeId', () => {
     expect(encodeId('x'.repeat(1000), { maxLength: 2000 })).toBe('x'.repeat(1000));
   });
 });
+
+describe('review fixes', () => {
+  it('decodes only canonical encodings', async () => {
+    const { tryDecodeId } = await import('../src/index.js');
+    expect(decodeId(encodeId('a', { always: true }))).toBe('a');
+    expect(tryDecodeId('~YR')).toBeUndefined();
+    expect(tryDecodeId('~$foo.docx')).toBeUndefined();
+    expect(() => decodeId('~$foo')).toThrow(UnsafeIdError);
+    expect(tryDecodeId('legacy name.json')).toBe('legacy name.json');
+  });
+  it('keeps A and a distinct on case-insensitive stores', () => {
+    const o = { caseInsensitive: true };
+    const A = encodeId('A', o);
+    const a = encodeId('a', o);
+    expect(a).toBe('a');
+    expect(A).toMatch(/^~[a-z2-7]+$/);
+    expect(A.toLowerCase()).not.toBe(a.toLowerCase());
+    expect(decodeId(A, o)).toBe('A');
+    for (const [label, id] of HOSTILE_IDS) {
+      if (label === 'very long') continue;
+      const e = encodeId(id, o);
+      expect(e).toBe(e.toLowerCase());
+      expect(decodeId(e, o)).toBe(id);
+    }
+  });
+  it('refuses Windows device names and trailing dots', () => {
+    for (const id of ['CON', 'nul', 'com1.txt', 'LPT9', 'a.']) expect(isSafeId(id)).toBe(false);
+    expect(decodeId(encodeId('CON'))).toBe('CON');
+  });
+  it('can exclude dots', () => {
+    expect(isSafeId('x.body', { allowDot: false })).toBe(false);
+    expect(decodeId(encodeId('x.body', { allowDot: false }))).toBe('x.body');
+  });
+  it('refuses a huge id before encoding it', () => {
+    expect(() => encodeId('é'.repeat(1e6))).toThrow(/would be longer/);
+  });
+});

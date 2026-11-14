@@ -20,6 +20,7 @@ export {
   assertSafeId,
   encodeId,
   decodeId,
+  tryDecodeId,
   UnsafeIdError,
 } from './ids.js';
 export type { SafeIdOptions, EncodeIdOptions } from './ids.js';
