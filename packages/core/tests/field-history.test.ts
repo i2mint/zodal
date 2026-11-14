@@ -124,3 +124,56 @@ describe('resolveFieldHistory', () => {
     expect(() => resolveFieldHistory('x', { max: -1 })).toThrow(RangeError);
   });
 });
+
+describe('sticky inference: content and ISO dates (zodal#124)', () => {
+  it('content fields start over, whichever layer makes them content', async () => {
+    const { defineCollection, affordanceRegistry } = await import('../src/index.js');
+    const { z } = await import('zod');
+    const registered = z.string();
+    affordanceRegistry.register(registered, { storageRole: 'content' });
+    const c = defineCollection(
+      z.object({
+        id: z.string(),
+        attachment: z.string(), // name heuristic
+        body: z.string().meta({ storageRole: 'content' }),
+        blob: registered,
+        upload: z.instanceof(Uint8Array),
+        kept: z.string().meta({ storageRole: 'content', sticky: true }),
+        tag: z.enum(['a', 'b']),
+      }),
+      { fields: { upload: { storageRole: 'content' } } },
+    );
+    expect(c.fieldAffordances.attachment.storageRole).toBe('content');
+    expect(c.fieldAffordances.attachment.sticky).toBe(false);
+    expect(c.fieldAffordances.body.sticky).toBe(false);
+    expect(c.fieldAffordances.blob.sticky).toBe(false);
+    expect(c.fieldAffordances.upload.sticky).toBe(false);
+    expect(c.fieldAffordances.kept.sticky).toBe(true);
+    expect(c.fieldAffordances.tag.sticky).toBe(true);
+  });
+  it('ISO date strings are sticky; other strings are not', async () => {
+    const { defineCollection } = await import('../src/index.js');
+    const { z } = await import('zod');
+    const c = defineCollection(z.object({
+      id: z.string(),
+      day: z.iso.date(),
+      at: z.iso.datetime().optional(),
+      when: z.iso.time(),
+      note: z.string(),
+      mail: z.email(),
+      plain: z.iso.date().meta({ sticky: false }),
+    }));
+    expect(c.fieldAffordances.day.sticky).toBe(true);
+    expect(c.fieldAffordances.at.sticky).toBe(true);
+    expect(c.fieldAffordances.when.sticky).toBe(true);
+    expect(c.fieldAffordances.note.sticky).toBe(false);
+    expect(c.fieldAffordances.mail.sticky).toBe(false);
+    expect(c.fieldAffordances.plain.sticky).toBe(false);
+  });
+  it('inferSticky takes the context', async () => {
+    const { inferSticky } = await import('../src/index.js');
+    expect(inferSticky('string', false, { stringFormat: 'date' })).toBe(true);
+    expect(inferSticky('number', false, { storageRole: 'content' })).toBe(false);
+    expect(inferSticky('string', false)).toBe(false);
+  });
+});

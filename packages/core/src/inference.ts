@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { peelZodWrapper, zodPipeKind } from './zod-unwrap.js';
 import type { ChoiceArity, ChoiceData, ChoiceOption, FieldAffordance, FilterType, SortDirection, AggregationFn, InferenceTrace, InferenceStep } from './types.js';
 import type { AffordanceRegistry } from './registry.js';
-import { inferSticky } from './field-history.js';
+import { contentStartsOver, inferSticky, ISO_DATE_FORMATS } from './field-history.js';
 
 // ============================================================================
 // Schema Introspection Helpers
@@ -110,6 +110,12 @@ export function isZodReadonly(schema: z.ZodType): boolean {
     current = peelZodWrapper(current);
   }
   return false;
+}
+
+/** A string schema's format (`'date'`, `'datetime'`, `'email'`, ...), through wrappers; else `undefined`. */
+export function getStringFormat(schema: z.ZodType): string | undefined {
+  const def = (unwrapZodSchema(schema) as any)?._zod?.def;
+  return def?.type === 'string' && typeof def.format === 'string' ? def.format : undefined;
 }
 
 /** Check if a Zod schema has a specific check/validation. */
@@ -693,6 +699,11 @@ function refineByValidations(schema: z.ZodType, defaults: FieldAffordance): Fiel
 
   const refined = { ...defaults };
 
+  // An ISO date or time string is a setting, like a z.date(): it carries over (zodal#124).
+  if (def.type === 'string' && typeof def.format === 'string' && ISO_DATE_FORMATS.has(def.format)) {
+    refined.sticky = true;
+  }
+
   // String format checks
   if (def.type === 'string') {
     // Check for format-specific strings
@@ -826,6 +837,7 @@ function refineByFieldName(key: string, defaults: FieldAffordance): FieldAfforda
 
   if (CONTENT_ROLE_PATTERNS.test(key) || CONTENT_ROLE_SUFFIX.test(key)) {
     refined.storageRole = 'content';
+    refined.sticky = false; // an upload is about this item: a new item starts without it
     refined.sortable = false;
     refined.filterable = false;
     refined.searchable = false;
@@ -868,7 +880,7 @@ export function inferFieldAffordances(key: string, schema: z.ZodType, resolved: 
   // Layer 4: Zod .meta() annotations (if any)
   const meta = getZodMeta(schema);
   if (meta) {
-    affordances = { ...affordances, ...extractAffordancesFromMeta(meta) };
+    affordances = { ...affordances, ...contentStartsOver(extractAffordancesFromMeta(meta)) };
   }
 
   // Always set the title if not explicitly provided
@@ -976,14 +988,14 @@ export function inferFieldAffordancesWithTrace(
   let afterMeta = { ...afterName };
   const meta = getZodMeta(schema);
   if (meta) {
-    afterMeta = { ...afterMeta, ...extractAffordancesFromMeta(meta) };
+    afterMeta = { ...afterMeta, ...contentStartsOver(extractAffordancesFromMeta(meta)) };
   }
 
   // Layer 5: Affordance registry
   let afterRegistry = { ...afterMeta };
   const registryAffordances = registry?.get(schema);
   if (registryAffordances) {
-    afterRegistry = { ...afterRegistry, ...registryAffordances };
+    afterRegistry = { ...afterRegistry, ...contentStartsOver(registryAffordances) };
   }
 
   // Set title

@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import type { ChoiceData, CollectionDefinition, FieldAffordance, FieldChoice, NumericBounds, ResolvedFieldHistory, WidgetOptions } from '@zodal/core';
-import { getDateBounds, getFieldChoices, getNumericBounds, getNumericStep, getStringLength, inferSticky, isMarkedSecret, isSecretName, resolveFieldHistory, secretPaths } from '@zodal/core';
+import { getDateBounds, getFieldChoices, getStringFormat, getNumericBounds, getNumericStep, getStringLength, inferSticky, isMarkedSecret, isSecretName, resolveFieldHistory, secretPaths } from '@zodal/core';
 import type { ChoiceArity } from '@zodal/core';
 
 export interface FormFieldConfig {
@@ -251,7 +251,7 @@ export function toFormConfig<T extends z.ZodObject<any>>(
       ...(fa.storageRole === 'content' ? { isContentField: true } : {}),
       // The schema's `.default()`: what a new item starts with (never a secret's: it would be shown).
       ...defaultProps(key, fieldSchema),
-      sticky: fa.sticky ?? inferSticky(zodType, fa.choice === 'single' || fa.choice === 'multi'),
+      sticky: fa.sticky ?? inferSticky(zodType, fa.choice === 'single' || fa.choice === 'multi', { storageRole: fa.storageRole, stringFormat: getStringFormat(fieldSchema) }),
       ...historyProps(key, fa.history),
     });
   }

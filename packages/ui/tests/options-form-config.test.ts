@@ -149,3 +149,15 @@ describe('toOptionsFormConfig string length (#78)', () => {
     expect(f.apiKey.maxLength).toBe(40);
   });
 });
+
+describe('sticky in options forms (zodal#124)', () => {
+  it('ISO dates carry over; content starts over', () => {
+    const cfg = toOptionsFormConfig(z.object({
+      since: z.iso.date(),
+      file: z.string().meta({ storageRole: 'content' }),
+      note: z.string(),
+    }));
+    const by = Object.fromEntries(cfg.map((f: OptionsFormField) => [f.name, f.sticky]));
+    expect(by).toEqual({ since: true, file: false, note: false });
+  });
+});

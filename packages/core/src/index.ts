@@ -86,6 +86,7 @@ export {
   inferFieldAffordances,
   inferFieldAffordancesWithTrace,
   getZodBaseType,
+  getStringFormat,
   unwrapZodSchema,
   isZodReadonly,
   hasZodCheck,
@@ -121,8 +122,8 @@ export {
 } from './codec-types.js';
 
 // Field input history and sticky fields (the shared defaults and checks)
-export { DEFAULT_HISTORY_MAX, resolveFieldHistory, inferSticky, checkHistoryText } from './field-history.js';
-export type { FieldHistoryStore, HistoryEntry, HistoryReason } from './field-history.js';
+export { DEFAULT_HISTORY_MAX, resolveFieldHistory, inferSticky, checkHistoryText, contentStartsOver, ISO_DATE_FORMATS } from './field-history.js';
+export type { FieldHistoryStore, HistoryEntry, HistoryReason, StickyContext } from './field-history.js';
 
 // Operation semantics (how long to offer Undo)
 export { undoSeconds } from './operations.js';

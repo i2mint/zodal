@@ -26,7 +26,7 @@ import {
 } from './inference.js';
 import type { AffordanceRegistry } from './registry.js';
 import { checkUndoable } from './operations.js';
-import { checkHistoryText, resolveFieldHistory } from './field-history.js';
+import { checkHistoryText, contentStartsOver, resolveFieldHistory } from './field-history.js';
 import { secretPaths } from './sensitivity.js';
 import { resolveKey } from './keys.js';
 import type { KeyResolution } from './keys.js';
@@ -321,10 +321,11 @@ function resolveAllFieldAffordances(
 
   for (const [key, fieldSchema] of Object.entries(shape)) {
     // Layer 5: Affordance registry (survives .optional()/.nullable() wrapping)
-    const registryOverrides = defaultRegistry.get(fieldSchema) ?? {};
+    // A layer that makes the field content without a word on `sticky` makes it start over.
+    const registryOverrides = contentStartsOver(defaultRegistry.get(fieldSchema) ?? {});
 
     // Layer 6: Explicit config overrides
-    const explicitOverrides = explicit?.[key] ?? {};
+    const explicitOverrides = contentStartsOver(explicit?.[key] ?? {});
 
     // Layers 1-4: Infer defaults from type + name + meta, then layer 5 and 6 on top.
     const layered = (resolved?: Pick<FieldAffordance, 'choices'>) =>
