@@ -14,10 +14,40 @@ import type {
   ViewMode,
 } from '@zodal/core';
 import { availableViews, initialView } from '../generators/view-config.js';
+import { FEEDBACK_MS } from '../feedback.js';
 
 // ============================================================================
 // State Types
 // ============================================================================
+
+/**
+ * Where a collection's data is in its load cycle (zodal#111). `loading` stays the boolean hosts
+ * read; this tells a first load (nothing to show yet: draw skeleton rows) from a refresh (keep
+ * the rows, dimmed), and an empty result from an error.
+ */
+export type LoadStatus = 'idle' | 'first-load' | 'refreshing' | 'ready' | 'empty' | 'error';
+
+/** What a view should draw for the load state: skeleton rows, the old rows marked stale, or nothing. */
+export type LoadFeedback = 'skeleton' | 'stale' | 'none';
+
+/**
+ * The load feedback a view owes. `elapsedMs` (time since the load started) defers any indicator
+ * until {@link FEEDBACK_MS}.indicator, so a fast load shows nothing; omit it to decide now.
+ */
+export function getLoadFeedback(
+  state: Pick<CollectionState<unknown>, 'loading' | 'loadStatus' | 'items'>,
+  { elapsedMs }: { elapsedMs?: number } = {},
+): LoadFeedback {
+  const status = state.loadStatus ?? (state.loading ? (state.items.length ? 'refreshing' : 'first-load') : 'ready');
+  if (status !== 'first-load' && status !== 'refreshing') return 'none';
+  if (elapsedMs !== undefined && elapsedMs < FEEDBACK_MS.indicator) return 'none';
+  return status === 'first-load' ? 'skeleton' : 'stale';
+}
+
+function settledStatus(state: Pick<CollectionState<unknown>, 'error' | 'items'>): LoadStatus {
+  if (state.error) return 'error';
+  return state.items.length ? 'ready' : 'empty';
+}
 
 /**
  * The full state shape for a collection UI.
@@ -28,6 +58,11 @@ export interface CollectionState<T> {
   items: T[];
   totalCount: number;
   loading: boolean;
+  /**
+   * The load cycle (see {@link LoadStatus}), kept in step by `setLoading`, `setItems` and
+   * `setError`. Optional so a host building its own state object still type-checks.
+   */
+  loadStatus?: LoadStatus;
   error: string | null;
 
   // TanStack Table-compatible state
@@ -120,6 +155,7 @@ export function createCollectionStore<T>(
     items: [],
     totalCount: 0,
     loading: false,
+    loadStatus: 'idle',
     error: null,
 
     sorting: defaultSort
@@ -173,10 +209,15 @@ export function createCollectionStore<T>(
       return offeredViews.includes(view) ? { ...state, activeView: view } : state;
     },
     setLoading(state, loading) {
-      return { ...state, loading };
+      if (loading) {
+        // Something already shown (or a previous load settled with items) is a refresh.
+        return { ...state, loading, loadStatus: state.items.length ? 'refreshing' : 'first-load' };
+      }
+      return { ...state, loading, loadStatus: settledStatus(state) };
     },
     setError(state, error) {
-      return { ...state, error };
+      const next = { ...state, error };
+      return state.loading ? next : { ...next, loadStatus: settledStatus(next) };
     },
     clearSelection(state) {
       return { ...state, rowSelection: {} };
