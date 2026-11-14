@@ -51,6 +51,13 @@ export interface ProviderCapabilities {
    * that need if-absent semantics must check `headContent` themselves.
    */
   contentIfAbsent?: 'atomic' | 'best-effort';
+
+  /**
+   * Why writes the capabilities refuse are refused, for a UI to show beside its
+   * disabled controls ("Read-only: this is a published snapshot"). Set by
+   * `createReadOnlyProvider`; any provider may set it.
+   */
+  writeRefusal?: string;
 }
 
 /** Default capabilities (when getCapabilities is not implemented). */
@@ -66,3 +73,18 @@ export const DEFAULT_CAPABILITIES: ProviderCapabilities = {
   serverSearch: false,
   serverPagination: false,
 };
+
+/**
+ * Capabilities of a provider that refuses every write: all `can*` flags false,
+ * queries client-side. Spread it, and add `writeRefusal`, to declare a read-only
+ * provider by hand.
+ */
+export const READ_ONLY_CAPABILITIES: ProviderCapabilities = Object.freeze({
+  ...DEFAULT_CAPABILITIES,
+  canCreate: false,
+  canUpdate: false,
+  canDelete: false,
+  canBulkUpdate: false,
+  canBulkDelete: false,
+  canUpsert: false,
+}) as ProviderCapabilities;

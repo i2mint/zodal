@@ -11,7 +11,11 @@ export type {
 
 // Capabilities
 export type { ProviderCapabilities } from './capabilities.js';
-export { DEFAULT_CAPABILITIES } from './capabilities.js';
+export { DEFAULT_CAPABILITIES, READ_ONLY_CAPABILITIES } from './capabilities.js';
+
+// Read-only providers (refuse writes, with the reason in the capabilities)
+export { createReadOnlyProvider, ReadOnlyError } from './read-only.js';
+export type { ReadOnlyOptions } from './read-only.js';
 
 // Safe store ids (refuse or reversibly encode ids that are unsafe as paths/keys)
 export {
