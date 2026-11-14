@@ -330,8 +330,18 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
       let item: Record<string, any>;
       try {
         item = (await contentProvider.getOne(id)) as Record<string, any>;
-      } catch {
-        return null;
+      } catch (err) {
+        // Only "no such item" means "no content": a network error or a 500 must not
+        // read as absent (ifAbsent would then overwrite). getOne's rejection carries
+        // no type, so confirm absence with a query and rethrow otherwise.
+        let total: number;
+        try {
+          total = (await contentProvider.getList({ filter: { field: idField, operator: 'eq', value: id } })).total;
+        } catch {
+          throw err;
+        }
+        if (total === 0) return null;
+        throw err;
       }
       if (item[field] === undefined || item[field] === null) return null;
       return await toContentRef(id, field);

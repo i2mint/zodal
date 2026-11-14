@@ -19,8 +19,9 @@ describe('createInMemoryBlobProvider', () => {
     const p = createInMemoryBlobProvider([{ id: 'a' }]);
     const ref = await p.setContent('a', 'img', '<svg/>', { mimeType: 'image/svg+xml', cacheControl: 'immutable', hash: 'h1' });
     expect(ref).toMatchObject({ mimeType: 'image/svg+xml', size: 6, hash: 'h1' });
-    expect(ref.url).toBe('data:image/svg+xml;base64,PHN2Zy8+');
-    expect(await p.getUrl('a', 'img')).toBe(ref.url);
+    expect(ref.url).toBeUndefined(); // built lazily
+    expect(await p.getUrl('a', 'img')).toBe('data:image/svg+xml;base64,PHN2Zy8+');
+    expect((await p.headContent('a', 'img'))?.url).toBe('data:image/svg+xml;base64,PHN2Zy8+');
     expect((await p.getContent('a', 'img')).type).toBe('image/svg+xml');
   });
   it('honours ifAbsent atomically under concurrency', async () => {
@@ -60,6 +61,27 @@ describe('content write options through composites', () => {
     await p.setContent!('1', 'body', 'second', { ifAbsent: true });
     expect(await p.getContent!('1', 'body')).toBe('first');
     expect(await p.headContent!('1', 'body')).toMatchObject({ itemId: '1', field: 'body' });
+  });
+  it('bifurcated headContent rethrows errors that are not "not found"', async () => {
+    const content = createInMemoryProvider<any>([{ id: '1', body: 'x' }]);
+    const flaky = { ...content, getOne: () => Promise.reject(new Error('503')) };
+    const p = createBifurcatedProvider<any>({
+      metadataProvider: createInMemoryProvider([{ id: '1' }]),
+      contentProvider: flaky,
+      contentFields: ['body'],
+    });
+    await expect(p.headContent!('1', 'body')).rejects.toThrow('503');
+    await expect(p.setContent!('1', 'body', 'y', { ifAbsent: true })).rejects.toThrow('503');
+    expect(await p.headContent!('2', 'body')).toBeNull();
+  });
+  it('content-only deletes and dispose drop content', async () => {
+    const p = createInMemoryBlobProvider([]);
+    await p.setContent('orphan', 'f', 'x');
+    await expect(p.delete('orphan')).rejects.toThrow();
+    expect(p.contentCount()).toBe(0);
+    await p.setContent('o2', 'f', 'x');
+    p.dispose();
+    expect(p.contentCount()).toBe(0);
   });
   it('wrapProvider passes content methods through', async () => {
     const inner = createInMemoryBlobProvider([{ id: '1' }]);

@@ -663,9 +663,16 @@ export async function contentContract(options: ContentContractOptions): Promise<
     }
   });
 
-  add('ifAbsent keeps the first write and resolves with its reference', ['setContent', 'getContent'], async (p) => {
-    await p.setContent!('1', field, enc('first'), { ifAbsent: true });
-    const second = await p.setContent!('1', field, enc('second'), { ifAbsent: true });
+  add('ifAbsent keeps the first write, or is refused', ['setContent', 'getContent'], async (p) => {
+    await p.setContent!('1', field, enc('first'));
+    let second: unknown;
+    try {
+      second = await p.setContent!('1', field, enc('second'), { ifAbsent: true });
+    } catch {
+      // Refusing ifAbsent is allowed; ignoring it is not.
+      await bytesEqual(await p.getContent!('1', field), enc('first'), 'getContent after a refused ifAbsent write');
+      return;
+    }
     hasFields(second, { _tag: 'ContentRef', field, itemId: '1' }, 'second ifAbsent write result');
     await bytesEqual(await p.getContent!('1', field), enc('first'), 'getContent after two ifAbsent writes');
   });
@@ -677,6 +684,7 @@ export async function contentContract(options: ContentContractOptions): Promise<
   });
 
   const probe = await options.make(seedCopy());
+  const ifAbsent = (probe.getCapabilities?.() ?? DEFAULT_CAPABILITIES).contentIfAbsent;
   const has = new Set((Object.keys(probe) as (keyof DataProvider<ContractRow>)[]).filter((m) => typeof (probe as any)[m] === 'function'));
   // Methods may live on a prototype.
   for (const m of ['setContent', 'getContent', 'getUrl', 'headContent'] as const) if (typeof (probe as any)[m] === 'function') has.add(m);
@@ -684,7 +692,13 @@ export async function contentContract(options: ContentContractOptions): Promise<
 
   return cases.map(({ name, body, needs }) => {
     const missing = needs.filter((m) => !has.has(m));
-    const skip = options.skip?.[name] ?? (missing.length ? `provider has no ${missing.join(', ')}` : undefined);
+    const skip =
+      options.skip?.[name] ??
+      (missing.length
+        ? `provider has no ${missing.join(', ')}`
+        : name.startsWith('ifAbsent') && !ifAbsent
+          ? 'provider does not declare contentIfAbsent (it may predate ContentWriteInit)'
+          : undefined);
     const out: ContractCase = {
       name,
       run: async () => {

@@ -50,6 +50,8 @@ export interface InMemoryBlobProvider<T> extends DataProvider<T> {
   headContent(id: string, field: string): Promise<ContentRef | null>;
   /** How many content values are stored. */
   contentCount(): number;
+  /** Drop all content (revoking object URLs). Records are kept. */
+  dispose(): void;
 }
 
 function toBlob(content: unknown, mimeType: string | undefined): Blob {
@@ -107,7 +109,9 @@ export function createInMemoryBlobProvider<T extends Record<string, any>>(
   const refOf = async (id: string, field: string, entry: StoredBlob & { url?: string | null }): Promise<ContentRef> => {
     const ref: ContentRef = { _tag: 'ContentRef', field, itemId: id, mimeType: entry.mimeType, size: entry.size };
     if (entry.hash !== undefined) ref.hash = entry.hash;
-    const url = await urlOf(id, field, entry);
+    // A data URL is ~1.4x the bytes, so it is built only when asked for (getUrl);
+    // a cheap URL (object URL, a function) is put on every reference.
+    const url = urlStrategy === 'data' ? entry.url : await urlOf(id, field, entry);
     if (url) ref.url = url;
     return ref;
   };
@@ -124,12 +128,23 @@ export function createInMemoryBlobProvider<T extends Record<string, any>>(
   return {
     ...records,
     async delete(id) {
-      await records.delete(id);
-      dropContent([id]);
+      // Content may exist for an id with no record (content-only use): drop it either way.
+      try {
+        await records.delete(id);
+      } finally {
+        dropContent([id]);
+      }
     },
     async deleteMany(ids) {
-      await records.deleteMany(ids);
-      dropContent(ids);
+      try {
+        await records.deleteMany(ids);
+      } finally {
+        dropContent(ids);
+      }
+    },
+    dispose() {
+      for (const entry of blobs.values()) revoke(entry);
+      blobs.clear();
     },
     getCapabilities: () => ({ ...records.getCapabilities!(), contentIfAbsent: 'atomic' as const }),
     async setContent(id, field, content, init = {}) {
