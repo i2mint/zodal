@@ -73,7 +73,7 @@ export type {
 } from './generators/view-config.js';
 
 // Feedback: the response-time limits, and an action's pending / indicator / guard state
-export { FEEDBACK_MS, feedbackFor, createActionFeedback, isCommandFailure } from './feedback.js';
+export { FEEDBACK_MS, feedbackFor, createActionFeedback, isCommandFailure, createOperationStatus, operationKey } from './feedback.js';
 export type {
   FeedbackLevel,
   ActionStatus,
@@ -81,6 +81,7 @@ export type {
   ActionFeedbackOptions,
   ActionFeedback,
   FeedbackClock,
+  OperationStatusSource,
 } from './feedback.js';
 
 // State management
