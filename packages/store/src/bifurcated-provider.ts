@@ -294,6 +294,7 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
         // Bifurcation metadata
         bifurcated: true,
         contentFields,
+        contentIfAbsent: 'best-effort',
 
         // Realtime: only if both support it
         realtime: (metaCaps.realtime ?? false) && (contentCaps.realtime ?? false),

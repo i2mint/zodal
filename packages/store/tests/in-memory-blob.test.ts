@@ -29,6 +29,7 @@ describe('createInMemoryBlobProvider', () => {
     const body = await (await p.getContent('x', 'f')).text();
     expect(['a', 'b', 'c']).toContain(body);
     expect(p.contentCount()).toBe(1);
+    expect(p.getCapabilities!().contentIfAbsent).toBe('atomic');
     expect(new Set(writes.map((w) => w.size)).size).toBe(1);
   });
   it('drops content with its item, and supports url strategies', async () => {

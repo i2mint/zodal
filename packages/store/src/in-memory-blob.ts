@@ -131,6 +131,7 @@ export function createInMemoryBlobProvider<T extends Record<string, any>>(
       await records.deleteMany(ids);
       dropContent(ids);
     },
+    getCapabilities: () => ({ ...records.getCapabilities!(), contentIfAbsent: 'atomic' as const }),
     async setContent(id, field, content, init = {}) {
       const key = k(id, field);
       // Check-and-set with no await in between: atomic within this process.
