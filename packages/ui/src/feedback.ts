@@ -102,6 +102,57 @@ export interface ActionFeedbackOptions<R = unknown> {
   isFailure?: (value: R) => boolean;
   /** Injected timers, for tests. Default: the global `setTimeout` / `clearTimeout` / `Date.now`. */
   clock?: FeedbackClock;
+  /**
+   * Share this action's state with every surface that runs the same operation (zodal#112): a
+   * button, the command palette, a hotkey, an AI tool call. The state lives in `source` under
+   * `key` (see {@link operationKey}); a run from any surface shows `pending` on all of them, and
+   * the double-tap guard holds across them. Default: the state is this control's own.
+   */
+  shared?: { source: OperationStatusSource; key: string };
+}
+
+/**
+ * Where operations' feedback states live when several surfaces must agree on them (zodal#112).
+ * A store slice or the command layer holds one; renderers and dispatchers read and write it.
+ */
+export interface OperationStatusSource {
+  get(key: string): Readonly<ActionFeedbackState> | undefined;
+  set(key: string, state: Readonly<ActionFeedbackState>): void;
+  /** Listen to one key's changes; returns an unsubscribe. */
+  subscribe(key: string, listener: (state: Readonly<ActionFeedbackState>) => void): () => void;
+}
+
+/** The key of an operation, on one item or on the whole collection/selection. */
+export function operationKey(operation: string, itemId?: string): string {
+  return itemId === undefined ? operation : `${operation}\u0000${itemId}`;
+}
+
+/** An in-memory {@link OperationStatusSource}: a Map plus listeners. Settled states are kept until replaced. */
+export function createOperationStatus(): OperationStatusSource & { keys(): string[] } {
+  const states = new Map<string, Readonly<ActionFeedbackState>>();
+  const listeners = new Map<string, Set<(s: Readonly<ActionFeedbackState>) => void>>();
+  return {
+    get: (key) => states.get(key),
+    set(key, state) {
+      states.set(key, state);
+      for (const l of [...(listeners.get(key) ?? [])]) {
+        try {
+          l(state);
+        } catch (error) {
+          queueMicrotask(() => {
+            throw error;
+          });
+        }
+      }
+    },
+    subscribe(key, listener) {
+      let set = listeners.get(key);
+      if (!set) listeners.set(key, (set = new Set()));
+      set.add(listener);
+      return () => void set!.delete(listener);
+    },
+    keys: () => [...states.keys()],
+  };
 }
 
 /** The timers {@link createActionFeedback} uses; inject a fake one in tests. */
@@ -178,8 +229,24 @@ export function createActionFeedback<A extends unknown[], R>(
     minIndicatorMs = 500,
     isFailure = isCommandFailure as (value: R) => boolean,
     clock = systemClock,
+    shared,
   } = options;
-  let state: ActionFeedbackState<R> = { status: 'idle', indicator: false };
+  let ownState: ActionFeedbackState<R> = { status: 'idle', indicator: false };
+  /** True while this machine itself is writing to the shared source (its own echo). */
+  let writing = false;
+  const read = (): ActionFeedbackState<R> =>
+    (shared ? (shared.source.get(shared.key) as ActionFeedbackState<R> | undefined) : undefined) ?? ownState;
+  // A run started elsewhere (a palette, a hotkey) reaches this control through the source.
+  const unsubscribe = shared?.source.subscribe(shared.key, (s) => {
+    if (writing) return;
+    try {
+      onChange?.(s as ActionFeedbackState<R>);
+    } catch (error) {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  });
   let indicatorTimer: unknown;
   let indicatorShownAt = 0;
   /** The minimum-indicator hold, while an outcome waits to be shown: its timer, outcome and resolver. */
@@ -189,9 +256,17 @@ export function createActionFeedback<A extends unknown[], R>(
 
   /** Set and report the state. A throwing listener must not break the machine or reject `run`. */
   const set = (next: ActionFeedbackState<R>) => {
-    state = next;
+    ownState = next;
+    if (shared) {
+      writing = true;
+      try {
+        shared.source.set(shared.key, next);
+      } finally {
+        writing = false;
+      }
+    }
     try {
-      onChange?.(state);
+      onChange?.(next);
     } catch (error) {
       queueMicrotask(() => {
         throw error;
@@ -218,9 +293,9 @@ export function createActionFeedback<A extends unknown[], R>(
 
   /** Settle, keeping a shown indicator up for at least `minIndicatorMs`; a reset run settles nothing. */
   const settle = (final: ActionFeedbackState<R>, run: number): Promise<ActionFeedbackState<R>> => {
-    if (run !== generation) return Promise.resolve(state);
+    if (run !== generation) return Promise.resolve(read());
     clearIndicatorTimer();
-    const remaining = state.indicator ? minIndicatorMs - (clock.now() - indicatorShownAt) : 0;
+    const remaining = ownState.indicator ? minIndicatorMs - (clock.now() - indicatorShownAt) : 0;
     if (remaining <= 0) {
       set(final);
       return Promise.resolve(final);
@@ -232,7 +307,8 @@ export function createActionFeedback<A extends unknown[], R>(
 
   return {
     run(...args: A) {
-      if (state.status === 'pending') return null;
+      // The guard: pending here, or (shared) pending from any surface.
+      if (read().status === 'pending') return null;
       const run = ++generation;
       set({ status: 'pending', indicator: false });
       let value: R | PromiseLike<R>;
@@ -244,7 +320,7 @@ export function createActionFeedback<A extends unknown[], R>(
       if (!isThenable(value)) return settle(outcome(value), run);
       indicatorTimer = clock.setTimeout(() => {
         indicatorTimer = undefined;
-        if (run !== generation || state.status !== 'pending') return;
+        if (run !== generation || ownState.status !== 'pending') return;
         indicatorShownAt = clock.now();
         set({ status: 'pending', indicator: true });
       }, indicatorDelayMs);
@@ -254,16 +330,17 @@ export function createActionFeedback<A extends unknown[], R>(
       );
     },
     get state() {
-      return state;
+      return read();
     },
     reset() {
       generation++;
       clearIndicatorTimer();
       const idle: ActionFeedbackState<R> = { status: 'idle', indicator: false };
       endHold(idle);
-      if (state.status !== 'idle' || state.indicator) set(idle);
+      if (ownState.status !== 'idle' || ownState.indicator) set(idle);
     },
     dispose() {
+      unsubscribe?.();
       clearIndicatorTimer();
       endHold(); // an outcome waiting out the minimum indicator is shown now, and its run resolves
     },

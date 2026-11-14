@@ -398,6 +398,12 @@ export interface OperationDefinition<TParams = unknown> {
    * undo the host knows (what acture-undo records; see `toCommandRecord`).
    */
   undoable?: boolean | OperationUndo;
+  /**
+   * How long the operation is expected to take, so a renderer can pick its feedback up front
+   * (`feedbackFor` in `@zodal/ui`): `'instant'` (under 0.1 s: no indicator), `'short'` (a few
+   * seconds: a spinner), `'long'` (progress, or move to the background). A hint, not a timeout.
+   */
+  duration?: 'instant' | 'short' | 'long';
   /** Keyboard shortcut (e.g., "ctrl+d", "delete"). */
   keyboardShortcut?: string;
 }
