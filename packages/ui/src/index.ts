@@ -84,8 +84,10 @@ export type {
 } from './feedback.js';
 
 // State management
-export { createCollectionStore } from './state/store.js';
+export { createCollectionStore, getLoadFeedback } from './state/store.js';
 export type {
+  LoadStatus,
+  LoadFeedback,
   CollectionState,
   CollectionActions,
   CollectionStore,
