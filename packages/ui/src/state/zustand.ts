@@ -18,6 +18,7 @@
 import type { CollectionDefinition } from '@zodal/core';
 import type { DataProvider, GetListParams } from '@zodal/store';
 import { createCollectionStore, type CollectionState, type CollectionStore } from './store.js';
+import { createMutations, type MutationCallOptions, type MutationOptions } from './mutations.js';
 
 /** The bound actions interface — actions don't take state as first arg. */
 export interface BoundCollectionActions<T> {
@@ -40,6 +41,15 @@ export interface BoundCollectionActions<T> {
   setContentLoading(itemId: string, field: string, loading: boolean): void;
   /** Fetch data from the provider with current state. Only available when provider is supplied. */
   fetchData?(params?: Partial<GetListParams>): Promise<void>;
+  /**
+   * Create, update or delete through the provider in the slice's mutation mode (zodal#110):
+   * pessimistic by default, or optimistic / undoable (see `createMutations`). Only with a provider.
+   */
+  createItem?(data: Partial<T>, options?: MutationCallOptions): Promise<T>;
+  updateItem?(id: string, data: Partial<T>, options?: MutationCallOptions): Promise<T>;
+  deleteItem?(id: string, options?: MutationCallOptions): Promise<void>;
+  /** Send mutations still waiting out their Undo window (call on `pagehide`). */
+  flushMutations?(): Promise<void>;
 }
 
 export type ZustandCollectionState<T> = CollectionState<T> & BoundCollectionActions<T>;
@@ -58,6 +68,8 @@ export type ZustandCollectionState<T> = CollectionState<T> & BoundCollectionActi
 export function createZustandStoreSlice<T>(
   collection: CollectionDefinition<any>,
   provider?: DataProvider<T>,
+  /** How mutations show before the provider answers (zodal#110). Default: pessimistic. */
+  mutations: Omit<MutationOptions, 'idField'> = {},
 ): (set: (fn: (state: any) => any) => void, get: () => any) => ZustandCollectionState<T> {
   const store = createCollectionStore<T>(collection);
 
@@ -112,6 +124,17 @@ export function createZustandStoreSlice<T>(
     setContentLoading(itemId: string, field: string, loading: boolean) {
       set((s: CollectionState<T>) => store.actions.setContentLoading(s, itemId, field, loading));
     },
+
+    // Mutations in the slice's mode (only when provider is supplied)
+    ...(provider ? (() => {
+      const m = createMutations<any>(provider as DataProvider<any>, get, set, { ...mutations, idField: collection.idField });
+      return {
+        createItem: (data: Partial<T>, options?: MutationCallOptions) => m.create(data as any, options),
+        updateItem: (id: string, data: Partial<T>, options?: MutationCallOptions) => m.update(id, data as any, options),
+        deleteItem: (id: string, options?: MutationCallOptions) => m.delete(id, options),
+        flushMutations: () => m.flush(),
+      };
+    })() : {}),
 
     // Data fetching (only when provider is supplied)
     ...(provider ? {
