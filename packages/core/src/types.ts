@@ -531,7 +531,7 @@ export type FilterExpression =
 
 /** A single inference step showing which layer set which value. */
 export interface InferenceStep {
-  layer: 'type' | 'refinement' | 'name' | 'meta' | 'registry' | 'config';
+  layer: 'type' | 'refinement' | 'name' | 'meta' | 'registry' | 'config' | 'samples';
   value: unknown;
   reason: string;
 }

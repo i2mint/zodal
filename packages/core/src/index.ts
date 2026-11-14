@@ -64,6 +64,7 @@ export {
   getPath,
   keyPaths,
   KEY_PRIORITY,
+  SCHEMA_ID_NAMES,
 } from './keys.js';
 export type {
   KeySpec,

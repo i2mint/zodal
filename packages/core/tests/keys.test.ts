@@ -63,6 +63,20 @@ describe('detectKey', () => {
     expect(Array.isArray(r.chosen!.spec)).toBe(true);
     expect(r.chosen!.uniqueness).toBe(1);
   });
+  it('canonicalizes object parts regardless of key order', () => {
+    expect(canonicalKey([{ b: 1, a: 2 }])).toBe(canonicalKey([{ a: 2, b: 1 }]));
+    expect(keyOf({ x: 1 }, () => ['a', 'b'])).toBe(canonicalKey(['a', 'b']));
+  });
+  it('caps the composite search with a warning', () => {
+    const row = (i: number) => Object.fromEntries(Array.from({ length: 30 }, (_, j) => [`f${j}`, j === 0 ? 'same' : i % 2]));
+    const r = detectKey([row(0), row(1), row(2), row(3)], { maxCombinations: 10 });
+    expect(r.warnings.join()).toMatch(/stopped the composite search|no field/);
+  });
+  it('quotes field names that contain dots', () => {
+    const r = detectKey([{ meta: { 'a.b': 1, id: 'x' } }, { meta: { 'a.b': 2, id: 'y' } }]);
+    expect(r.chosen?.spec).toBe('meta.id');
+    expect(r.candidates.some((c) => c.spec === 'meta.id')).toBe(true);
+  });
   it('flags display text and duplicates', () => {
     const r = detectKey([{ title: 'Hello world' }, { title: 'Hello world' }]);
     expect(r.chosen).toBeNull();
@@ -77,11 +91,32 @@ describe('resolveKey', () => {
     expect(k.idField).toBe('id');
     expect(k.keyOf({ artist: 'A', title: 'T' })).toBe('["A","T"]');
   });
-  it('finds a nested identifier in the schema', () => {
+  it('hints at a nested identifier but keeps the first-field fallback', () => {
     const k = resolveKey(z.object({ meta: z.object({ uuid: z.string() }).optional(), name: z.string() }));
-    expect(k.spec).toBe('meta.uuid');
-    expect(k.source).toBe('schema');
-    expect(k.keyOf({ meta: { uuid: 'u' } })).toBe('u');
+    expect(k.spec).toBe('meta');
+    expect(k.source).toBe('fallback');
+    expect(k.warnings[0]).toMatch(/meta\.uuid/);
+    const n = resolveKey(z.object({ meta: z.object({ uuid: z.string() }) }), { key: 'meta.uuid' });
+    expect(n.derived).toBe(true);
+    expect(n.stamp({ meta: { uuid: 'u' } })).toEqual({ meta: { uuid: 'u' }, id: 'u' });
+  });
+  it('keeps an explicit flat field with a dot in its name flat', () => {
+    const k = resolveKey(z.object({ 'file.name': z.string() }), { key: 'file.name' });
+    expect(k.derived).toBe(false);
+    expect(k.idField).toBe('file.name');
+    expect(k.keyOf({ 'file.name': 'a' })).toBe('a');
+  });
+  it('refuses to store a derived key over a real field', () => {
+    const schema = z.object({ id: z.number(), artist: z.string(), title: z.string() });
+    expect(() => resolveKey(schema, { key: ['artist', 'title'] })).toThrow(/keyField/);
+    expect(resolveKey(schema, { key: ['artist', 'title'], keyField: 'key' }).idField).toBe('key');
+  });
+  it('keys an empty schema on id', () => {
+    expect(resolveKey(z.object({})).idField).toBe('id');
+  });
+  it('keeps the historical name rules', () => {
+    expect(resolveKey(z.object({ guid: z.string(), key: z.string() })).spec).toBe('key');
+    expect(resolveKey(z.object({ name: z.string(), userid: z.string() })).spec).toBe('userid');
   });
   it('detects on samples before falling back', () => {
     const k = resolveKey(z.object({ name: z.string(), isrc: z.string() }), {
@@ -125,9 +160,13 @@ describe('defineCollection keys', () => {
     expect(trace?.layers[0].reason).toMatch(/fallback/);
     expect(c.explain('title').some((t) => t.affordance === 'key')).toBe(false);
   });
-  it('no longer picks an object field as the id', () => {
+  it('keeps the historical idField for a nested identifier, with a hint', () => {
     const c = defineCollection(z.object({ meta: z.object({ uuid: z.string() }), name: z.string() }));
-    expect(c.key.spec).toBe('meta.uuid');
-    expect(c.idField).toBe('id');
+    expect(c.idField).toBe('meta');
+    expect(c.key.warnings.join()).toMatch(/meta\.uuid/);
+  });
+  it('explains a composite key for each of its fields', () => {
+    const c = defineCollection(z.object({ artist: z.string(), title: z.string() }), { idField: ['artist', 'title'] });
+    expect(c.explain('title').some((t) => t.affordance === 'key')).toBe(true);
   });
 });

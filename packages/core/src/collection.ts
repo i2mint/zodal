@@ -260,7 +260,9 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
       const traces = generateExplanation(schema, config, fieldAffordances, fieldName);
       // The key decision (which field identifies an item, and why) is reported for
       // the whole collection and for the id field.
-      if (fieldName === undefined || fieldName === idField) traces.push(...key.explain());
+      if (fieldName === undefined || fieldName === idField || key.paths.some((p) => p.split(/[.[]/)[0] === fieldName)) {
+        traces.push(...key.explain());
+      }
       return traces;
     },
 

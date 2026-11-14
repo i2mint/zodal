@@ -67,7 +67,18 @@ export function normalizeKeyPart(value: unknown): string | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : undefined;
   if (typeof value === 'boolean' || typeof value === 'bigint') return String(value);
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-  return JSON.stringify(value);
+  return stableJson(value);
+}
+
+/** JSON with object keys sorted (so key order does not change a key) and bigints as strings. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_k, v) => {
+    if (typeof v === 'bigint') return v.toString();
+    if (v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
+      return Object.fromEntries(Object.keys(v).sort().map((k) => [k, (v as Record<string, unknown>)[k]]));
+    }
+    return v;
+  });
 }
 
 /**
@@ -93,7 +104,12 @@ export function keyPaths(spec: KeySpec): string[] {
  * (a composite key needs every part).
  */
 export function keyOf(item: unknown, spec: KeySpec): string | undefined {
-  if (typeof spec === 'function') return normalizeKeyPart(spec(item));
+  if (typeof spec === 'function') {
+    const out = spec(item);
+    if (!Array.isArray(out)) return normalizeKeyPart(out);
+    const parts = out.map(normalizeKeyPart);
+    return parts.length === 0 || parts.some((p) => p === undefined) ? undefined : canonicalKey(parts);
+  }
   const values = keyPaths(spec).map((p) => normalizeKeyPart(getPath(item, p)));
   if (values.length === 0 || values.some((v) => v === undefined)) return undefined;
   return canonicalKey(values);
@@ -114,9 +130,8 @@ export const KEY_PRIORITY: readonly string[] = [
   'url', 'href', 'path', 'filepath', 'file',
 ];
 
-/** Field names that are identifiers by name alone (the schema-level layer). */
-const IDENTIFIER_NAMES: readonly string[] = ['id', '_id', 'uuid', 'uid', 'guid', 'key'];
-const ID_SUFFIX_RE = /(Id|ID|_id)$|^[a-z]{1,2}id$/;
+/** Names like `userId`, `user_id`, `USER_ID` (not `paid`, `valid`, `grid`). */
+const ID_SUFFIX_RE = /^(?:[a-z][A-Za-z0-9]*Id|[A-Za-z0-9]+_id|[A-Za-z0-9]+_ID)$/;
 const DISPLAY_RE = /^(title|name|label|display_?name|caption|heading|subject|summary|description)$/i;
 const TIME_RE = /(^|_)(date|time|created|updated|modified|timestamp)|At$|_at$|Date$|Time$/;
 const LOCATOR_RE = /^(url|href|path|filepath|file|uri|link)$/i;
@@ -155,14 +170,20 @@ export interface KeyReport {
   warnings: string[];
 }
 
+/** A path segment, quoted (`["a.b"]`) when the name has `.`, `[`, `]` or `"`. */
+function pathSegment(name: string, first: boolean): string {
+  if (/[.[\]"]/.test(name)) return `["${name.replace(/(["\\])/g, '\\$1')}"]`;
+  return first ? name : `.${name}`;
+}
+
 function sampleFields(samples: readonly unknown[]): string[] {
   const seen = new Set<string>();
   for (const it of samples.slice(0, 200)) {
     if (!it || typeof it !== 'object') continue;
     for (const [k, v] of Object.entries(it)) {
-      seen.add(k);
+      seen.add(pathSegment(k, true));
       if (v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
-        for (const k2 of Object.keys(v as object)) seen.add(`${k}.${k2}`);
+        for (const k2 of Object.keys(v as object)) seen.add(`${pathSegment(k, true)}${pathSegment(k2, false)}`);
       }
     }
   }
@@ -178,7 +199,10 @@ export function scoreKey(
   const keys = samples.map((it) => keyOf(it, spec));
   const groups = new Map<string, number[]>();
   keys.forEach((k, i) => {
-    if (k !== undefined) groups.set(k, [...(groups.get(k) ?? []), i]);
+    if (k === undefined) return;
+    const g = groups.get(k);
+    if (g) g.push(i);
+    else groups.set(k, [i]);
   });
   const present = keys.filter((k) => k !== undefined).length;
   const duplicates = [...groups.values()].filter((g) => g.length > 1).slice(0, 5);
@@ -221,6 +245,8 @@ export interface DetectKeyOptions {
   priority?: readonly string[];
   /** Largest composite tried. Default: 4. */
   maxComposite?: number;
+  /** Most composites scored before giving up (with a warning). Default: 500. */
+  maxCombinations?: number;
 }
 
 /**
@@ -233,7 +259,7 @@ export interface DetectKeyOptions {
  * non-timestamp fields; failing that, any complete and unique field, with a warning.
  */
 export function detectKey(samples: readonly unknown[], options: DetectKeyOptions = {}): KeyReport {
-  const { priority = KEY_PRIORITY, maxComposite = 4 } = options;
+  const { priority = KEY_PRIORITY, maxComposite = 4, maxCombinations = 500 } = options;
   const fields = sampleFields(samples);
   const warnings: string[] = [];
   const candidates: KeyCandidate[] = [];
@@ -258,10 +284,20 @@ export function detectKey(samples: readonly unknown[], options: DetectKeyOptions
       .filter((c) => c.completeness === 1 && !c.suspects.some((s) => s.reason === 'timestamp'))
       .sort((a, b) => b.uniqueness - a.uniqueness)
       .map((c) => c.spec as string);
+    function* combos(size: number, start = 0, acc: string[] = []): Generator<string[]> {
+      if (acc.length === size) {
+        yield acc;
+        return;
+      }
+      for (let i = start; i < complete.length; i++) yield* combos(size, i + 1, [...acc, complete[i]!]);
+    }
+    let tried = 0;
     outer: for (let size = 2; size <= Math.min(maxComposite, complete.length); size++) {
-      const combos = (start: number, acc: string[]): string[][] =>
-        acc.length === size ? [acc] : complete.slice(start).flatMap((f, i) => combos(start + i + 1, [...acc, f]));
-      for (const combo of combos(0, []).slice(0, 500)) {
+      for (const combo of combos(size)) {
+        if (++tried > maxCombinations) {
+          warnings.push(`stopped the composite search after ${maxCombinations} combinations; pass an explicit key`);
+          break outer;
+        }
         const c = scoreKey(samples, combo, { rank: 300 + size, why: `smallest unique composite (${size} fields)` });
         if (isComplete(c)) {
           candidates.push(c);
@@ -288,16 +324,36 @@ export function detectKey(samples: readonly unknown[], options: DetectKeyOptions
 /** Where a collection's key came from. */
 export type KeySource = 'config' | 'schema' | 'samples' | 'fallback';
 
+/**
+ * Identifier names tried on a schema, in order, before any `*Id` / `*_id` name.
+ * These are the names `defineCollection` has always used; changing them would
+ * change the inferred key of existing collections.
+ */
+export const SCHEMA_ID_NAMES: readonly string[] = ['id', '_id', 'uuid', 'key'];
+
+/** The `*Id` rule `defineCollection` has always applied after {@link SCHEMA_ID_NAMES}. */
+const SCHEMA_ID_SUFFIX = (name: string) => /[iI]d$/.test(name) || name.endsWith('_id');
+
 /** Options for {@link resolveKey}. */
 export interface ResolveKeyOptions {
-  /** An explicit key; wins over every other layer. */
+  /**
+   * An explicit key; wins over every other layer. A string naming a top-level
+   * field of the schema is that field (even if it contains a dot); any other string
+   * is a path (`'meta.uuid'`).
+   */
   key?: KeySpec;
-  /** Identifier names tried on the schema, in order. Default: `id, _id, uuid, uid, guid, key`. */
+  /** Identifier names tried on the schema, in order. Default: {@link SCHEMA_ID_NAMES}. */
   candidates?: readonly string[];
   /** Sample items: used to detect a key when the schema names none, and checked against. */
   samples?: readonly unknown[];
   /** Throw instead of falling back to the first field of the schema. */
   strict?: boolean;
+  /**
+   * Where a nested, composite or function key is kept on a stored item (see
+   * {@link KeyResolution.stamp}). Default: `'id'`. Refused when the schema has this
+   * field and it is not the key itself, so a real field is never overwritten.
+   */
+  keyField?: string;
 }
 
 /** A collection's resolved key. */
@@ -308,14 +364,21 @@ export interface KeyResolution {
   source: KeySource;
   /**
    * The top-level field a store keeps the key in: the spec itself when it is one
-   * top-level field, else `'id'` (a nested or composite key is materialised there,
-   * with `keyOf`, before an item is stored).
+   * top-level field, else `keyField` (default `'id'`), which {@link stamp} fills.
    */
   idField: string;
+  /** Whether the key is derived (nested, composite or a function) and must be stamped. */
+  derived: boolean;
   /** Warnings about this key (a fallback, an unstable field, duplicates in the samples). */
   warnings: string[];
   /** The key of an item, or `undefined` when a part is missing. */
   keyOf(item: unknown): string | undefined;
+  /**
+   * The item with its key written into `idField`, ready to store. Identity for a
+   * plain field key; for a derived key, a shallow copy with `idField` set (throws
+   * when a key part is missing).
+   */
+  stamp<T extends object>(item: T): T;
   /** How the key was decided, as an inference trace. */
   explain(): InferenceTrace[];
   /** Score this key on sample data. */
@@ -339,13 +402,14 @@ function specLabel(spec: KeySpec): unknown {
 /**
  * Decide the key of a collection, layer by layer, and record why.
  *
- * Layers: an explicit `key` (config); an identifier-like top-level name (`id`, `_id`,
- * `uuid`, ..., then any `*Id` / `*_id`); the same names one level down (`meta.uuid`);
- * a key detected on `samples`; finally the first field of the schema, which is kept
- * for compatibility but flagged as a fallback (or refused with `strict`).
+ * Layers: an explicit `key` (config); an identifier-like top-level name
+ * (`candidates`, then any `*Id` / `*_id`); a key detected on `samples`; finally the
+ * first field of the schema, kept for compatibility but recorded as a fallback
+ * (with a hint when that field holds a nested identifier), or refused with `strict`.
+ * A schema with no fields keys on `'id'`.
  */
 export function resolveKey(schema: z.ZodObject<any> | z.ZodType, options: ResolveKeyOptions = {}): KeyResolution {
-  const { key, candidates = IDENTIFIER_NAMES, samples, strict = false } = options;
+  const { key, candidates = SCHEMA_ID_NAMES, samples, strict = false, keyField = 'id' } = options;
   const shape = objectShape(schema) ?? {};
   const names = Object.keys(shape);
   const steps: InferenceStep[] = [];
@@ -359,25 +423,11 @@ export function resolveKey(schema: z.ZodObject<any> | z.ZodType, options: Resolv
     steps.push({ layer: 'config', value: specLabel(spec), reason: 'explicit key in the collection config' });
   }
   if (spec === undefined) {
-    const named = candidates.find((c) => c in shape) ?? names.find((n) => ID_SUFFIX_RE.test(n));
+    const named = candidates.find((c) => c in shape) ?? names.find(SCHEMA_ID_SUFFIX);
     if (named) {
       spec = named;
       source = 'schema';
       steps.push({ layer: 'name', value: named, reason: `\`${named}\` is named like an identifier` });
-    }
-  }
-  if (spec === undefined) {
-    outer: for (const n of names) {
-      const inner = objectShape(shape[n]);
-      if (!inner) continue;
-      for (const c of candidates) {
-        if (c in inner) {
-          spec = `${n}.${c}`;
-          source = 'schema';
-          steps.push({ layer: 'name', value: spec, reason: `nested \`${c}\` inside \`${n}\` is named like an identifier` });
-          break outer;
-        }
-      }
     }
   }
   if (spec === undefined && samples && samples.length > 0) {
@@ -385,31 +435,53 @@ export function resolveKey(schema: z.ZodObject<any> | z.ZodType, options: Resolv
     if (report.chosen) {
       spec = report.chosen.spec;
       source = 'samples';
-      steps.push({ layer: 'type', value: spec, reason: `detected on ${report.total} samples: ${report.chosen.why}` });
+      steps.push({ layer: 'samples', value: spec, reason: `detected on ${report.total} samples: ${report.chosen.why}` });
       warnings.push(...report.warnings);
     }
   }
   if (spec === undefined) {
     const first = names[0];
-    if (strict || first === undefined) {
+    const nested = names
+      .map((n) => {
+        const inner = objectShape(shape[n]);
+        const c = inner && candidates.find((x) => x in inner);
+        return c ? `${n}.${c}` : undefined;
+      })
+      .find((x) => x !== undefined);
+    const hint = nested ? ` (\`${nested}\` looks like an identifier: pass idField: '${nested}')` : '';
+    if (strict) {
       throw new Error(
-        `resolveKey: no field identifies an item (no ${candidates.join('/')}, no *Id field, no nested identifier${
+        `resolveKey: no field identifies an item (no ${candidates.join('/')} or *Id field${
           samples ? ', nothing unique in the samples' : ''
-        }); pass an explicit key, e.g. idField: ['artist', 'title']`,
+        })${hint}; pass an explicit key, e.g. idField: ['artist', 'title']`,
       );
     }
-    spec = first;
+    spec = first ?? keyField;
     source = 'fallback';
-    const msg = `no identifier-like field; fell back to the first field \`${first}\`, which may not be unique or stable. Set idField explicitly`;
+    const msg =
+      first === undefined
+        ? `the schema has no fields; keyed on \`${keyField}\``
+        : `no identifier-like field; fell back to the first field \`${first}\`, which may not be unique or stable${hint}. Set idField explicitly`;
     warnings.push(msg);
-    steps.push({ layer: 'name', value: first, reason: `fallback: ${msg}` });
+    steps.push({ layer: 'name', value: spec, reason: `fallback: ${msg}` });
   }
 
   const resolved = spec;
-  const paths = keyPaths(resolved);
-  const idField = typeof resolved === 'string' && parsePath(resolved).length === 1 ? parsePath(resolved)[0]! : 'id';
+  const flat = typeof resolved === 'string' && (resolved in shape || parsePath(resolved).length === 1 || names.length === 0);
+  const paths = typeof resolved === 'string' && flat ? [resolved] : keyPaths(resolved);
+  const idField = flat ? (resolved as string) : keyField;
+  if (!flat && keyField in shape) {
+    throw new Error(
+      `resolveKey: the key ${JSON.stringify(specLabel(resolved))} is derived and would be stored in \`${keyField}\`, ` +
+        `which is already a field of the schema; pass keyField: '<an unused field>'`,
+    );
+  }
+  const keyOfItem = (item: unknown): string | undefined => {
+    if (flat) return normalizeKeyPart((item as Record<string, unknown> | null | undefined)?.[resolved as string]);
+    return keyOf(item, resolved);
+  };
   if (samples && samples.length > 0 && source !== 'samples') {
-    const c = scoreKey(samples, resolved);
+    const c = scoreKey(samples, flat ? (item: unknown) => keyOfItem(item) : resolved);
     if (c.completeness < 1) warnings.push(`the key is missing on ${samples.length - c.present} of ${samples.length} samples`);
     if (c.uniqueness < 1) warnings.push(`the key is not unique across the samples (${c.duplicates.length} duplicate group(s))`);
     for (const s of c.suspects) warnings.push(s.detail);
@@ -420,8 +492,17 @@ export function resolveKey(schema: z.ZodObject<any> | z.ZodType, options: Resolv
     paths,
     source,
     idField,
+    derived: !flat,
     warnings,
-    keyOf: (item) => keyOf(item, resolved),
+    keyOf: keyOfItem,
+    stamp(item) {
+      if (flat) return item;
+      const k = keyOfItem(item);
+      if (k === undefined) {
+        throw new Error(`resolveKey: cannot stamp an item missing part of its key ${JSON.stringify(specLabel(resolved))}`);
+      }
+      return { ...item, [idField]: k };
+    },
     explain: () => [
       {
         field: idField,
@@ -431,7 +512,8 @@ export function resolveKey(schema: z.ZodObject<any> | z.ZodType, options: Resolv
       },
     ],
     check(s) {
-      const c = scoreKey(s, resolved, { why: `the ${source} key` });
+      const c = scoreKey(s, flat ? (item: unknown) => keyOfItem(item) : resolved, { why: `the ${source} key` });
+      if (flat) c.spec = resolved as string;
       const ok = isComplete(c);
       const out: string[] = c.suspects.map((x) => x.detail);
       if (c.completeness < 1) out.unshift(`the key is missing on ${s.length - c.present} of ${s.length} samples`);
