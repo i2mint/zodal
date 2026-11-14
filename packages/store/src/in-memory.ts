@@ -158,6 +158,24 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       return clone(item);
     },
 
+    async upsertMany(data: T[]): Promise<T[]> {
+      await maybeDelay();
+      const positions = new Map(items.map((i, index) => [getItemId(i), index]));
+      return data.map((d) => {
+        const id = getItemId(d);
+        const item = clone(d);
+        const index = positions.get(id);
+        if (index === undefined) {
+          positions.set(id, items.length);
+          items.push(item);
+          usedIds.add(id);
+        } else {
+          items[index] = item;
+        }
+        return clone(item);
+      });
+    },
+
     getCapabilities(): ProviderCapabilities {
       return {
         canCreate: true,

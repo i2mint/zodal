@@ -98,6 +98,12 @@ export interface TieredProviderOptions<T> {
   idField?: string;
   /** Clock, for tests. Default: `Date.now`. */
   now?: () => number;
+  /**
+   * How recently used the items of one listed page count, when a list is admitted. Default:
+   * `'first-is-newest'` (the top of a list is what the user sees first); `'last-is-newest'`;
+   * or a function ranking an item (higher is more recent, e.g. its timestamp field).
+   */
+  listRecency?: 'first-is-newest' | 'last-is-newest' | ((item: T) => number);
 }
 
 /** What the tier exposes beyond the DataProvider contract. */
@@ -155,6 +161,7 @@ export function createTieredProvider<T extends Record<string, any>>(
     onCacheError = (error: unknown) => console.warn('zodal tiered provider: cache error', error),
     idField = 'id',
     now = Date.now,
+    listRecency = 'first-is-newest',
   } = options;
   const residency = options.residency ?? createInMemoryProvider<ResidencyRecord>([]);
   if (!(maxItems >= 0)) throw new RangeError(`maxItems must be >= 0, got ${maxItems}`);
@@ -188,9 +195,34 @@ export function createTieredProvider<T extends Record<string, any>>(
     else await provider.create(value);
   }
 
-  async function touch(id: string): Promise<void> {
-    if ((await tryGet(residency, id)) !== undefined) await residency.update(id, { at: now() });
-    else await residency.create({ id, at: now() });
+  /** Write many records in one operation when the provider can (`upsertMany`), else one by one. */
+  async function putMany<V extends Record<string, any>>(provider: DataProvider<V>, values: V[], idOfValue: (v: V) => string) {
+    if (!values.length) return;
+    if (provider.upsertMany) {
+      await provider.upsertMany(values);
+      return;
+    }
+    if (provider.upsert) {
+      for (const v of values) await provider.upsert(v);
+      return;
+    }
+    // One read to learn which exist, instead of a getOne per item.
+    const existing = new Set((await provider.getList({})).data.map((v) => idOfValue(v)));
+    for (const v of values) {
+      const id = idOfValue(v);
+      if (existing.has(id)) await provider.update(id, v);
+      else await provider.create(v);
+    }
+  }
+
+  /** Mark items used, at `at` (same order as `ids`); a record's other fields are kept. */
+  async function touchAll(ids: string[], at: number[]): Promise<void> {
+    const known = new Map((await residency.getList({})).data.map((r) => [r.id, r]));
+    await putMany(residency, ids.map((id, i) => ({ ...known.get(id), id, at: at[i]! })), (r) => r.id);
+  }
+
+  function touch(id: string): Promise<void> {
+    return touchAll([id], [now()]);
   }
 
   async function forget(ids: string[]): Promise<void> {
@@ -214,29 +246,53 @@ export function createTieredProvider<T extends Record<string, any>>(
   }
 
   let checkedIds = false;
-  /** Cache `items` (touching them unless `refreshOnly`), then trim once to budget. */
-  async function store(items: T[], { touchThem = true } = {}): Promise<void> {
+  /**
+   * Cache `items` (marking them used unless `touchThem` is false), then trim once to budget.
+   * Hot items and residency records are each written in one batch when the providers allow it
+   * (zodal#122: one write per item rewrote a localStorage array N times).
+   */
+  async function store(items: T[], { touchThem = true, recency }: { touchThem?: boolean; recency?: AdmitVia } = {}): Promise<void> {
     if (!items.length || maxItems === 0) return;
-    for (const item of items) {
-      const id = idOf(item);
-      if (touchThem) await touch(id); // before the write: a new item is never "oldest"
-      await put(hot, id, item);
-      if (!checkedIds) {
-        if ((await tryGet(hot, id)) === undefined) {
-          throw new Error(
-            `zodal tiered provider: the hot tier does not find an item by its '${idField}' ` +
-              `(${id}); give hot, cold and the tier the same idField`,
-          );
-        }
-        checkedIds = true;
+    // Dedupe by id, keeping the last copy.
+    const byId = new Map<string, T>();
+    for (const item of items) byId.set(idOf(item), item);
+    const unique = [...byId.values()];
+    const ids = unique.map(idOf);
+    if (touchThem) {
+      // Before the write: a new item is never "oldest". Within one list, recency follows the order.
+      const t = now();
+      const n = ids.length;
+      const at =
+        recency === 'list' && n > 1
+          ? typeof listRecency === 'function'
+            ? (() => {
+                const ranks = unique.map(listRecency);
+                const order = ranks.map((r, i) => [r, i] as const).sort((a, b) => a[0] - b[0]);
+                const out = new Array<number>(n);
+                order.forEach(([, i], k) => (out[i] = t - (n - 1 - k) * 1e-3));
+                return out;
+              })()
+            : ids.map((_, i) => (listRecency === 'first-is-newest' ? t - i * 1e-3 : t - (n - 1 - i) * 1e-3))
+          : ids.map(() => t);
+      await touchAll(ids, at);
+    }
+    await putMany(hot, unique, idOf);
+    if (!checkedIds) {
+      const id = ids[0]!;
+      if ((await tryGet(hot, id)) === undefined) {
+        throw new Error(
+          `zodal tiered provider: the hot tier does not find an item by its '${idField}' ` +
+            `(${id}); give hot, cold and the tier the same idField`,
+        );
       }
+      checkedIds = true;
     }
     await enforceBudget();
   }
 
   function admit(items: T[], via: AdmitVia): Promise<void> {
     const chosen = items.filter((item) => shouldAdmit(item, { via }));
-    return cacheJob(() => store(chosen));
+    return cacheJob(() => store(chosen, { recency: via }));
   }
 
   /** Refresh copies already cached (a write or a remote change), without counting a use. */

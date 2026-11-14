@@ -93,6 +93,13 @@ export interface DataProvider<T> {
   upsert?(data: T): Promise<T>;
 
   /**
+   * Insert or replace several complete items in one operation (one write where the backend
+   * stores a collection as one value, as localStorage does). Resolves with the stored items.
+   * Optional — callers fall back to `upsert` per item.
+   */
+  upsertMany?(data: T[]): Promise<T[]>;
+
+  /**
    * Report what this provider supports.
    * Optional — when absent, DEFAULT_CAPABILITIES is assumed.
    */
