@@ -97,3 +97,7 @@ Behaviour fix (patch: it brings inference in line with `docs/research/field-inpu
 ## Tiered provider: lists admitted in one batch, top of the list newest (zodal#122)
 
 `createTieredProvider` writes an admitted page of items, and their residency records, in one `upsertMany` per provider (new optional `DataProvider.upsertMany`; `createInMemoryProvider` implements it), falling back to `upsert` per item, or to one `getList` plus create/update. Within one listed page, recency follows `listRecency` (default `'first-is-newest'`; was effectively last-is-newest, since items were touched in list order): a consumer that listed oldest-first to work around it can list newest-first again.
+
+## Conditional writes (zodal#118)
+
+`DataProvider` gains optional `getVersioned(id)`, `updateIfVersion(id, data, expected)` and `deleteIfVersion(id, expected)`, with an opaque `Version` (`string | number`, so an ETag fits), a typed `WriteConflict` (`isWriteConflict` also matches across package copies) and `capabilities.versioned`. `createInMemoryProvider` is the reference implementation (a version per stored object). `providerContract` runs three versioned cases when a provider declares `versioned` and can update and delete. `createReadOnlyProvider` passes versioned reads and refuses versioned writes; `wrapProvider` passes all three through its codec; `createTieredProvider` does not route them through its cache yet and so does not declare `versioned`. Satellite adapters: see i2mint/zodal#118 for which implement it.

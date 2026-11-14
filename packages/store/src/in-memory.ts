@@ -8,6 +8,8 @@
 import type { DataProvider, GetListParams, GetListResult } from './data-provider.js';
 import type { ProviderCapabilities } from './capabilities.js';
 import { applyQuery } from './query.js';
+import { WriteConflict } from './versioning.js';
+import type { Version, Versioned } from './versioning.js';
 
 export interface InMemoryProviderOptions {
   /** Field name used as the unique identifier. Default: 'id'. */
@@ -75,6 +77,16 @@ export function createInMemoryProvider<T extends Record<string, any>>(
   function getItemId(item: T): string {
     return String((item as any)[idField]);
   }
+
+  // Versions (zodal#118): every write stores a new object, so a version is given to each stored
+  // object the first time it is asked for, from a counter. Same object, same version.
+  const versions = new WeakMap<object, number>();
+  let versionCounter = 0;
+  const versionOf = (item: T): number => {
+    let v = versions.get(item as object);
+    if (v === undefined) versions.set(item as object, (v = ++versionCounter));
+    return v;
+  };
 
   return {
     async getList(params: GetListParams): Promise<GetListResult<T>> {
@@ -176,6 +188,34 @@ export function createInMemoryProvider<T extends Record<string, any>>(
       });
     },
 
+    async getVersioned(id: string): Promise<Versioned<T>> {
+      await maybeDelay();
+      const item = items.find(i => getItemId(i) === id);
+      if (!item) throw new Error(`Item not found: ${id}`);
+      return { item: clone(item), version: versionOf(item) };
+    },
+
+    async updateIfVersion(id: string, data: Partial<T>, expected: Version): Promise<Versioned<T>> {
+      await maybeDelay();
+      const index = items.findIndex(i => getItemId(i) === id);
+      if (index === -1) throw new WriteConflict(id, expected, undefined);
+      const current = versionOf(items[index]);
+      if (current !== expected) throw new WriteConflict(id, expected, current);
+      items[index] = { ...items[index], ...clone(data) };
+      if (idField in data) reindex();
+      return { item: clone(items[index]), version: versionOf(items[index]) };
+    },
+
+    async deleteIfVersion(id: string, expected: Version): Promise<void> {
+      await maybeDelay();
+      const index = items.findIndex(i => getItemId(i) === id);
+      if (index === -1) throw new WriteConflict(id, expected, undefined);
+      const current = versionOf(items[index]);
+      if (current !== expected) throw new WriteConflict(id, expected, current);
+      items.splice(index, 1);
+      usedIds.delete(id);
+    },
+
     getCapabilities(): ProviderCapabilities {
       return {
         canCreate: true,
@@ -188,6 +228,7 @@ export function createInMemoryProvider<T extends Record<string, any>>(
         serverFilter: false,
         serverSearch: false,
         serverPagination: false,
+        versioned: true,
       };
     },
   };

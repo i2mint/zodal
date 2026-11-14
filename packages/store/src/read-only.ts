@@ -76,6 +76,14 @@ export function createReadOnlyProvider<T extends Record<string, any>>(
   if (inner.getContent) provider.getContent = inner.getContent.bind(inner);
   if (inner.getUrl) provider.getUrl = inner.getUrl.bind(inner);
   if (inner.headContent) provider.headContent = inner.headContent.bind(inner);
+  if (inner.getVersioned) {
+    // Versioned reads pass through; versioned writes are refused like every other write.
+    provider.getVersioned = inner.getVersioned.bind(inner);
+    provider.updateIfVersion = refuse;
+    provider.deleteIfVersion = refuse;
+  } else {
+    delete caps.versioned;
+  }
   if (inner.setContent) provider.setContent = refuse;
   return provider;
 }

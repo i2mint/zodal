@@ -30,6 +30,10 @@ export {
 } from './ids.js';
 export type { SafeIdOptions, EncodeIdOptions } from './ids.js';
 
+// Conditional writes (opaque versions, WriteConflict)
+export { WriteConflict, isWriteConflict } from './versioning.js';
+export type { Version, Versioned } from './versioning.js';
+
 // Filters
 export { filterToFunction } from './filters.js';
 

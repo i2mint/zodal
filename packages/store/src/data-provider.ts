@@ -8,6 +8,7 @@
 
 import type { SortingState, FilterExpression, ContentRef } from '@zodal/core';
 import type { ProviderCapabilities } from './capabilities.js';
+import type { Version, Versioned } from './versioning.js';
 
 // ============================================================================
 // DataProvider Interface
@@ -98,6 +99,21 @@ export interface DataProvider<T> {
    * Optional — callers fall back to `upsert` per item.
    */
   upsertMany?(data: T[]): Promise<T[]>;
+
+  /**
+   * Read an item with its version (zodal#118). Rejects when no item has this id.
+   * Optional — present (with the two below) when `capabilities.versioned` is true.
+   */
+  getVersioned?(id: string): Promise<Versioned<T>>;
+
+  /**
+   * Shallow-merge `data` into the item only if its version is still `expected`; resolves with
+   * the new item and version. Rejects with a `WriteConflict` when the item changed or was deleted.
+   */
+  updateIfVersion?(id: string, data: Partial<T>, expected: Version): Promise<Versioned<T>>;
+
+  /** Delete the item only if its version is still `expected`; rejects with a `WriteConflict` otherwise. */
+  deleteIfVersion?(id: string, expected: Version): Promise<void>;
 
   /**
    * Report what this provider supports.

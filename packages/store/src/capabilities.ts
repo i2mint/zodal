@@ -52,6 +52,9 @@ export interface ProviderCapabilities {
    */
   contentIfAbsent?: 'atomic' | 'best-effort';
 
+  /** Whether `getVersioned` / `updateIfVersion` / `deleteIfVersion` are implemented (conditional writes). */
+  versioned?: boolean;
+
   /**
    * Why writes the capabilities refuse are refused, for a UI to show beside its
    * disabled controls ("Read-only: this is a published snapshot"). Set by

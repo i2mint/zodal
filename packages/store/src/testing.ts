@@ -531,6 +531,49 @@ export async function providerContract(options: ProviderContractOptions): Promis
     );
   }
 
+  // ---- conditional writes (zodal#118), when the provider declares `versioned` ----
+
+  const versioned: Gate = (caps) =>
+    !caps.versioned
+      ? 'provider does not declare versioned (no conditional writes)'
+      : !caps.canUpdate || !caps.canDelete
+        ? 'provider declares versioned but refuses updates or deletes'
+        : undefined;
+  const conflicts = async (call: () => Promise<unknown>, what: string) => {
+    try {
+      await call();
+    } catch (err) {
+      if ((err as { name?: unknown } | null)?.name !== 'WriteConflict') fail(`${what}: expected a WriteConflict, got ${String(err)}`);
+      return;
+    }
+    fail(`${what}: expected a WriteConflict, but the write went through`);
+  };
+
+  add('versioned: a write at the read version succeeds and changes the version', async (p) => {
+    const { item, version } = await p.getVersioned!('1');
+    hasFields(item, { id: '1', name: 'Alpha Project' }, 'getVersioned("1").item');
+    const next = await p.updateIfVersion!('1', { priority: 7 }, version);
+    hasFields(next.item, { id: '1', priority: 7 }, 'updateIfVersion result');
+    if (next.version === version) fail('updateIfVersion: the version did not change');
+    equal((await p.getVersioned!('1')).version, next.version, 'version read back');
+  }, versioned);
+
+  add('versioned: a stale version conflicts and writes nothing', async (p) => {
+    const { version } = await p.getVersioned!('1');
+    await p.update('1', { name: 'changed elsewhere' });
+    await conflicts(() => p.updateIfVersion!('1', { priority: 0 }, version), 'updateIfVersion with a stale version');
+    hasFields(await p.getOne('1'), { name: 'changed elsewhere', priority: 3 }, 'getOne("1") after the conflict');
+    await conflicts(() => p.deleteIfVersion!('1', version), 'deleteIfVersion with a stale version');
+    hasFields(await p.getOne('1'), { id: '1' }, 'getOne("1") after the refused delete');
+  }, versioned);
+
+  add('versioned: delete at the read version, then a write to the deleted item conflicts', async (p) => {
+    const { version } = await p.getVersioned!('2');
+    await p.deleteIfVersion!('2', version);
+    await rejects(() => p.getOne('2'), 'getOne("2") after deleteIfVersion');
+    await conflicts(() => p.updateIfVersion!('2', { name: 'x' }, version), 'updateIfVersion on a deleted item');
+  }, versioned);
+
   // ---- honesty -------------------------------------------------------------
 
   add('capabilities are well-formed', async (_p, caps) => {
