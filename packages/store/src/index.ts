@@ -12,6 +12,18 @@ export type {
 export type { ProviderCapabilities } from './capabilities.js';
 export { DEFAULT_CAPABILITIES } from './capabilities.js';
 
+// Safe store ids (refuse or reversibly encode ids that are unsafe as paths/keys)
+export {
+  DEFAULT_MAX_ID_LENGTH,
+  unsafeIdReason,
+  isSafeId,
+  assertSafeId,
+  encodeId,
+  decodeId,
+  UnsafeIdError,
+} from './ids.js';
+export type { SafeIdOptions, EncodeIdOptions } from './ids.js';
+
 // Filters
 export { filterToFunction } from './filters.js';
 
