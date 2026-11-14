@@ -37,6 +37,7 @@ Each implements `DataProvider<T>` for a specific storage backend:
 | `@zodal/store-localstorage` | `zodal-store-localstorage/` | Browser localStorage | None (all client-side) | Browser API |
 | `@zodal/store-s3` | `zodal-store-s3/` | AWS S3 | None (all client-side) | `@aws-sdk/client-s3` |
 | `@zodal/store-supabase` | `zodal-store-supabase/` | Supabase (PostgreSQL) | Sort, filter, search, pagination | `@supabase/supabase-js` |
+| `@zodal/store-github` | `zodal-store-github/` | Files of a GitHub repo folder (read-only) | None (all client-side) | `fetch` (injectable) |
 
 ### UI Renderers: `zodal-ui-*/`
 

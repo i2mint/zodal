@@ -12,6 +12,7 @@ _zodals/
   zodal-store-localstorage/ # DataProvider → browser localStorage
   zodal-store-s3/           # DataProvider → AWS S3
   zodal-store-supabase/     # DataProvider → Supabase (PostgreSQL/PostgREST)
+  zodal-store-github/       # DataProvider → files of a GitHub repo folder (read-only, contents API)
   zodal-ui-shadcn/          # UI renderer → shadcn/ui (React)
   zodal-ui-vanilla/         # UI renderer → vanilla HTML/JS (no framework)
   zodal-graphs/             # Domain specialization → graphs (@zodal/graph-*)
