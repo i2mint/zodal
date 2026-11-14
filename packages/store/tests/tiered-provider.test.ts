@@ -121,7 +121,7 @@ describe('createTieredProvider', () => {
     const cold = createInMemoryProvider<Song>([]);
     const full = createInMemoryProvider<Song>([]);
     const quota = () => Promise.reject(new Error('QuotaExceededError'));
-    const hot = { ...full, create: quota, upsert: quota } as DataProvider<Song>;
+    const hot = { ...full, create: quota, upsert: quota, upsertMany: quota } as DataProvider<Song>;
     const onCacheError = vi.fn();
     const tier = createTieredProvider({ cold, hot, onCacheError });
     const created = await tier.create({ id: 'n', title: 'New' });
@@ -198,5 +198,52 @@ describe('createTieredProvider', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(seen).toEqual(['updated', 'deleted']);
     await expect(hot.getOne('s0')).rejects.toThrow();
+  });
+});
+
+describe('batched list admission (#122)', () => {
+  const songs = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${i}`, title: `Song ${i}` }));
+  const counting = <T extends Record<string, any>>(seed: T[]) => {
+    const p = createInMemoryProvider<T>(seed);
+    const calls = { upsertMany: 0, upsert: 0, create: 0, update: 0 };
+    return {
+      calls,
+      provider: {
+        ...p,
+        upsertMany: (d: T[]) => (calls.upsertMany++, p.upsertMany!(d)),
+        upsert: (d: T) => (calls.upsert++, p.upsert!(d)),
+        create: (d: Partial<T>) => (calls.create++, p.create(d)),
+        update: (id: string, d: Partial<T>) => (calls.update++, p.update(id, d)),
+      } as DataProvider<T>,
+    };
+  };
+  it('writes a listed page in one batch per provider, first item newest', async () => {
+    const hot = counting<{ id: string; title: string }>([]);
+    const residency = counting<any>([]);
+    let t = 1000;
+    const tier = createTieredProvider({
+      cold: createInMemoryProvider(songs(50)),
+      hot: hot.provider,
+      residency: residency.provider,
+      admit: () => true,
+      maxItems: 10,
+      now: () => ++t,
+    });
+    await tier.getList({});
+    await tier.cached();
+    expect(hot.calls).toMatchObject({ upsertMany: 1, upsert: 0, create: 0 });
+    expect(residency.calls).toMatchObject({ upsertMany: 1, upsert: 0, create: 0 });
+    // The top of the list counts as the most recent, so the first 10 stay.
+    expect((await tier.cached()).map((s) => s.id)).toEqual(songs(10).map((s) => s.id));
+  });
+  it('listRecency: last-is-newest, or a rank function', async () => {
+    const make = (listRecency: any) =>
+      createTieredProvider({ cold: createInMemoryProvider(songs(5)), hot: createInMemoryProvider<any>([]), admit: () => true, maxItems: 2, listRecency });
+    const last = make('last-is-newest');
+    await last.getList({});
+    expect((await last.cached()).map((s) => s.id)).toEqual(['s4', 's3']);
+    const ranked = make((s: { id: string }) => (s.id === 's2' ? 99 : 0));
+    await ranked.getList({});
+    expect((await ranked.cached())[0]!.id).toBe('s2');
   });
 });

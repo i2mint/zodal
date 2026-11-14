@@ -78,6 +78,13 @@ export function wrapProvider<TStored extends Record<string, any>, TApp extends R
       },
     } : {}),
 
+    ...(provider.upsertMany ? {
+      async upsertMany(data: TApp[]): Promise<TApp[]> {
+        const result = await provider.upsertMany!(data.map(codec.encode));
+        return result.map(codec.decode);
+      },
+    } : {}),
+
     ...(provider.getCapabilities ? {
       getCapabilities: () => provider.getCapabilities!(),
     } : {}),

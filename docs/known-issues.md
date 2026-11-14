@@ -93,3 +93,7 @@ Also since 0.2.1, `create` with an id that already exists rejects (it used to ad
 ## Inferred `sticky`: content starts over, ISO dates carry over (zodal#124)
 
 Behaviour fix (patch: it brings inference in line with `docs/research/field-input-history.md` §6.2). Content fields (`storageRole: 'content'`, from the name heuristic, `.meta()`, the registry or the config) now infer `sticky: false`, so a new item no longer inherits the previous item's upload; ISO date and time strings (`z.iso.date()`, `z.iso.datetime()`, `z.iso.time()`) infer `sticky: true`, like `z.date()`. An explicit `sticky` in any layer still wins. `inferSticky(zodType, isClosedChoice, { storageRole, stringFormat })` takes the new context; `getStringFormat(schema)` reads a string's format.
+
+## Tiered provider: lists admitted in one batch, top of the list newest (zodal#122)
+
+`createTieredProvider` writes an admitted page of items, and their residency records, in one `upsertMany` per provider (new optional `DataProvider.upsertMany`; `createInMemoryProvider` implements it), falling back to `upsert` per item, or to one `getList` plus create/update. Within one listed page, recency follows `listRecency` (default `'first-is-newest'`; was effectively last-is-newest, since items were touched in list order): a consumer that listed oldest-first to work around it can list newest-first again.

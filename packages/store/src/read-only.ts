@@ -69,6 +69,7 @@ export function createReadOnlyProvider<T extends Record<string, any>>(
     delete: refuse,
     deleteMany: refuse,
     upsert: refuse,
+    upsertMany: refuse,
     getCapabilities: () => ({ ...caps }),
   };
   if (inner.subscribe) provider.subscribe = inner.subscribe.bind(inner);
