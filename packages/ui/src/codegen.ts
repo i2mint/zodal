@@ -121,7 +121,10 @@ function buildConfigObject(
 ): Record<string, unknown> {
   const config: Record<string, unknown> = {};
 
-  config.idField = collection.idField;
+  // A nested or composite key round-trips as its spec; a function key cannot be
+  // serialized, so the materialised field is emitted instead.
+  const keySpec = collection.key?.spec;
+  config.idField = keySpec !== undefined && typeof keySpec !== 'function' ? keySpec : collection.idField;
   config.labelField = collection.labelField;
 
   const affordances = filterUndefined(collection.affordances as Record<string, unknown>);

@@ -75,3 +75,13 @@ Also since 0.2.1, `create` with an id that already exists rejects (it used to ad
 - **Errors of a created provider** are scrubbed of the secret option values, raw and URL-encoded, when the options hold secrets. A value the adapter transforms another way (hashed, base64, truncated) before putting it in a message is not recognised: adapters keep option values out of their messages.
 
 **Status**: By design; the overrides above are the escape hatch.
+
+## Item keys: nested and composite keys, and the recorded fallback (zodal#128)
+
+**Change** (additive): `defineCollection` resolves its key with `resolveKey` (`@zodal/core`). `config.idField` also accepts a nested path (`'meta.uuid'`), an ordered list of paths (a composite key) or a function; `collection.key` exposes the spec, its source, `keyOf(item)`, `stamp(item)` and `check(samples)`. Inferred `idField` values are unchanged: the same name rules (`id`, `_id`, `uuid`, `key`, then `*Id` / `*_id`) and the same first-field fallback.
+
+**What is new about the fallback**: when no field is named like an identifier, the first field is still used, but `explain()` and `collection.key.warnings` now say so (with a hint when a nested field such as `meta.uuid` looks like the identifier), and `resolveKey(schema, { strict: true })` refuses it.
+
+**Derived keys are stamped, not automatic**: a nested, composite or function key lives in `collection.idField` (`'id'` by default, `keyField` to choose another; a clash with a real schema field is refused). Stores do not compute it: call `collection.key.stamp(item)` before `create`/`upsert`. A function key cannot be serialized, so `toCode()` emits the stamped field name for it.
+
+**Canonical form**: `keyOf` NFC-normalizes and trims string parts; a store comparing raw `String(item[idField])` will disagree for ids with surrounding spaces or decomposed Unicode. Stamp items so the stored id is the canonical one.

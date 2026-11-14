@@ -52,6 +52,31 @@ export type { ChoiceArity } from './types.js';
 export { defineCollection } from './collection.js';
 export type { CollectionDefinition } from './collection.js';
 
+// Item keys (which field identifies an item; canonical serialization; detection on samples)
+export {
+  resolveKey,
+  detectKey,
+  scoreKey,
+  keyOf,
+  canonicalKey,
+  normalizeKeyPart,
+  parsePath,
+  getPath,
+  keyPaths,
+  KEY_PRIORITY,
+  SCHEMA_ID_NAMES,
+} from './keys.js';
+export type {
+  KeySpec,
+  KeySource,
+  KeyResolution,
+  ResolveKeyOptions,
+  KeyCandidate,
+  KeySuspect,
+  KeyReport,
+  DetectKeyOptions,
+} from './keys.js';
+
 // Affordance registry
 export { affordanceRegistry, createAffordanceRegistry } from './registry.js';
 export type { AffordanceRegistry } from './registry.js';

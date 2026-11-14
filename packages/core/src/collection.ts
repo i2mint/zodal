@@ -28,6 +28,8 @@ import type { AffordanceRegistry } from './registry.js';
 import { checkUndoable } from './operations.js';
 import { checkHistoryText, resolveFieldHistory } from './field-history.js';
 import { secretPaths } from './sensitivity.js';
+import { resolveKey } from './keys.js';
+import type { KeyResolution } from './keys.js';
 import type { SecretPath } from './sensitivity.js';
 import { affordanceRegistry as defaultRegistry } from './registry.js';
 
@@ -99,8 +101,15 @@ export interface CollectionDefinition<TSchema extends z.ZodObject<any>> {
   /** Custom operations. */
   operations: OperationDefinition[];
 
-  /** Which field is the unique identifier. */
+  /**
+   * Which top-level field holds the unique identifier. For a nested or composite
+   * key ({@link CollectionDefinition.key}) this is `'id'`, where the key is
+   * materialised with `key.keyOf(item)` before an item is stored.
+   */
   idField: string;
+
+  /** How items are keyed: the spec, where it came from, `keyOf`, and a check on samples. */
+  key: KeyResolution;
 
   /** Which field is the human-readable label. */
   labelField: string;
@@ -184,7 +193,8 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
   checkFieldHistory(schema, fieldAffordances);
 
   // 3. Resolve identity fields
-  const idField = config?.idField ?? detectIdField(schema);
+  const key = resolveKey(schema, { key: config?.idField });
+  const idField = key.idField;
   const labelField = config?.labelField ?? detectLabelField(schema, fieldAffordances);
 
   // 4. Operations
@@ -204,6 +214,7 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
     fieldAffordances,
     operations,
     idField,
+    key,
     labelField,
 
     getVisibleFields() {
@@ -246,7 +257,13 @@ export function defineCollection<TSchema extends z.ZodObject<any>>(
     },
 
     explain(fieldName?: string) {
-      return generateExplanation(schema, config, fieldAffordances, fieldName);
+      const traces = generateExplanation(schema, config, fieldAffordances, fieldName);
+      // The key decision (which field identifies an item, and why) is reported for
+      // the whole collection and for the id field.
+      if (fieldName === undefined || fieldName === idField || key.paths.some((p) => p.split(/[.[]/)[0] === fieldName)) {
+        traces.push(...key.explain());
+      }
+      return traces;
     },
 
     getContentFields() {
@@ -368,26 +385,6 @@ function checkFieldHistory(schema: z.ZodObject<any>, fieldAffordances: Record<st
       );
     }
   }
-}
-
-/** Detect the ID field from schema. */
-function detectIdField(schema: z.ZodObject<any>): string {
-  const shape = schema.shape as Record<string, z.ZodType>;
-
-  // Direct 'id' field
-  if ('id' in shape) return 'id';
-  if ('_id' in shape) return '_id';
-  if ('uuid' in shape) return 'uuid';
-  if ('key' in shape) return 'key';
-
-  // First field ending with Id/id/_id
-  for (const key of Object.keys(shape)) {
-    if (/[iI]d$/.test(key) || key.endsWith('_id')) return key;
-  }
-
-  // Fallback to first field
-  const keys = Object.keys(shape);
-  return keys[0] ?? 'id';
 }
 
 /** Detect the label field from schema + affordances. */
