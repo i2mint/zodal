@@ -85,6 +85,18 @@ export function wrapProvider<TStored extends Record<string, any>, TApp extends R
       },
     } : {}),
 
+    ...(provider.getVersioned && provider.updateIfVersion && provider.deleteIfVersion ? {
+      async getVersioned(id: string) {
+        const { item, version } = await provider.getVersioned!(id);
+        return { item: codec.decode(item), version };
+      },
+      async updateIfVersion(id: string, data: Partial<TApp>, expected: string | number) {
+        const { item, version } = await provider.updateIfVersion!(id, codec.encode(data as TApp), expected);
+        return { item: codec.decode(item), version };
+      },
+      deleteIfVersion: (id: string, expected: string | number) => provider.deleteIfVersion!(id, expected),
+    } : {}),
+
     ...(provider.getCapabilities ? {
       getCapabilities: () => provider.getCapabilities!(),
     } : {}),

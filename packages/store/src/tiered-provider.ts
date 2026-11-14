@@ -380,8 +380,10 @@ export function createTieredProvider<T extends Record<string, any>>(
     },
 
     getCapabilities(): ProviderCapabilities {
-      // The tier answers the full query in both tiers, so the cold tier's word holds.
-      return cold.getCapabilities?.() ?? DEFAULT_CAPABILITIES;
+      // The tier answers the full query in both tiers, so the cold tier's word holds, except
+      // conditional writes, which the tier does not (yet) route through its cache.
+      const { versioned: _notRouted, ...caps } = cold.getCapabilities?.() ?? DEFAULT_CAPABILITIES;
+      return caps;
     },
 
     async cached(): Promise<T[]> {
