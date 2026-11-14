@@ -378,5 +378,6 @@ export function createTieredProvider<T extends Record<string, any>>(
   if (cold.getContent) tier.getContent = cold.getContent.bind(cold);
   if (cold.setContent) tier.setContent = cold.setContent.bind(cold);
   if (cold.getUrl) tier.getUrl = cold.getUrl.bind(cold);
+  if (cold.headContent) tier.headContent = cold.headContent.bind(cold);
   return tier;
 }

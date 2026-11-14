@@ -85,3 +85,7 @@ Also since 0.2.1, `create` with an id that already exists rejects (it used to ad
 **Derived keys are stamped, not automatic**: a nested, composite or function key lives in `collection.idField` (`'id'` by default, `keyField` to choose another; a clash with a real schema field is refused). Stores do not compute it: call `collection.key.stamp(item)` before `create`/`upsert`. A function key cannot be serialized, so `toCode()` emits the stamped field name for it.
 
 **Canonical form**: `keyOf` NFC-normalizes and trims string parts; a store comparing raw `String(item[idField])` will disagree for ids with surrounding spaces or decomposed Unicode. Stamp items so the stored id is the canonical one.
+
+## Content write options and headContent (zodal#129, zodal#130)
+
+`DataProvider.setContent(id, field, content, init?)` takes `ContentWriteInit` (`mimeType`, `cacheControl`, `ifAbsent`, `hash`), and `headContent(id, field)` answers "is it stored, where?" without the bytes. Both are optional, so existing adapters still type-check; until an adapter adopts them, `init` is ignored by it. **`ifAbsent` must be honoured or rejected, never ignored**: check an adapter's README before relying on it. `createBifurcatedProvider` implements `ifAbsent` as head-then-write (not atomic across concurrent writers); `createInMemoryBlobProvider` is atomic within its process. `contentContract` in `@zodal/store/testing` is the shared test for these methods.

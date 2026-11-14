@@ -25,6 +25,29 @@ export interface GetListResult<T> {
   total: number;
 }
 
+/**
+ * Options for one content write ({@link DataProvider.setContent}).
+ *
+ * Every field is optional, and an adapter that cannot honour one ignores it, except
+ * `ifAbsent`, which an adapter must either honour or reject (never silently
+ * overwrite). Adapters over HTTP or S3 map `ifAbsent` to `If-None-Match: *` and
+ * treat a 412 as "already there".
+ */
+export interface ContentWriteInit {
+  /** The content's MIME type; overrides what the adapter would infer from the value. */
+  mimeType?: string;
+  /** `Cache-Control` for whoever serves the bytes (e.g. `public, max-age=31536000, immutable`). */
+  cacheControl?: string;
+  /**
+   * Write only when no content is stored for this item's field. When some is,
+   * nothing is written and `setContent` resolves with the stored content's
+   * reference: concurrent writers of the same deterministic content all succeed.
+   */
+  ifAbsent?: boolean;
+  /** A content hash the caller already knows; recorded on the reference (adapters may verify it). */
+  hash?: string;
+}
+
 /** Event emitted when data changes (for real-time support). */
 export type DataChangeEvent<T> =
   | { type: 'created'; item: T }
@@ -90,9 +113,19 @@ export interface DataProvider<T> {
 
   /**
    * Upload/replace content for a specific field of an item.
-   * Only available on bifurcated providers (see createBifurcatedProvider).
+   * Available on content-capable providers (bifurcated, blob stores, in-memory
+   * blob). `init` carries per-write options; see {@link ContentWriteInit}.
    */
-  setContent?(id: string, field: string, content: unknown): Promise<ContentRef>;
+  setContent?(id: string, field: string, content: unknown, init?: ContentWriteInit): Promise<ContentRef>;
+
+  /**
+   * Is content stored for this item's field, and where? Resolves with its reference
+   * (`url`, `mimeType`, `size`, `hash` when the backend knows them) without
+   * transferring the bytes, or `null` when nothing is stored.
+   *
+   * Optional — when absent, callers fall back to `getUrl()` or `getContent()`.
+   */
+  headContent?(id: string, field: string): Promise<ContentRef | null>;
 
   /**
    * Resolve a directly-fetchable URL for an item's content field — a public URL,

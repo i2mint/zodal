@@ -589,3 +589,121 @@ export async function providerContract(options: ProviderContractOptions): Promis
     return out;
   });
 }
+
+// ============================================================================
+// The content contract (setContent / getContent / getUrl / headContent)
+// ============================================================================
+
+export interface ContentContractOptions {
+  /**
+   * Build a provider with content methods, holding the {@link CONTRACT_SEED} rows
+   * (or none, for a content-only store). Called once per case.
+   */
+  make: (seed: ContractRow[]) => DataProvider<ContractRow> | Promise<DataProvider<ContractRow>>;
+  /** The content field written in every case. Default: `'body'`. */
+  field?: string;
+  /** Cases to skip, by name, with the reason. */
+  skip?: Record<string, string>;
+  /** Release what `make` created; called after each case. */
+  dispose?: (provider: DataProvider<ContractRow>) => void | Promise<void>;
+  /** Read a value `getContent` returned as bytes. Default: Blob, ArrayBuffer, typed arrays and strings. */
+  toBytes?: (content: unknown) => Promise<Uint8Array>;
+}
+
+async function defaultToBytes(content: unknown): Promise<Uint8Array> {
+  if (content instanceof Uint8Array) return content;
+  if (typeof Blob !== 'undefined' && content instanceof Blob) return new Uint8Array(await content.arrayBuffer());
+  if (content instanceof ArrayBuffer) return new Uint8Array(content);
+  if (ArrayBuffer.isView(content)) return new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
+  if (typeof content === 'string') return new TextEncoder().encode(content);
+  fail(`getContent returned ${show(content)}, which the contract cannot read as bytes (pass toBytes)`);
+}
+
+/**
+ * The content contract as a list of independent cases: content written with
+ * `setContent` reads back byte for byte, `headContent` reports it (and `null`
+ * before any write), `init.mimeType` reaches the reference, `init.ifAbsent` keeps
+ * the first write, and `getUrl` resolves a string or `null`. Cases for a method
+ * the provider lacks are skipped with the reason.
+ */
+export async function contentContract(options: ContentContractOptions): Promise<ContractCase[]> {
+  const field = options.field ?? 'body';
+  const toBytes = options.toBytes ?? defaultToBytes;
+  const seedCopy = () => CONTRACT_SEED.map((r) => ({ ...r, tags: [...r.tags] }));
+  const enc = (s: string) => new TextEncoder().encode(s);
+  type Body = (p: DataProvider<ContractRow>) => Promise<void>;
+  const cases: { name: string; body: Body; needs: (keyof DataProvider<ContractRow>)[] }[] = [];
+  const add = (name: string, needs: (keyof DataProvider<ContractRow>)[], body: Body) => cases.push({ name, body, needs });
+  const bytesEqual = async (actual: unknown, expected: Uint8Array, what: string) =>
+    equal([...(await toBytes(actual))], [...expected], what);
+
+  add('setContent then getContent returns the same bytes', ['setContent', 'getContent'], async (p) => {
+    const ref = await p.setContent!('1', field, enc('hello'), { mimeType: 'text/plain' });
+    hasFields(ref, { _tag: 'ContentRef', field, itemId: '1' }, 'setContent result');
+    await bytesEqual(await p.getContent!('1', field), enc('hello'), 'getContent bytes');
+  });
+
+  add('setContent replaces earlier content', ['setContent', 'getContent'], async (p) => {
+    await p.setContent!('1', field, enc('one'));
+    await p.setContent!('1', field, enc('two'));
+    await bytesEqual(await p.getContent!('1', field), enc('two'), 'getContent bytes after replace');
+  });
+
+  add('headContent is null before any write', ['headContent'], async (p) => {
+    equal(await p.headContent!('2', field), null, 'headContent before a write');
+  });
+
+  add('headContent reports written content and its MIME type', ['setContent', 'headContent'], async (p) => {
+    await p.setContent!('1', field, enc('<svg/>'), { mimeType: 'image/svg+xml' });
+    const head = await p.headContent!('1', field);
+    if (!head) fail('headContent after a write: expected a ContentRef, got null');
+    hasFields(head, { _tag: 'ContentRef', field, itemId: '1' }, 'headContent');
+    if (head.mimeType !== undefined && !head.mimeType.startsWith('image/svg+xml')) {
+      fail(`headContent.mimeType: expected image/svg+xml, got ${show(head.mimeType)}`);
+    }
+  });
+
+  add('ifAbsent keeps the first write and resolves with its reference', ['setContent', 'getContent'], async (p) => {
+    await p.setContent!('1', field, enc('first'), { ifAbsent: true });
+    const second = await p.setContent!('1', field, enc('second'), { ifAbsent: true });
+    hasFields(second, { _tag: 'ContentRef', field, itemId: '1' }, 'second ifAbsent write result');
+    await bytesEqual(await p.getContent!('1', field), enc('first'), 'getContent after two ifAbsent writes');
+  });
+
+  add('getUrl resolves a string or null', ['getUrl'], async (p) => {
+    if (p.setContent) await p.setContent('1', field, enc('x'));
+    const url = await p.getUrl!('1', field);
+    if (url !== null && typeof url !== 'string') fail(`getUrl: expected a string or null, got ${show(url)}`);
+  });
+
+  const probe = await options.make(seedCopy());
+  const has = new Set((Object.keys(probe) as (keyof DataProvider<ContractRow>)[]).filter((m) => typeof (probe as any)[m] === 'function'));
+  // Methods may live on a prototype.
+  for (const m of ['setContent', 'getContent', 'getUrl', 'headContent'] as const) if (typeof (probe as any)[m] === 'function') has.add(m);
+  await options.dispose?.(probe);
+
+  return cases.map(({ name, body, needs }) => {
+    const missing = needs.filter((m) => !has.has(m));
+    const skip = options.skip?.[name] ?? (missing.length ? `provider has no ${missing.join(', ')}` : undefined);
+    const out: ContractCase = {
+      name,
+      run: async () => {
+        const provider = await options.make(seedCopy());
+        let failure: unknown;
+        try {
+          await body(provider);
+        } catch (err) {
+          failure = err;
+        }
+        try {
+          await options.dispose?.(provider);
+        } catch (err) {
+          if (failure === undefined) failure = err;
+        }
+        if (failure !== undefined) throw failure;
+      },
+    };
+    if (skip) out.skip = skip;
+    return out;
+  });
+}

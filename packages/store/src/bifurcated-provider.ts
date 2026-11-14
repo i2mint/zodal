@@ -7,7 +7,7 @@
  */
 
 import type { ContentRef } from '@zodal/core';
-import type { DataProvider, GetListParams, GetListResult } from './data-provider.js';
+import type { ContentWriteInit, DataProvider, GetListParams, GetListResult } from './data-provider.js';
 import type { ProviderCapabilities } from './capabilities.js';
 import { DEFAULT_CAPABILITIES } from './capabilities.js';
 
@@ -70,6 +70,14 @@ export function splitFields<T extends Record<string, any>>(
 
 function defaultContentRef(itemId: string, field: string): ContentRef {
   return { _tag: 'ContentRef', field, itemId };
+}
+
+/** A reference carrying what the caller declared on write (when the generator did not say). */
+function withInit(ref: ContentRef, init: ContentWriteInit): ContentRef {
+  const out = { ...ref };
+  if (init.mimeType !== undefined && out.mimeType === undefined) out.mimeType = init.mimeType;
+  if (init.hash !== undefined && out.hash === undefined) out.hash = init.hash;
+  return out;
 }
 
 function hasContentData(obj: Record<string, any>): boolean {
@@ -300,11 +308,31 @@ export function createBifurcatedProvider<T extends Record<string, any>>(
       return (item as Record<string, any>)[field];
     },
 
-    async setContent(id: string, field: string, content: unknown): Promise<ContentRef> {
+    async setContent(id: string, field: string, content: unknown, init: ContentWriteInit = {}): Promise<ContentRef> {
       if (!contentSet.has(field)) {
         throw new Error(`Field '${field}' is not a content field. Content fields: ${contentFields.join(', ')}`);
       }
+      // ifAbsent: a read then a write (the content provider stores fields through
+      // update), so it is not atomic across concurrent writers.
+      if (init.ifAbsent) {
+        const existing = await provider.headContent!(id, field);
+        if (existing) return existing;
+      }
       await contentProvider.update(id, { [field]: content } as any);
+      return withInit(await toContentRef(id, field), init);
+    },
+
+    async headContent(id: string, field: string): Promise<ContentRef | null> {
+      if (!contentSet.has(field)) {
+        throw new Error(`Field '${field}' is not a content field. Content fields: ${contentFields.join(', ')}`);
+      }
+      let item: Record<string, any>;
+      try {
+        item = (await contentProvider.getOne(id)) as Record<string, any>;
+      } catch {
+        return null;
+      }
+      if (item[field] === undefined || item[field] === null) return null;
       return await toContentRef(id, field);
     },
 
