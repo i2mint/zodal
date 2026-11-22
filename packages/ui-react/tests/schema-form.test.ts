@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { z } from 'zod';
 import { defineCollection } from '@zodal/core';
-import { createRendererRegistry, toFormConfig, type FieldRenderProps, type FormFieldConfig } from '@zodal/ui';
+import { PRIORITY, createRendererRegistry, toFormConfig, type FieldRenderProps, type FormFieldConfig } from '@zodal/ui';
 import {
   RendererRegistryProvider,
   SchemaField,
@@ -45,11 +45,17 @@ function SelectInput({ field, config }: Props) {
   return createElement('select', { 'data-widget': 'select', name: config.name, value: String(field.value ?? ''), onChange: () => {} });
 }
 
+function ReadOnly({ config }: Props) {
+  return createElement('output', { 'data-widget': 'readonly', name: config.name });
+}
+
 function makeRegistry(): ReactRendererRegistry {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const registry = createRendererRegistry<ComponentType<any>>();
   registry.register({ name: 'TextInput', tester: (a, c) => (c.mode === 'form' && a.zodType === 'string' ? 10 : -1), renderer: TextInput });
   registry.register({ name: 'SelectInput', tester: (a, c) => (c.mode === 'form' && a.editWidget === 'select' ? 50 : -1), renderer: SelectInput });
+  // A catch-all, as renderer sets have (shadcn's ReadOnlyInput): `fallback` must still win over it.
+  registry.register({ name: 'ReadOnly', tester: (_a, c) => (c.mode === 'form' ? PRIORITY.FALLBACK : -1), renderer: ReadOnly });
   return registry;
 }
 
@@ -80,8 +86,8 @@ describe('SchemaForm', () => {
     expect(html).toContain('data-widget="text"');
     // The closed choice is drawn by the select: the config's widget reaches the tester (formFieldAffordance).
     expect(html).toMatch(/data-field="size"><select data-widget="select"/);
-    // No renderer for a number: nothing, unless a fallback is given. Hidden fields never appear.
-    expect(html).toContain('data-field="count"></div>');
+    // No specific renderer for a number: the registry's catch-all. Hidden fields never appear.
+    expect(html).toContain('data-field="count"><output data-widget="readonly"');
     expect(html).not.toContain('secretNote');
   });
 
@@ -109,6 +115,54 @@ describe('SchemaForm', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
     expect(seen).toEqual([{ name: 'ab', size: 'm', count: 1 }]);
+  });
+
+  it('composes two changes made in one tick, and says which field changed', () => {
+    const seen: unknown[][] = [];
+    let fire: Array<(v: unknown) => void> = [];
+    const Capture = ({ field }: Props) => {
+      fire.push(field.onChange as (v: unknown) => void);
+      return null;
+    };
+    const registry = makeRegistry();
+    registry.register({ name: 'Capture', tester: () => 999, renderer: Capture });
+    mount(
+      createElement(SchemaForm, {
+        collection,
+        value: { name: 'a', size: 'm', count: 1 },
+        onChange: (next: unknown, change: unknown) => seen.push([next, change]),
+        registry,
+        fields: ['name', 'count'],
+      }),
+    );
+    const [setName, setCount] = fire.slice(-2);
+    act(() => {
+      setName('x');
+      setCount(2);
+    });
+    expect(seen.at(-1)).toEqual([{ name: 'x', size: 'm', count: 2 }, { name: 'count', value: 2 }]);
+  });
+
+  it('draws errors under their fields, and as a form does not reload on submit', () => {
+    const el = mount(
+      createElement(SchemaForm, {
+        collection,
+        value: {},
+        onChange: () => {},
+        registry: makeRegistry(),
+        fields: ['name'],
+        errors: { name: 'Required' },
+        as: 'form',
+      }),
+    );
+    const alert = el.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toBe('Required');
+    expect(el.querySelector('[data-field="name"]')!.getAttribute('aria-describedby')).toBe(alert.id);
+    const submit = new Event('submit', { bubbles: true, cancelable: true });
+    act(() => {
+      el.querySelector('form')!.dispatchEvent(submit);
+    });
+    expect(submit.defaultPrevented).toBe(true);
   });
 
   it('keeps only `fields`, in their order, and applies `adjust` and `errors`', () => {
@@ -141,7 +195,7 @@ describe('SchemaField', () => {
   const configs = toFormConfig(collection, 'edit');
   const count = configs.find((c) => c.name === 'count')!;
 
-  it('draws the fallback when the registry has no renderer', () => {
+  it('draws the fallback when the registry has only a catch-all', () => {
     const Fallback = ({ config }: Props) => createElement('span', { 'data-fallback': config.name });
     const html = renderToStaticMarkup(
       createElement(SchemaField, {

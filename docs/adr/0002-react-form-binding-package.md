@@ -20,10 +20,12 @@ It is written with `createElement`, so the package needs no JSX transform, and i
 |---|---|---|
 | renderer registry | the `registry` prop, else `RendererRegistryProvider`'s | any `create<Lib>Registry()` (`@zodal/ui-shadcn` today) |
 | field wrapper | a `div.zodal-field[data-field]` | a host layout via `useFormConfigs` + `SchemaField` |
-| unmatched field | nothing, or `fallback` | a JSON editor fallback (lacing-ui has one) |
+| unmatched field | the registry's catch-all, or `fallback` when the best match is at `PRIORITY.FALLBACK` or below | a JSON editor fallback (lacing-ui has one) |
+| error display | a `role="alert"` line under the field (`drawErrors`) | renderers that draw `error` themselves (none of shadcn's do yet) |
 
 ## Consequences
 
+- `onChange(next, { name, value })` builds each change on the previous one (a ref), so two changes in one tick compose; hosts that keyed on `(name, value)` read the second argument.
 - Hosts replace their local copies with this package (lacing-ui, hearing, steadyday, podpatch each have one); those migrations are follow-ups in their repos.
-- Publishing a new npm name cannot be undone, and publishing is blocked on trusted publishers ([#23](https://github.com/i2mint/zodal/issues/23)). This change adds the package at 0.1.0 without a `[publish]` commit; the first publish is a deliberate act once #23 is done.
+- Publishing a new npm name cannot be undone, and publishing is blocked on trusted publishers ([#23](https://github.com/i2mint/zodal/issues/23)). The package is marked `"private": true`, because CI's `pnpm -r publish` takes every non-private workspace package on any `[publish]` commit; the first publish is a deliberate act once #23 is done, starting with removing that flag.
 - Reversible until published: removing `packages/ui-react` undoes it.

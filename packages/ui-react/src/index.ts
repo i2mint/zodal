@@ -16,18 +16,22 @@ import {
   createElement,
   useContext,
   useMemo,
+  useRef,
   type ComponentType,
   type ReactElement,
   type ReactNode,
 } from 'react';
 import type { ResolvedFieldAffordance } from '@zodal/core';
 import {
+  PRIORITY,
   formFieldAffordance,
   toFormConfig,
+  type FieldHistoryStore,
   type FieldRenderProps,
   type FormFieldConfig,
   type RendererContext,
   type RendererRegistry,
+  type SuggestionSource,
 } from '@zodal/ui';
 
 /** A registry of React components, as `createShadcnRegistry()` returns. */
@@ -41,8 +45,15 @@ export interface FormCollection {
   fieldAffordances: Record<string, ResolvedFieldAffordance>;
 }
 
-/** Extra render context for every field (`suggest`, `history`, host keys); `mode` is always `'form'`. */
-export type FormRenderContext = Omit<RendererContext, 'mode'>;
+/** Extra render context for every field; `mode` is always `'form'`. */
+export interface FormRenderContext {
+  /** Where tag-like widgets get suggestions (see `RendererContext.suggest`). */
+  suggest?: SuggestionSource;
+  /** Where fields with history read and write past values (see `RendererContext.history`). */
+  history?: FieldHistoryStore;
+  /** Any host key a renderer set reads (widget options...). */
+  [key: string]: unknown;
+}
 
 // ============================================================================
 // The registry, from a prop or a provider
@@ -91,7 +102,11 @@ export interface SchemaFieldProps<V = unknown> {
   /** A validation message to show. */
   error?: string;
   onBlur?: () => void;
-  /** Drawn when the registry has no renderer for the field. Default: nothing. */
+  /**
+   * Drawn when the registry has nothing better than a catch-all for the field (no match, or
+   * only renderers at `PRIORITY.FALLBACK` or below, like a read-only input). Default: the
+   * registry's own pick, or nothing.
+   */
   fallback?: ComponentType<FieldRenderProps<FormFieldConfig>>;
 }
 
@@ -110,6 +125,16 @@ export function resolveFormField(
   return { affordance: resolvedAffordance, Renderer };
 }
 
+/** Whether the registry's best match for the field is only a catch-all (or nothing). */
+function onlyCatchAll(
+  registry: ReactRendererRegistry,
+  affordance: ResolvedFieldAffordance,
+  context: RendererContext,
+): boolean {
+  const best = registry.explain(affordance, context)[0];
+  return !best || best.score <= PRIORITY.FALLBACK;
+}
+
 /** One form field, drawn by the component the registry picks for it. */
 export function SchemaField<V = unknown>({
   config,
@@ -125,7 +150,7 @@ export function SchemaField<V = unknown>({
   const reg = useRendererRegistry(registry);
   const fullContext: RendererContext = { ...context, mode: 'form' };
   const { affordance: resolved, Renderer } = resolveFormField(reg, config, affordance, context);
-  const Component = Renderer ?? fallback;
+  const Component = fallback && onlyCatchAll(reg, resolved, fullContext) ? fallback : Renderer;
   if (!Component) return null;
   const props: FieldRenderProps<FormFieldConfig, V> = {
     field: { value, onChange, name: config.name, ...(onBlur ? { onBlur } : {}) },
@@ -156,7 +181,7 @@ export function useFormConfigs(
     const all = toFormConfig(collection as never, mode).filter((c) => !c.hidden);
     if (!fields) return all;
     const byName = new Map(all.map((c) => [c.name, c]));
-    return fields.flatMap((name) => {
+    return [...new Set(fields)].flatMap((name) => {
       const config = byName.get(name);
       return config ? [config] : [];
     });
@@ -164,11 +189,20 @@ export function useFormConfigs(
   }, [collection, mode, key]);
 }
 
+/** Which field changed, beside the whole next value. */
+export interface FieldChange {
+  name: string;
+  value: unknown;
+}
+
 export interface SchemaFormProps<T extends Record<string, unknown>> {
   collection: FormCollection;
   value: T;
-  /** Called with the whole next value when one field changes. */
-  onChange: (next: T) => void;
+  /**
+   * Called with the whole next value when one field changes, and which field it was.
+   * Changes made in one tick compose (each builds on the previous one, not on the last render).
+   */
+  onChange: (next: T, change: FieldChange) => void;
   /** Which fields `toFormConfig` surfaces. Default `'edit'`. */
   mode?: 'create' | 'edit';
   /** Only these fields, in this order. Default: every visible field, in `order`. */
@@ -177,10 +211,12 @@ export interface SchemaFormProps<T extends Record<string, unknown>> {
   adjust?: (config: FormFieldConfig, value: T) => FormFieldConfig;
   registry?: ReactRendererRegistry;
   context?: FormRenderContext;
-  /** Validation messages by field name. */
+  /** Validation messages by field name: passed to the renderer, and drawn under the field. */
   errors?: Partial<Record<string, string>>;
+  /** Draw each error under its field (`role="alert"`). Turn off for a renderer set that draws its own. Default true. */
+  drawErrors?: boolean;
   fallback?: ComponentType<FieldRenderProps<FormFieldConfig>>;
-  /** The element around the fields. Default `'div'`. */
+  /** The element around the fields. Default `'div'`; with `'form'`, submitting (Enter) does not reload the page. */
   as?: string;
   className?: string;
 }
@@ -200,30 +236,50 @@ export function SchemaForm<T extends Record<string, unknown>>({
   registry,
   context,
   errors,
+  drawErrors = true,
   fallback,
   as = 'div',
   className,
 }: SchemaFormProps<T>): ReactElement {
   const reg = useRendererRegistry(registry);
   const configs = useFormConfigs(collection, { mode, fields });
+  // The latest value, advanced by each change, so two changes in one tick compose.
+  const latest = useRef(value);
+  latest.current = value;
   const children = configs.map((base) => {
     const affordance = collection.fieldAffordances[base.name];
     if (!affordance) return null;
     const config = adjust ? adjust(base, value) : base;
+    const error = errors?.[base.name];
+    const errorId = `zodal-field-error-${base.name}`;
     return createElement(
       'div',
-      { key: base.name, className: 'zodal-field', 'data-field': base.name },
+      {
+        key: base.name,
+        className: 'zodal-field',
+        'data-field': base.name,
+        ...(error && drawErrors ? { 'aria-describedby': errorId } : {}),
+      },
       createElement(SchemaField, {
         config,
         affordance,
         value: value[base.name],
-        onChange: (next: unknown) => onChange({ ...value, [base.name]: next }),
+        onChange: (next: unknown) => {
+          const whole = { ...latest.current, [base.name]: next } as T;
+          latest.current = whole;
+          onChange(whole, { name: base.name, value: next });
+        },
         registry: reg,
         context,
-        error: errors?.[base.name],
+        error,
         fallback,
       }),
+      error && drawErrors
+        ? createElement('p', { id: errorId, role: 'alert', className: 'zodal-field-error' }, error)
+        : null,
     );
   });
-  return createElement(as, { className: className ?? 'zodal-form' }, children);
+  const formProps =
+    as === 'form' ? { onSubmit: (event: { preventDefault(): void }) => event.preventDefault() } : {};
+  return createElement(as, { className: className ?? 'zodal-form', ...formProps }, children);
 }
