@@ -42,7 +42,7 @@ caps.serverSort;  // false (in-memory is client-side)
 - **createInMemoryProvider()** -- full-featured client-side adapter for prototyping/testing
 - **wrapProvider()** -- apply encode/decode codecs to any DataProvider
 - **createTieredProvider()** -- a bounded local cache (hot tier, e.g. localStorage) over a remote source of truth (cold tier, e.g. HTTP or S3): fresh cached reads, write-through, LRU eviction past `maxItems`, recency kept in its own `residency` provider, offline reads answered from the cache, best-effort caching (a cache failure never fails a remote success), admission and eviction as policies
-- **createAuthAwareProvider()** -- local while signed out, the account's store (cached locally) once signed in, with the device's records merged up on the first sign-in: union by id, newer `updatedAt` wins, or union only for an append-only log
+- **createAuthAwareProvider()** -- the device's records while signed out, the account's store once signed in, with the device's new or changed records merged up on each sign-in (union by id, newer `updatedAt` wins, or union only for an append-only log); an optional per-account offline cache
 - **createFieldHistory()** -- a field's past values, offered back (input history): dedupe moves a repeated value to the top, a cap per scope that never evicts pinned entries, pinned then most recent first, a query filter, `clear`/`restore` for an Undo; entries live in any `DataProvider<HistoryEntry>` (in memory by default, localStorage on one device, a tiered provider across devices). See `docs/research/field-input-history.md`
 - **filterToFunction()** -- compile FilterExpression to a predicate for client-side evaluation
 
@@ -53,14 +53,16 @@ import { createAuthAwareProvider } from '@zodal/store';
 
 const presets = createAuthAwareProvider({
   local: createLocalStorageProvider({ storageKey: 'presets' }),
-  remote: () => (auth.user ? createHttpProvider({ baseUrl: `/api/${auth.user.id}/presets` }) : null),
+  // A stable key per account: the provider object may be new on every call.
+  remote: () => (auth.user ? { key: auth.user.id, provider: accountPresets(auth.user) } : null),
+  mergeState: createLocalStorageProvider({ storageKey: 'presets:merged' }), // survives reloads
 });
 
-presets.onSwitch(({ to }) => refreshViews(to));  // 'local' -> 'remote' on sign-in, back on sign-out
-await presets.refresh();                         // check right after sign-in, merging up now
+presets.onSwitch(({ to, account }) => refreshViews(to, account));
+auth.onChange(() => presets.refresh());  // notice sign-in/out at once, merging up now
 ```
 
-`remote()` is asked before every operation. The first time a remote provider appears, every local record is merged into it (`merge` to replace the rule; `appendOnly: true` never overwrites); until that merge succeeds the remote is used directly, so no cache eviction can drop a record not yet in the account, and the merge is retried on the next operation. After it, the remote is read and written through `createTieredProvider` with `local` as the cache (`tier` passes its options). On sign-out it goes back to `local`, which still holds what the cache kept: a host that must not leave account data on a shared device clears it on sign-out. Conditional writes are forwarded; signed in, `versioned` is reported off, as the tier does.
+`local` only ever holds the device's own records: signed in, reads and writes go to the account and nothing is written to `local`, so one account's records can never be merged into another, and a record the account deleted is not brought back. On every sign-in, the device records new or changed since they were last merged into that account are merged up (default: union by id, strictly newer `updatedAt` wins, so the local provider must stamp `updatedAt` on every edit; `appendOnly: true` never overwrites; `merge` replaces the rule; `timeOf` reads other timestamp formats). The account is read page by page. A failed merge goes to `onMergeError`, changes nothing locally, and is retried on the next operation. An offline cache of an account is opt-in: `cache: (key) => provider` reads the account through `createTieredProvider` over that per-account cache (`tier` passes its options). Optional methods (conditional writes, content) are forwarded to the provider in use and reject when it lacks them; `getCapabilities` reports that provider's.
 
 ## Tiered provider: recent items cached on the device
 

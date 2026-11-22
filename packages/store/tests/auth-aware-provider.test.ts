@@ -13,16 +13,20 @@ interface Preset {
 
 const p = (id: string, name: string, updatedAt = '2026-01-01T00:00:00Z'): Preset => ({ id, name, updatedAt });
 
+/** A device store and two accounts; `auth.user` picks the account, null is signed out. */
 function setup(localSeed: Preset[], remoteSeed: Preset[], extra = {}) {
   const local = createInMemoryProvider<Preset>(localSeed);
-  const account = createInMemoryProvider<Preset>(remoteSeed);
-  const auth = { signedIn: false };
+  const accounts: Record<string, DataProvider<Preset>> = {
+    alice: createInMemoryProvider<Preset>(remoteSeed),
+    bob: createInMemoryProvider<Preset>([]),
+  };
+  const auth: { user: string | null } = { user: null };
   const provider = createAuthAwareProvider<Preset>({
     local,
-    remote: () => (auth.signedIn ? account : null),
+    remote: () => (auth.user ? { key: auth.user, provider: accounts[auth.user] } : null),
     ...extra,
   });
-  return { local, account, auth, provider };
+  return { local, accounts, account: accounts.alice, auth, provider };
 }
 
 const ids = async (dp: DataProvider<Preset>) => (await dp.getList({})).data.map((x) => x.id).sort();
@@ -37,12 +41,12 @@ describe('createAuthAwareProvider', () => {
     expect(provider.source()).toBe('local');
   });
 
-  it('merges local records up on first sign-in: union, the newer updatedAt wins', async () => {
+  it('merges device records up on sign-in: union, the newer updatedAt wins', async () => {
     const { account, auth, provider } = setup(
       [p('a', 'local-new', '2026-03-01T00:00:00Z'), p('b', 'local-old', '2026-01-01T00:00:00Z'), p('c', 'only-local')],
       [p('a', 'remote-old', '2026-02-01T00:00:00Z'), p('b', 'remote-new', '2026-02-01T00:00:00Z'), p('r', 'R')],
     );
-    auth.signedIn = true;
+    auth.user = 'alice';
     expect(await provider.refresh()).toBe('remote');
     const byId = Object.fromEntries((await account.getList({})).data.map((x) => [x.id, x.name]));
     expect(byId).toEqual({ a: 'local-new', b: 'remote-new', c: 'only-local', r: 'R' });
@@ -55,69 +59,133 @@ describe('createAuthAwareProvider', () => {
       [p('a', 'remote', '2020-01-01T00:00:00Z')],
       { appendOnly: true },
     );
-    auth.signedIn = true;
+    auth.user = 'alice';
     await provider.refresh();
     expect((await account.getOne('a')).name).toBe('remote');
     expect((await account.getOne('c')).name).toBe('new');
   });
 
-  it('writes go to the account while signed in, and local again after sign-out, losing nothing', async () => {
+  it('signed in, writes go to the account and never to local; after sign-out local is the device again', async () => {
     const { local, account, auth, provider } = setup([p('a', 'A')], []);
-    auth.signedIn = true;
+    auth.user = 'alice';
     await provider.create(p('s', 'signed-in'));
+    await provider.getOne('s');
     expect(await ids(account)).toEqual(['a', 's']);
-    auth.signedIn = false;
-    expect(await ids(provider)).toContain('a');
-    await provider.create(p('o', 'offline'));
-    expect(await ids(local)).toContain('o');
-    expect(await ids(account)).not.toContain('o');
+    expect(await ids(local)).toEqual(['a']);
+    auth.user = null;
+    expect(await ids(provider)).toEqual(['a']);
   });
 
-  it('merges once per remote provider', async () => {
+  it('records made between two sign-ins are merged on the second one', async () => {
+    const { account, auth, provider } = setup([], []);
+    auth.user = 'alice';
+    await provider.refresh();
+    auth.user = null;
+    await provider.create(p('offline', 'made signed out'));
+    auth.user = 'alice';
+    await provider.refresh();
+    expect(await ids(account)).toEqual(['offline']);
+  });
+
+  it("never merges one account's records into another", async () => {
+    const { accounts, auth, provider } = setup([p('device', 'D')], [p('secretA', 'A only')]);
+    auth.user = 'alice';
+    await provider.getOne('secretA');
+    auth.user = null;
+    await provider.refresh();
+    auth.user = 'bob';
+    await provider.refresh();
+    expect(await ids(accounts.bob)).toEqual(['device']);
+  });
+
+  it('a device record merged once is not brought back after the account deletes it', async () => {
+    const { account, auth, provider } = setup([p('d', 'D')], []);
+    auth.user = 'alice';
+    await provider.refresh();
+    await account.delete('d'); // deleted on another device
+    auth.user = null;
+    await provider.refresh();
+    auth.user = 'alice';
+    await provider.refresh();
+    expect(await ids(account)).toEqual([]);
+  });
+
+  it('keys accounts, not provider objects: a new provider per call merges once', async () => {
     let merges = 0;
-    const { auth, provider } = setup([p('a', 'A')], [], {
-      merge: async () => {
+    const local = createInMemoryProvider<Preset>([p('a', 'A')]);
+    const store = createInMemoryProvider<Preset>([]);
+    const provider = createAuthAwareProvider<Preset>({
+      local,
+      remote: () => ({ key: 'alice', provider: { ...store } }),
+      merge: async (records, remote) => {
         merges++;
-        return { written: [], kept: [] };
+        return mergeByUpdatedAt<Preset>()(records, remote);
       },
     });
-    auth.signedIn = true;
-    await Promise.all([provider.getList({}), provider.getList({}), provider.refresh()]);
-    await provider.getOne('a').catch(() => {});
+    for (let i = 0; i < 5; i++) await provider.getList({});
     expect(merges).toBe(1);
   });
 
-  it('a failed merge is retried, and until then the cache never touches local', async () => {
-    const errors: unknown[] = [];
-    let fail = true;
-    const { local, auth, provider } = setup([p('a', 'A'), p('b', 'B')], [], {
-      merge: async (l: DataProvider<Preset>, r: DataProvider<Preset>) => {
-        if (fail) throw new Error('offline');
-        return mergeByUpdatedAt<Preset>()(l, r);
-      },
-      onMergeError: (e: unknown) => errors.push(e),
-      tier: { maxItems: 0 }, // the cache would evict everything it holds
+  it('merges against every page of a paginated account', async () => {
+    const remote = createInMemoryProvider<Preset>([p('a', 'remote-newer', '2026-09-01T00:00:00Z'), p('z', 'Z')]);
+    const capped: DataProvider<Preset> = {
+      ...remote,
+      getList: (params) =>
+        remote.getList({ ...params, pagination: { page: params.pagination?.page ?? 1, pageSize: 1 } }),
+    };
+    const provider = createAuthAwareProvider<Preset>({
+      local: createInMemoryProvider([p('a', 'local-older', '2020-01-01T00:00:00Z')]),
+      remote: () => ({ key: 'k', provider: capped }),
     });
-    auth.signedIn = true;
-    await provider.getList({});
-    expect(errors).toHaveLength(1);
-    expect(await ids(local)).toEqual(['a', 'b']); // unmerged records are still on the device
-    fail = false;
-    expect(await ids(provider)).toEqual(['a', 'b']);
+    await provider.refresh();
+    expect((await remote.getOne('a')).name).toBe('remote-newer');
   });
 
-  it('announces switches, and subscribe follows the current provider', async () => {
+  it('a failed merge is retried and never touches local', async () => {
+    const errors: unknown[] = [];
+    let fail = true;
+    const { local, account, auth, provider } = setup([p('a', 'A'), p('b', 'B')], [], {
+      merge: async (records: Preset[], r: DataProvider<Preset>) => {
+        if (fail) throw new Error('offline');
+        return mergeByUpdatedAt<Preset>()(records, r);
+      },
+      onMergeError: (e: unknown) => errors.push(e),
+    });
+    auth.user = 'alice';
+    await provider.getList({});
+    expect(errors).toHaveLength(1);
+    expect(await ids(local)).toEqual(['a', 'b']);
+    fail = false;
+    await provider.getList({});
+    expect(await ids(account)).toEqual(['a', 'b']);
+  });
+
+  it('an opt-in cache per account serves the account through a tier', async () => {
+    const caches: Record<string, DataProvider<Preset>> = {};
+    const { local, auth, provider } = setup([], [p('r', 'R')], {
+      cache: (key: string) => (caches[key] ??= createInMemoryProvider<Preset>([])),
+    });
+    auth.user = 'alice';
+    await provider.getOne('r');
+    expect(await ids(caches.alice)).toEqual(['r']);
+    expect(await ids(local)).toEqual([]);
+  });
+
+  it('announces switches, naming the account', async () => {
     const { auth, provider } = setup([], []);
     const switches: unknown[] = [];
     provider.onSwitch((e) => switches.push(e));
     await provider.refresh();
-    auth.signedIn = true;
+    auth.user = 'alice';
     await provider.refresh();
-    auth.signedIn = false;
+    auth.user = 'bob';
+    await provider.refresh();
+    auth.user = null;
     await provider.refresh();
     expect(switches).toEqual([
-      { from: 'local', to: 'remote' },
-      { from: 'remote', to: 'local' },
+      { from: 'local', to: 'remote', account: 'alice' },
+      { from: 'remote', to: 'remote', account: 'bob' },
+      { from: 'remote', to: 'local', account: 'bob' },
     ]);
   });
 });

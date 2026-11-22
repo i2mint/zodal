@@ -58,7 +58,7 @@ export type {
 export { wrapProvider } from './wrap-provider.js';
 
 // Auth-aware provider (local signed out, remote signed in, merge up on first sign-in)
-export { createAuthAwareProvider, mergeByUpdatedAt } from './auth-aware-provider.js';
+export { createAuthAwareProvider, mergeByUpdatedAt, defaultTimeOf } from './auth-aware-provider.js';
 export type {
   AuthAwareProvider,
   AuthAwareProviderOptions,
@@ -66,6 +66,8 @@ export type {
   AuthSwitchEvent,
   MergeResult,
   MergeUp,
+  MergeStateRecord,
+  RemoteAccount,
 } from './auth-aware-provider.js';
 
 // Tiered provider (bounded local cache over a remote source)
