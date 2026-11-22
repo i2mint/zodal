@@ -72,6 +72,12 @@ See [The content-metadata bifurcation problem in software architecture](docs/res
 - **Thin glue, not a framework** -- configures existing tools (TanStack Table, Zustand, etc.)
 - **Content-metadata bifurcation** -- schema classifies fields by storage role; two providers compose into one
 
+## Why backends are native satellites
+
+zodal's `DataProvider` contract is wider than the CRUD core that data-provider ecosystems such as [refine](https://github.com/refinedev/refine) or [react-admin](https://github.com/marmelab/react-admin) share. It adds declared capabilities (`getCapabilities`, which the contract checks), per-field filter operators, `arrayContains`, `not`, case-insensitive `search`, upserts, versioned writes and content methods, and `providerContract` in `@zodal/store/testing` tests all of it. So each backend is a native `zodal-store-*` satellite that passes that contract, instead of a bridge to a foreign provider. A bridge is easy to write but passes only the CRUD core, and a foreign provider may map an operator it does not know to plain equality, which returns wrong results where zodal's contract expects an error.
+
+If you need a backend zodal lacks but a refine or react-admin provider covers, a bridge behind the same `DataProvider` seam is possible; the price is a hand-written capability table per wrapped provider.
+
 ## Development
 
 ```bash
