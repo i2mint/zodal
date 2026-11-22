@@ -1,0 +1,54 @@
+{
+  "name": "@zodal/ui-react",
+  "private": true,
+  "version": "0.1.0",
+  "description": "React binding for zodal forms: SchemaField and SchemaForm over any renderer registry",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/i2mint/zodal.git",
+    "directory": "packages/ui-react"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
+  },
+  "peerDependencies": {
+    "@zodal/core": "^0.2.6",
+    "@zodal/ui": "^0.2.6",
+    "react": "^18.0.0 || ^19.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@zodal/core": "workspace:*",
+    "@zodal/ui": "workspace:*",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.0.0",
+    "vitest": "^3.0.0",
+    "zod": "^4.3.6"
+  }
+}
