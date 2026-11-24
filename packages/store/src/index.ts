@@ -35,11 +35,15 @@ export { WriteConflict, isWriteConflict } from './versioning.js';
 export type { Version, Versioned } from './versioning.js';
 
 // Filters
-export { filterToFunction } from './filters.js';
+export { filterToFunction } from '@zodal/core';
 
 // Client-side query evaluation (shared by adapters)
 export { applyQuery, compareValues, compareBinary, matchesSearch } from './query.js';
 export type { ApplyQueryOptions } from './query.js';
+
+// Resolving a selection against a provider (zodal#154; the types and in-memory resolvers are in @zodal/core)
+export { resolveSelectionIds, RESOLVE_PAGE_SIZE } from './views.js';
+export type { ResolveIdsOptions, ResolvedSelectionIds } from './views.js';
 
 // In-memory adapter
 export { createInMemoryProvider } from './in-memory.js';

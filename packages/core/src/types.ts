@@ -508,20 +508,23 @@ export interface PaginationState {
 // Filter Expression Types (structured, serializable filters)
 // ============================================================================
 
+/**
+ * The filter operators (Prisma-style), as a runtime list: the single source of the
+ * {@link FilterOperator} type and of `FilterExpressionSchema`. Equality `eq` `ne`; comparison
+ * `gt` `gte` `lt` `lte`; string `contains` `startsWith` `endsWith`; set `in` `notIn`; array
+ * `arrayContains` `arrayContainsAny`; existence `isNull` `isNotNull`.
+ */
+export const FILTER_OPERATORS = [
+  'eq', 'ne',
+  'gt', 'gte', 'lt', 'lte',
+  'contains', 'startsWith', 'endsWith',
+  'in', 'notIn',
+  'arrayContains', 'arrayContainsAny',
+  'isNull', 'isNotNull',
+] as const;
+
 /** Available filter operators (Prisma-style). */
-export type FilterOperator =
-  // Equality
-  | 'eq' | 'ne'
-  // Comparison
-  | 'gt' | 'gte' | 'lt' | 'lte'
-  // String
-  | 'contains' | 'startsWith' | 'endsWith'
-  // Set
-  | 'in' | 'notIn'
-  // Array
-  | 'arrayContains' | 'arrayContainsAny'
-  // Existence
-  | 'isNull' | 'isNotNull';
+export type FilterOperator = (typeof FILTER_OPERATORS)[number];
 
 /** A single filter condition. */
 export interface FilterCondition {
