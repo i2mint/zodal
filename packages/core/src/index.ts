@@ -173,3 +173,28 @@ export {
   SchemaIntrospectionError,
 } from './sensitivity.js';
 export type { SecretPath, SecretInspection } from './sensitivity.js';
+
+// Views, selection and collections: one model (zodal#154; resolvers are in @zodal/store)
+export {
+  FILTER_OPERATORS,
+  FilterExpressionSchema,
+  QuerySchema,
+  SelectionSchema,
+  SortKeySchema,
+  OrderingSchema,
+  MembershipSchema,
+  EMPTY_SELECTION,
+  selectIds,
+  selectMatching,
+  isSelectionEmpty,
+  isSelected,
+  toggleSelected,
+  setSelected,
+  selectRange,
+  forgetSelected,
+  compareSortKeys,
+  applyOrdering,
+  filterConditions,
+  missingFieldClauses,
+} from './views.js';
+export type { ItemId, Query, Selection, SortKey, Ordering, Membership, OrderingOptions, MissingFieldClause } from './views.js';

@@ -41,6 +41,10 @@ export { filterToFunction } from './filters.js';
 export { applyQuery, compareValues, compareBinary, matchesSearch } from './query.js';
 export type { ApplyQueryOptions } from './query.js';
 
+// Resolving views, selections and collections (zodal#154; the types are in @zodal/core)
+export { evaluateQuery, resolveSelection, resolveMembership, resolveView, freezeSelection, resolveSelectionIds } from './views.js';
+export type { ResolveOptions, ResolveIdsOptions, ResolvedSelectionIds } from './views.js';
+
 // In-memory adapter
 export { createInMemoryProvider } from './in-memory.js';
 export type { InMemoryProviderOptions } from './in-memory.js';
