@@ -64,6 +64,7 @@ export {
   undoRemove,
   restoreOrder,
   orderOf,
+  defaultIdOf,
   withPositions,
   changedPositions,
 } from './order.js';
@@ -174,15 +175,27 @@ export {
 } from './sensitivity.js';
 export type { SecretPath, SecretInspection } from './sensitivity.js';
 
-// Views, selection and collections: one model (zodal#154; resolvers are in @zodal/store)
+// Evaluating the query language in memory (moved from @zodal/store, which re-exports them)
+export { FILTER_OPERATORS } from './types.js';
+export { filterToFunction, matchesSearch, compareValues, compareBinary, compareSortKeys } from './filters.js';
+
+// Views, selection and collections: one model (zodal#154; docs/views-selection.md)
 export {
-  FILTER_OPERATORS,
   FilterExpressionSchema,
   QuerySchema,
   SelectionSchema,
   SortKeySchema,
   OrderingSchema,
   MembershipSchema,
+  PresentationSchema,
+  ViewSchema,
+  VIEW_SCOPES,
+  evaluateQuery,
+  queryMatcher,
+  resolveSelection,
+  resolveMembership,
+  resolveView,
+  freezeSelection,
   EMPTY_SELECTION,
   selectIds,
   selectMatching,
@@ -192,9 +205,23 @@ export {
   setSelected,
   selectRange,
   forgetSelected,
-  compareSortKeys,
   applyOrdering,
+  toSortingState,
   filterConditions,
   missingFieldClauses,
 } from './views.js';
-export type { ItemId, Query, Selection, SortKey, Ordering, Membership, OrderingOptions, MissingFieldClause } from './views.js';
+export type {
+  ItemId,
+  Query,
+  Selection,
+  SortKey,
+  Ordering,
+  Membership,
+  Presentation,
+  ViewScope,
+  View,
+  ViewShape,
+  ResolveOptions,
+  SelectionOptions,
+  MissingFieldClause,
+} from './views.js';

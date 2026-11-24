@@ -15,7 +15,7 @@
 /** How an item's id is read. Default: its `id` field. */
 export type IdOf<T> = (item: T) => string;
 
-const defaultIdOf = <T>(item: T): string => String((item as { id?: unknown }).id);
+export const defaultIdOf = <T>(item: T): string => String((item as { id?: unknown }).id);
 
 function indexOfId<T>(list: readonly T[], id: string, idOf: IdOf<T>): number {
   return list.findIndex((item) => idOf(item) === id);

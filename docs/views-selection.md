@@ -1,6 +1,6 @@
 # Views, selection and collections: one model
 
-Apps keep rebuilding the same things: "save this filter and sort as a view", "select these" or "select all matching", "do X to the selection", "a playlist" versus "a smart playlist", "a trash". zodal answers all of them with four serialisable types and a few pure functions. This page is the map; the code is `packages/core/src/views.ts` (types, schemas, selection changes, ordering) and `packages/store/src/views.ts` (resolving against items or a `DataProvider`). Tracking issue: i2mint/zodal#154; siblings #155 (view store and selection slice), #156 (`withTrash`), #157 (the `zodal-views` skill).
+Apps keep rebuilding the same things: "save this filter and sort as a view", "select these" or "select all matching", "do X to the selection", "a playlist" versus "a smart playlist", "a trash". zodal answers all of them with four serialisable types and a few pure functions. This page is the map; the code is `packages/core/src/views.ts` (types, schemas, resolvers, selection changes, ordering) and `packages/store/src/views.ts` (resolving a selection against a `DataProvider`). Tracking issue: i2mint/zodal#154; siblings #155 (view store and selection slice), #156 (`withTrash`), #157 (the `zodal-views` skill).
 
 ## Terminology
 
@@ -51,16 +51,17 @@ Each has a Zod schema (`QuerySchema`, `SelectionSchema`, `OrderingSchema`, `Memb
 
 ## Functions
 
-`@zodal/core` (no evaluator needed):
+`@zodal/core`, all in memory with the core evaluator (`filterToFunction` + `matchesSearch`, which moved here from `@zodal/store`; store re-exports them):
 
-- `selectIds`, `selectMatching`, `EMPTY_SELECTION`, `isSelectionEmpty`, `isSelected`, `toggleSelected`, `setSelected`, `selectRange`, `forgetSelected`.
-- `applyOrdering(items, ordering, { key, compare })` and `compareSortKeys`, the portable order of sort keys: null first, numbers, strings lower-cased by code point (no locale, so a Python or SQL evaluator can match it), booleans, dates.
-- `missingFieldClauses(view, fields)`: the clauses of a saved view that name a field the collection no longer has. On a schema change, show these to the user; never drop them silently (a dropped clause widens a view).
+- Resolving: `resolveSelection`, `resolveMembership`, `resolveView`, `freezeSelection`, `evaluateQuery`. Seams (options): `idOf` (an item's id, `item.id` by default; media apps key files by path; the same name as the hand-order functions), `evaluate` (how a query runs; a ranked search passes its own and the ranking survives), `compare` (the sort-key order).
+- Changing a selection: `selectIds`, `selectMatching`, `EMPTY_SELECTION`, `isSelectionEmpty`, `isSelected`, `toggleSelected`, `setSelected`, `selectRange(selection, { anchor, id, shown })`, `forgetSelected`. A query selection needs `{ matches }` to know which items its query covers; `queryMatcher(query, items)` builds one.
+- Ordering: `applyOrdering(items, ordering, { idOf, compare })` and `compareSortKeys`, the portable order of sort keys: null first, numbers, strings lower-cased by code point (no locale, so a Python or SQL evaluator can match it), booleans, dates. `toSortingState(ordering)` gives a provider's `GetListParams.sort`; providers sort with their own comparator (`compareValues`, locale-aware), so pass `{ compare: compareSortKeys }` to `applyQuery` where the portable order matters.
+- Checking: `missingFieldClauses(view, fields)`, the clauses of a saved view that name a field the collection no longer has. On a schema change, show these to the user; never drop them silently (a dropped clause widens a view).
+- Schemas: `FilterExpressionSchema` (built from `FILTER_OPERATORS`, the one list the `FilterOperator` type is derived from), `QuerySchema`, `SelectionSchema`, `OrderingSchema`, `MembershipSchema`, `PresentationSchema`, `ViewSchema`.
 
-`@zodal/store` (needs an evaluator, `applyQuery` by default):
+`@zodal/store`:
 
-- `resolveSelection`, `resolveMembership`, `resolveView`, `freezeSelection` over items in memory. Seams: `key` (an item's id, `item.id` by default; media apps key files by path) and `evaluate` (how a query runs; a ranked search passes its own and the ranking survives).
-- `resolveSelectionIds(provider, selection, { key, pageSize })` against any `DataProvider`: the provider runs the query, server side when it can, so "all matching" never has to be held as ids in the browser.
+- `resolveSelectionIds(provider, selection, { idOf, pageSize })` against any `DataProvider`: the provider runs the query, server side when it can, so "all matching" never has to be held as ids in the browser. `countChanged` says whether the count moved since the user chose (`expectedCount`).
 
 ## The two defaults
 

@@ -9,101 +9,11 @@
  */
 
 import type { GetListParams, GetListResult } from './data-provider.js';
-import { filterToFunction } from './filters.js';
+import { compareValues, filterToFunction, matchesSearch } from '@zodal/core';
 
-const rankOf = (v: unknown): number => {
-  switch (typeof v) {
-    case 'number':
-    case 'bigint':
-      return 0;
-    case 'string':
-      return 1;
-    case 'boolean':
-      return 2;
-    case 'object':
-      return v instanceof Date ? 3 : 4;
-    default:
-      return 5; // symbol, function
-  }
-};
-
-/**
- * Shared fallback for {@link compareValues} and {@link compareBinary}: a total,
- * transitive, engine-independent order for values of different types (numbers,
- * then strings, then booleans, then Dates, then other objects, then the rest; NaN
- * after every other number), so a sort over mixed data is deterministic.
- */
-function compareMixed(a: any, b: any): number {
-  const ra = rankOf(a);
-  const rb = rankOf(b);
-  if (ra !== rb) return ra - rb;
-  if (ra === 0) {
-    const na = Number.isNaN(a);
-    const nb = Number.isNaN(b);
-    if (na || nb) return na === nb ? 0 : na ? 1 : -1;
-  }
-  if (ra === 3) return a.getTime() - b.getTime();
-  if (ra >= 4) return 0; // objects, symbols, functions: no meaningful order; keep input order
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
-/**
- * Default ordering for client-side sort.
- *
- * `null`/`undefined` sort first; strings use `localeCompare`; `Date`s compare by
- * time; values of different types follow a fixed type order. Note that
- * `localeCompare` is locale-aware, so it does not preserve the byte order of keys
- * such as fractional indexes, and it orders `'a'` before `'B'`: use
- * {@link compareBinary} (through {@link ApplyQueryOptions.compare}) for those.
- */
-export function compareValues(a: unknown, b: unknown): number {
-  if (a === b) return 0;
-  if (a == null) return b == null ? 0 : -1;
-  if (b == null) return 1;
-  if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b);
-  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
-  return compareMixed(a, b);
-}
-
-/**
- * Code-point ordering: like {@link compareValues} but strings compare by UTF-16
- * code unit (`'B' < 'a'`), which preserves the order of fractional-index keys and
- * matches a binary (`C`) database collation.
- */
-export function compareBinary(a: unknown, b: unknown): number {
-  if (a === b) return 0;
-  if (a == null) return b == null ? 0 : -1;
-  if (b == null) return 1;
-  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
-  if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
-  return compareMixed(a, b);
-}
-
-/**
- * Case-insensitive substring search over string fields.
- *
- * Searches `fields` when given, else every own string-valued field of the item
- * except those in `exclude` (content fields, for a content provider). An empty
- * search matches everything.
- */
-export function matchesSearch(
-  item: Record<string, unknown>,
-  search: string,
-  fields?: readonly string[],
-  exclude?: ReadonlySet<string>,
-): boolean {
-  if (!search) return true;
-  const needle = search.toLowerCase();
-  const keys =
-    fields ??
-    Object.keys(item).filter(
-      (k) => typeof item[k] === 'string' && !(exclude && exclude.has(k)),
-    );
-  return keys.some((k) => {
-    const value = item[k];
-    return typeof value === 'string' && value.toLowerCase().includes(needle);
-  });
-}
+// The comparators and the search match moved to @zodal/core (zodal#154), so in-memory
+// resolvers in core and every adapter share one implementation; re-exported here unchanged.
+export { compareValues, compareBinary, matchesSearch } from '@zodal/core';
 
 export interface ApplyQueryOptions {
   /** Fields the `search` parameter looks in. Default: every string field. */
