@@ -92,3 +92,7 @@ export type { HistoryEntry, HistoryReason, FieldHistoryStore, CreateFieldHistory
 // Bifurcated provider (content-metadata split)
 export { createBifurcatedProvider, splitFields } from './bifurcated-provider.js';
 export type { BifurcatedProviderOptions } from './bifurcated-provider.js';
+
+// Soft delete with a Trash (zodal#156)
+export { withTrash, TRASH_FIELD, TRASH_VIEW_ID } from './trash.js';
+export type { WithTrashOptions, TrashProvider } from './trash.js';

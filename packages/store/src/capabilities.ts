@@ -61,6 +61,12 @@ export interface ProviderCapabilities {
    * `createReadOnlyProvider`; any provider may set it.
    */
   writeRefusal?: string;
+
+  /**
+   * Whether `delete` moves items to a Trash they can be restored from (set by `withTrash`).
+   * Absent or false: delete is permanent, so a UI confirms first (the bulk-confirm rule).
+   */
+  softDelete?: boolean;
 }
 
 /** Default capabilities (when getCapabilities is not implemented). */

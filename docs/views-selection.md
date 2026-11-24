@@ -63,6 +63,8 @@ Each has a Zod schema (`QuerySchema`, `SelectionSchema`, `OrderingSchema`, `Memb
 
 - `resolveSelectionIds(provider, selection, { idOf, pageSize })` against any `DataProvider`: the provider runs the query, server side when it can, so "all matching" never has to be held as ids in the browser. `countChanged` says whether the count moved since the user chose (`expectedCount`).
 
+- `withTrash(provider, { field, retentionDays, stamp, idOf })` (i2mint/zodal#156): delete becomes Move to Trash (a `deletedAt` mark in the provider's own storage). The live provider hides trashed items from `getList` and `getOne` (the DataProvider contract still holds); `moveToTrash`, `restore` and `purge` take ids or a `Selection`, so a bulk move and its Undo are one call each; `trashed` is the Trash as a provider (its delete purges); `trashView` is the system view; `emptyTrash` and `purgeExpired` delete for real. Capabilities report `softDelete: true`, so a UI knows Undo is available instead of a confirmation.
+
 ## The two defaults
 
 1. **Delete means Move to Trash.** Any app that deletes user data gets a Trash view with Restore and Delete permanently. Hard delete only for things with no value to recover (a draft just made, a cache), or where the backend cannot keep it, and then with a confirmation.
