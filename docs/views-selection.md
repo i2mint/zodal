@@ -65,6 +65,21 @@ Each has a Zod schema (`QuerySchema`, `SelectionSchema`, `OrderingSchema`, `Memb
 
 - `withTrash(provider, { field, retentionDays, stamp, idOf })` (i2mint/zodal#156): delete becomes Move to Trash (a `deletedAt` mark in the provider's own storage). The live provider hides trashed items from `getList` and `getOne` (the DataProvider contract still holds); `moveToTrash`, `restore` and `purge` take ids or a `Selection`, so a bulk move and its Undo are one call each; `trashed` is the Trash as a provider (its delete purges); `trashView` is the system view; `emptyTrash` and `purgeExpired` delete for real. Capabilities report `softDelete: true`, so a UI knows Undo is available instead of a confirmation.
 
+### Confirm or undo: ask the provider
+
+Whether a delete asks first or offers Undo is decided by what the backend can do, not by the app. Read `getCapabilities().softDelete`:
+
+```ts
+const hasTrash = provider.getCapabilities?.().softDelete === true;
+// hasTrash  -> do it at once, then show an Undo toast whose action is `provider.restore(movedIds)`
+// !hasTrash -> a hard delete: confirm first, with the count ("Delete 340 songs?")
+```
+
+- **With a trash**, Move to Trash needs no confirmation, even for a bulk selection: `moveToTrash(selection)` returns the ids it moved, and the Undo is `restore(thoseIds)`, one call. Undo toasts (for example acture's undo) take that flag as `hasTrash`.
+- **Without one** (a plain provider, or a backend that cannot keep a mark), delete is final, so confirm first and say how many.
+- **Delete permanently and Empty Trash** (`purge`, `emptyTrash`) always confirm, trash or not: nothing takes them back.
+- `withTrash` over a provider reports `softDelete: true`; its `trashed` sub-provider reports `false`, because deleting there purges.
+
 ## The two defaults
 
 1. **Delete means Move to Trash.** Any app that deletes user data gets a Trash view with Restore and Delete permanently. Hard delete only for things with no value to recover (a draft just made, a cache), or where the backend cannot keep it, and then with a confirmation.
