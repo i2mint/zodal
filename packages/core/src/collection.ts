@@ -426,7 +426,7 @@ function generateDescription(def: CollectionDefinition<any>): string {
   if (def.affordances.create) crud.push('Create');
   if (def.affordances.read) crud.push('Read');
   if (def.affordances.update) crud.push('Update');
-  if (def.affordances.delete) crud.push('Delete');
+  if (def.affordances.delete) crud.push(def.affordances.trash ? 'Delete (Move to Trash)' : 'Delete');
   lines.push(`CRUD: ${crud.join(', ')}`);
 
   // Bulk operations

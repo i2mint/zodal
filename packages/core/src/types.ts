@@ -308,6 +308,13 @@ export interface CollectionAffordances {
 
   // --- Bulk operations ---
   bulkDelete?: boolean;
+  /**
+   * Delete means Move to Trash (zodal#162): the item gets a deletion mark and can be restored.
+   * `{ field }` names the mark (default `'deletedAt'`); `retentionDays` purges what has been in
+   * the Trash that long. UIs label the action Move to Trash and show the Trash view; wire the
+   * data side with `withTrash` from `@zodal/store`; `resolveTrashAffordance` reads this.
+   */
+  trash?: boolean | { field?: string; retentionDays?: number };
   /** true = all editable fields, string[] = specific fields */
   bulkEdit?: boolean | string[];
   bulkArchive?: boolean;

@@ -65,6 +65,10 @@ Each has a Zod schema (`QuerySchema`, `SelectionSchema`, `OrderingSchema`, `Memb
 
 - `withTrash(provider, { field, retentionDays, stamp, idOf })` (i2mint/zodal#156): delete becomes Move to Trash (a `deletedAt` mark in the provider's own storage). The live provider hides trashed items from `getList` and `getOne` (the DataProvider contract still holds); `moveToTrash`, `restore` and `purge` take ids or a `Selection`, so a bulk move and its Undo are one call each; `trashed` is the Trash as a provider (its delete purges); `trashView` is the system view; `emptyTrash` and `purgeExpired` delete for real. Capabilities report `softDelete: true`, so a UI knows Undo is available instead of a confirmation.
 
+### Declaring it: the `trash` affordance
+
+`affordances: { trash: true }` (or `{ field, retentionDays }`) on `defineCollection` says delete means Move to Trash. `resolveTrashAffordance(collection.affordances)` from `@zodal/core` returns `{ field, retentionDays? }` (or `null`), which is exactly what `withTrash` takes, so the schema and the data wrapper share one declaration; renderers use it to label the action Move to Trash, show the Trash view, and keep Remove for membership.
+
 ### Confirm or undo: ask the provider
 
 Whether a delete asks first or offers Undo is decided by what the backend can do, not by the app. Read `getCapabilities().softDelete`:
