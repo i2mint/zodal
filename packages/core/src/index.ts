@@ -70,6 +70,10 @@ export {
 } from './order.js';
 export type { IdOf, Removal } from './order.js';
 
+// Trash affordance (delete means Move to Trash; the mechanism is withTrash in @zodal/store)
+export { resolveTrashAffordance, DEFAULT_TRASH_FIELD } from './trash-affordance.js';
+export type { TrashConfig } from './trash-affordance.js';
+
 // Item keys (which field identifies an item; canonical serialization; detection on samples)
 export {
   resolveKey,
